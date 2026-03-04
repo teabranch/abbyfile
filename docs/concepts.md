@@ -27,7 +27,7 @@ Think of it this way: Claude Code is the brain, and the agent binary is the body
 
 Every agent is defined by two files:
 
-**`Agentfile`** — the YAML manifest at your project root:
+**`Agentfile`** (or **`agentfile.yaml`**) — the YAML manifest at your project root:
 
 ```yaml
 version: "1"

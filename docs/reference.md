@@ -419,7 +419,7 @@ Usage:
   agentfile build [flags]
 
 Flags:
-  -f, --file string     Path to Agentfile (default: "Agentfile")
+  -f, --file string     Path to Agentfile (default: auto-detect Agentfile or agentfile.yaml)
   -o, --output string   Output directory for binaries (default: "./build")
       --agent string    Build a single agent by name
 ```
@@ -463,7 +463,7 @@ Usage:
   agentfile publish [flags]
 
 Flags:
-  -f, --file string     Path to Agentfile (default: "Agentfile")
+  -f, --file string     Path to Agentfile (default: auto-detect Agentfile or agentfile.yaml)
       --agent string    Publish a single agent by name
       --dry-run         Cross-compile only, skip GitHub Release creation
 ```

@@ -44,7 +44,7 @@ Use --dry-run to cross-compile without creating a release.`,
 		},
 	}
 
-	cmd.Flags().StringVarP(&agentfilePath, "file", "f", "Agentfile", "Path to Agentfile")
+	cmd.Flags().StringVarP(&agentfilePath, "file", "f", "", "Path to Agentfile")
 	cmd.Flags().StringVar(&agentName, "agent", "", "Publish a single agent by name")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Cross-compile only, skip GitHub Release creation")
 
@@ -52,6 +52,10 @@ Use --dry-run to cross-compile without creating a release.`,
 }
 
 func runPublish(agentfilePath, agentName string, dryRun bool) error {
+	if agentfilePath == "" {
+		agentfilePath = resolveAgentfile()
+	}
+
 	// Verify gh CLI is available (unless dry-run).
 	if !dryRun {
 		if _, err := exec.LookPath("gh"); err != nil {

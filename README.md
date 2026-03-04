@@ -39,7 +39,7 @@ make install PREFIX=~/.local
 
 ## Quick Start
 
-### 1. Create an `Agentfile`
+### 1. Create an `Agentfile` (or `agentfile.yaml`)
 
 ```yaml
 version: "1"
@@ -137,7 +137,7 @@ Memory tools (`memory_read`, `memory_write`, `memory_list`, `memory_delete`) are
 
 ```bash
 # Build
-agentfile build                   # build all agents from Agentfile
+agentfile build                   # build all agents (auto-finds Agentfile or agentfile.yaml)
 agentfile build --agent my-agent  # build a single agent
 agentfile build -o ./dist         # custom output directory
 
@@ -176,7 +176,7 @@ agentfile uninstall my-agent      # remove binary + MCP entry + registry
 ## Project Structure
 
 ```
-Agentfile           Manifest declaring agents to build
+Agentfile           Manifest declaring agents to build (also accepts agentfile.yaml)
 .claude/agents/     Agent .md files (prompt + frontmatter)
 build/              Compiled binaries (agentfile CLI + agents)
 

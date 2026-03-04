@@ -4,7 +4,7 @@ This guide explains the two files that define agents: the `Agentfile` manifest a
 
 ## Agentfile (YAML Manifest)
 
-The `Agentfile` lives at your project root and declares which agents to build:
+The manifest lives at your project root and declares which agents to build. The CLI accepts both `Agentfile` and `agentfile.yaml` as filenames — when no `-f` flag is given, it checks for `Agentfile` first, then `agentfile.yaml`.
 
 ```yaml
 version: "1"
@@ -131,7 +131,7 @@ make build && ./build/agentfile build
 A typical project layout:
 
 ```
-Agentfile                        # manifest
+Agentfile                        # manifest (or agentfile.yaml)
 .claude/agents/
   go-pro.md                      # agent definition + prompt
   tool-eng.md                    # another agent

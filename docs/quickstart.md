@@ -27,7 +27,7 @@ make build    # → build/agentfile
 
 ## Step 2: Create an Agentfile
 
-Create an `Agentfile` at your project root:
+Create an `Agentfile` (or `agentfile.yaml`) at your project root:
 
 ```yaml
 version: "1"

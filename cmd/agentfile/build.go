@@ -29,7 +29,7 @@ Also generates/updates .mcp.json with serve-mcp entries for each agent.`,
 		},
 	}
 
-	cmd.Flags().StringVarP(&agentfilePath, "file", "f", "Agentfile", "Path to Agentfile")
+	cmd.Flags().StringVarP(&agentfilePath, "file", "f", "", "Path to Agentfile")
 	cmd.Flags().StringVarP(&outputDir, "output", "o", "./build", "Output directory for binaries")
 	cmd.Flags().StringVar(&agentName, "agent", "", "Build a single agent by name")
 
@@ -37,6 +37,10 @@ Also generates/updates .mcp.json with serve-mcp entries for each agent.`,
 }
 
 func runBuild(agentfilePath, outputDir, agentName string) error {
+	if agentfilePath == "" {
+		agentfilePath = resolveAgentfile()
+	}
+
 	af, err := definition.ParseAgentfile(agentfilePath)
 	if err != nil {
 		return err
