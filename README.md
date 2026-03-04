@@ -23,18 +23,27 @@ The binary does **not** call the Claude API. Claude Code loads the agent's promp
 
 ## Install
 
-Requires **Go 1.24+**.
-
 ```bash
-# Clone and build the agentfile CLI
+# Go users (requires Go 1.24+)
+go install github.com/teabranch/agentfile/cmd/agentfile@latest
+
+# Quick install (pre-built binary)
+curl -sSL https://raw.githubusercontent.com/teabranch/agentfile/main/install.sh | sh
+
+# From source
 git clone https://github.com/teabranch/agentfile.git
 cd agentfile
-make build            # → build/agentfile
+make build && make install    # → /usr/local/bin/agentfile
+```
 
-# (Optional) Install to PATH
-make install          # → /usr/local/bin/agentfile
-# Or with a custom prefix:
-make install PREFIX=~/.local
+Pin a version or change install directory:
+
+```bash
+# Specific version
+VERSION=1.0.0 curl -sSL https://raw.githubusercontent.com/teabranch/agentfile/main/install.sh | sh
+
+# Custom install directory
+INSTALL_DIR=~/.local/bin curl -sSL https://raw.githubusercontent.com/teabranch/agentfile/main/install.sh | sh
 ```
 
 ## Quick Start

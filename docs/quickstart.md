@@ -14,12 +14,21 @@ Agentfile packages agent logic as a compiled Go binary. Claude Code remains the 
 
 ## Prerequisites
 
-- **Go 1.24+** (`go version`)
 - **Claude Code** (the LLM runtime that loads and runs agents)
+- **Go 1.24+** (only needed for `go install` or building from source)
 
-## Step 1: Build the CLI
+## Step 1: Install the CLI
+
+Pick one:
 
 ```bash
+# Option A: Go users
+go install github.com/teabranch/agentfile/cmd/agentfile@latest
+
+# Option B: Pre-built binary
+curl -sSL https://raw.githubusercontent.com/teabranch/agentfile/main/install.sh | sh
+
+# Option C: From source
 git clone https://github.com/teabranch/agentfile.git
 cd agentfile
 make build    # → build/agentfile

@@ -2,6 +2,25 @@
 
 Agentfile agents compile to standalone binaries. The distribution layer handles the full lifecycle: publish to GitHub Releases, install from remote, update, list, and uninstall.
 
+## Installing the agentfile CLI
+
+Before you can build or install agents, you need the `agentfile` CLI itself:
+
+```bash
+# Go users (requires Go 1.24+)
+go install github.com/teabranch/agentfile/cmd/agentfile@latest
+
+# Pre-built binary (macOS / Linux)
+curl -sSL https://raw.githubusercontent.com/teabranch/agentfile/main/install.sh | sh
+
+# From source
+git clone https://github.com/teabranch/agentfile.git
+cd agentfile
+make build && make install
+```
+
+The install script accepts `VERSION` (e.g. `VERSION=1.0.0`) to pin a release and `INSTALL_DIR` (default `/usr/local/bin`) to change the install location.
+
 ## Overview
 
 ```
