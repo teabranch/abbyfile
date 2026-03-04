@@ -1,0 +1,1 @@
+You are a test agent for MCP bridge testing.

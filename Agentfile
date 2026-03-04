@@ -1,0 +1,8 @@
+version: "1"
+agents:
+  go-pro:
+    path: .claude/agents/go-pro.md
+    version: 0.1.0
+  tool-eng:
+    path: .claude/agents/tool-eng.md
+    version: 0.1.0

@@ -1,0 +1,82 @@
+package main
+
+import (
+	"os"
+{{- if .CustomTools}}
+	"encoding/json"
+{{- end}}
+
+	"github.com/teabranch/agentfile/pkg/agent"
+	"github.com/teabranch/agentfile/pkg/builtins"
+{{- if .CustomTools}}
+	"github.com/teabranch/agentfile/pkg/tools"
+{{- end}}
+)
+
+func main() {
+	toolDefs, err := builtins.ForNames([]string{
+		{{- range .Tools}}
+		"{{.}}",
+		{{- end}}
+	})
+	if err != nil {
+		panic(err)
+	}
+{{if .CustomTools}}
+	// Custom tools declared in agent frontmatter.
+	{
+		{{- range .CustomTools}}
+		{
+			def := &tools.Definition{
+				Name:        "{{.Name}}",
+				Command:     "{{.Command}}",
+				Description: {{printf "%q" .Description}},
+				{{- if .Args}}
+				Args: []string{
+					{{- range .Args}}
+					"{{.}}",
+					{{- end}}
+				},
+				{{- end}}
+				{{- if .StdinInput}}
+				StdinInput: true,
+				{{- end}}
+			}
+			{{- if .InputSchemaJSON}}
+			var schema map[string]any
+			if err := json.Unmarshal([]byte({{printf "%q" .InputSchemaJSON}}), &schema); err != nil {
+				panic("unmarshaling input schema for {{.Name}}: " + err.Error())
+			}
+			def.InputSchema = schema
+			{{- else}}
+			def.InputSchema = map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"args": map[string]any{
+						"type":        "string",
+						"description": "Command-line arguments to pass to the tool",
+					},
+				},
+			}
+			{{- end}}
+			toolDefs = append(toolDefs, def)
+		}
+		{{- end}}
+	}
+{{end}}
+	a, err := agent.New(
+		agent.WithName("{{.Name}}"),
+		agent.WithVersion("{{.Version}}"),
+		agent.WithDescription({{printf "%q" .Description}}),
+		agent.WithPromptFS(promptFS, "prompts/system.md"),
+		agent.WithTools(toolDefs...),
+		{{- if .Memory}}
+		agent.WithMemory(true),
+		{{- end}}
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	os.Exit(a.Execute())
+}

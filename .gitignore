@@ -30,3 +30,19 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Build output (agentfile CLI + agent binaries)
+build/
+
+# Local agent installs
+.agentfile/
+
+# Claude Code local config
+.claude/
+
+# AI
+plans/**
+CLAUDE.md
+
+.git
+.git/**

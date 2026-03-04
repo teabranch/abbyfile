@@ -1,0 +1,9 @@
+module agentfile-gen/{{.Name}}
+
+go 1.24.0
+
+require github.com/teabranch/agentfile v0.0.0
+{{- if .Replace}}
+
+replace github.com/teabranch/agentfile => {{.Replace}}
+{{- end}}
