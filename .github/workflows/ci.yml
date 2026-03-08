@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -14,7 +21,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.26"
+          go-version-file: go.mod
           cache: true
 
       - name: Check formatting
@@ -28,3 +35,127 @@ jobs:
 
       - name: Integration tests
         run: make integration
+
+  e2e-install:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build agentfile CLI
+        run: make build
+
+      - name: Create test agent
+        run: |
+          mkdir -p .claude/agents
+          cat > agentfile-e2e.yaml <<'YAML'
+          version: "1"
+          agents:
+            e2e-test:
+              path: .claude/agents/e2e-test.md
+              version: "0.0.${{ github.run_number }}"
+          YAML
+
+          cat > .claude/agents/e2e-test.md <<'MD'
+          ---
+          name: e2e-test
+          description: Ephemeral agent for E2E install testing
+          ---
+          ---
+          ---
+          You are a test agent created for CI verification. Respond with "ok".
+          MD
+
+      - name: Publish test agent
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./build/agentfile publish -f agentfile-e2e.yaml
+
+      - name: Install from GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          ./build/agentfile install "github.com/${{ github.repository }}/e2e-test@0.0.${{ github.run_number }}"
+
+      - name: Verify installed binary
+        run: |
+          BINARY=".agentfile/bin/e2e-test"
+          echo "--- describe ---"
+          "$BINARY" --describe
+          echo "--- version ---"
+          "$BINARY" --version
+          echo "--- validate ---"
+          "$BINARY" validate
+
+      - name: Cleanup release
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete "e2e-test/v0.0.${{ github.run_number }}" --yes --cleanup-tag || true
+
+  check-version:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.check.outputs.should_release }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract version and check tag
+        id: check
+        run: |
+          VERSION=$(grep -oP 'const cliVersion = "\K[^"]+' cmd/agentfile/main.go)
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          if git rev-parse "v${VERSION}" >/dev/null 2>&1; then
+            echo "Tag v${VERSION} already exists — skipping release"
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Tag v${VERSION} not found — will release"
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.check-version.outputs.should_release == 'true'
+    needs: [test, e2e-install, check-version]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Cross-compile
+        run: |
+          mkdir -p dist
+          for target in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64; do
+            os="${target%/*}"
+            arch="${target#*/}"
+            echo "Building agentfile-${os}-${arch}..."
+            CGO_ENABLED=0 GOOS="${os}" GOARCH="${arch}" \
+              go build -ldflags "-s -w" -o "dist/agentfile-${os}-${arch}" ./cmd/agentfile
+          done
+
+      - name: Tag and release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="v${{ needs.check-version.outputs.version }}"
+          git tag "${VERSION}"
+          git push origin "${VERSION}"
+          gh release create "${VERSION}" \
+            --title "agentfile ${VERSION}" \
+            --generate-notes \
+            dist/*
