@@ -36,6 +36,8 @@ jobs:
           name: e2e-test
           description: Ephemeral agent for E2E install testing
           ---
+          ---
+          ---
           You are a test agent created for CI verification. Respond with "ok".
           MD
 
