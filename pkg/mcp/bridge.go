@@ -117,6 +117,10 @@ func (b *Bridge) addTool(server *gomcp.Server, def *tools.Definition) {
 			}
 		}
 
+		if err := d.ValidateInput(input); err != nil {
+			return errorResult(fmt.Sprintf("invalid input: %v", err)), nil
+		}
+
 		result, err := b.cfg.Executor.Run(ctx, d, input)
 		if err != nil {
 			b.logger.Error("tool call failed", "tool", d.Name, "error", err)

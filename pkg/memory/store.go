@@ -29,7 +29,7 @@ func NewFileStore(agentName string, limits Limits) (*FileStore, error) {
 		return nil, fmt.Errorf("getting home directory: %w", err)
 	}
 	dir := filepath.Join(home, ".agentfile", agentName, "memory")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("creating memory directory: %w", err)
 	}
 	return &FileStore{dir: dir, limits: limits}, nil
@@ -37,7 +37,7 @@ func NewFileStore(agentName string, limits Limits) (*FileStore, error) {
 
 // NewFileStoreAt creates a FileStore at a specific directory (useful for testing).
 func NewFileStoreAt(dir string, limits Limits) (*FileStore, error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("creating memory directory: %w", err)
 	}
 	return &FileStore{dir: dir, limits: limits}, nil
@@ -47,6 +47,9 @@ func NewFileStoreAt(dir string, limits Limits) (*FileStore, error) {
 func validateKey(key string) error {
 	if key == "" {
 		return fmt.Errorf("memory key cannot be empty")
+	}
+	if key == "." || key == ".." {
+		return fmt.Errorf("memory key %q is not allowed", key)
 	}
 	if strings.ContainsAny(key, "/\\") {
 		return fmt.Errorf("memory key %q must not contain path separators", key)
@@ -83,7 +86,7 @@ func (s *FileStore) Write(key, content string) error {
 	if err := s.checkTotalSize(key, int64(len(content))); err != nil {
 		return err
 	}
-	return os.WriteFile(s.keyPath(key), []byte(content), 0o644)
+	return os.WriteFile(s.keyPath(key), []byte(content), 0o600)
 }
 
 // Append adds content to the end of an existing key, or creates it.
@@ -93,14 +96,17 @@ func (s *FileStore) Append(key, content string) error {
 	}
 
 	// Check what the resulting size would be.
-	existing, _ := os.ReadFile(s.keyPath(key))
+	existing, readErr := os.ReadFile(s.keyPath(key))
+	if readErr != nil && !os.IsNotExist(readErr) {
+		return fmt.Errorf("reading existing memory key %q: %w", key, readErr)
+	}
 	newSize := int64(len(existing)) + int64(len(content))
 
 	if err := s.checkValueSize(newSize); err != nil {
 		return err
 	}
 	// If the key doesn't exist yet, check key count.
-	if len(existing) == 0 {
+	if os.IsNotExist(readErr) {
 		if err := s.checkKeyCount(key); err != nil {
 			return err
 		}
@@ -109,7 +115,7 @@ func (s *FileStore) Append(key, content string) error {
 		return err
 	}
 
-	f, err := os.OpenFile(s.keyPath(key), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	f, err := os.OpenFile(s.keyPath(key), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return fmt.Errorf("appending to memory key %q: %w", key, err)
 	}

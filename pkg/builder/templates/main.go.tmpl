@@ -16,7 +16,7 @@ import (
 func main() {
 	toolDefs, err := builtins.ForNames([]string{
 		{{- range .Tools}}
-		"{{.}}",
+		{{printf "%q" .}},
 		{{- end}}
 	})
 	if err != nil {
@@ -28,13 +28,13 @@ func main() {
 		{{- range .CustomTools}}
 		{
 			def := &tools.Definition{
-				Name:        "{{.Name}}",
-				Command:     "{{.Command}}",
+				Name:        {{printf "%q" .Name}},
+				Command:     {{printf "%q" .Command}},
 				Description: {{printf "%q" .Description}},
 				{{- if .Args}}
 				Args: []string{
 					{{- range .Args}}
-					"{{.}}",
+					{{printf "%q" .}},
 					{{- end}}
 				},
 				{{- end}}
@@ -45,7 +45,7 @@ func main() {
 			{{- if .InputSchemaJSON}}
 			var schema map[string]any
 			if err := json.Unmarshal([]byte({{printf "%q" .InputSchemaJSON}}), &schema); err != nil {
-				panic("unmarshaling input schema for {{.Name}}: " + err.Error())
+				panic("unmarshaling input schema for " + {{printf "%q" .Name}} + ": " + err.Error())
 			}
 			def.InputSchema = schema
 			{{- else}}
@@ -65,8 +65,8 @@ func main() {
 	}
 {{end}}
 	a, err := agent.New(
-		agent.WithName("{{.Name}}"),
-		agent.WithVersion("{{.Version}}"),
+		agent.WithName({{printf "%q" .Name}}),
+		agent.WithVersion({{printf "%q" .Version}}),
 		agent.WithDescription({{printf "%q" .Description}}),
 		agent.WithPromptFS(promptFS, "prompts/system.md"),
 		agent.WithTools(toolDefs...),

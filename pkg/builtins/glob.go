@@ -84,7 +84,17 @@ func handleGlobFiles(input map[string]any) (string, error) {
 			matches = append(matches, path)
 			return nil
 		}
-		matched, _ := filepath.Match(suffix, filepath.Base(path))
+		// Match against the relative path from searchDir, not just the filename,
+		// so patterns like **/internal/*.go work correctly.
+		rel, relErr := filepath.Rel(searchDir, path)
+		if relErr != nil {
+			return nil
+		}
+		matched, _ := filepath.Match(suffix, rel)
+		if !matched {
+			// Fall back to matching just the filename for simple suffixes like *.go
+			matched, _ = filepath.Match(suffix, filepath.Base(path))
+		}
 		if matched {
 			matches = append(matches, path)
 		}

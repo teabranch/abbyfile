@@ -66,7 +66,10 @@ func runLocalInstall(name string, global bool) error {
 	fmt.Printf("Installed %s → %s\n", name, dst)
 
 	// Update mcp.json.
-	absDst, _ := filepath.Abs(dst)
+	absDst, err := filepath.Abs(dst)
+	if err != nil {
+		return fmt.Errorf("resolving absolute path: %w", err)
+	}
 	entries := map[string]MCPServerEntry{
 		name: {
 			Command: absDst,
@@ -160,7 +163,10 @@ func runRemoteInstall(ref string, global bool) error {
 	fmt.Printf("Installed %s → %s\n", parsed.Agent, dst)
 
 	// Wire MCP.
-	absDst, _ := filepath.Abs(dst)
+	absDst, err := filepath.Abs(dst)
+	if err != nil {
+		return fmt.Errorf("resolving absolute path: %w", err)
+	}
 	entries := map[string]MCPServerEntry{
 		parsed.Agent: {
 			Command: absDst,
@@ -223,8 +229,10 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer out.Close()
 
-	_, err = io.Copy(out, in)
-	return err
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
 }

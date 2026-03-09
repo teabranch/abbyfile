@@ -5,9 +5,13 @@ package definition
 import (
 	"fmt"
 	"os"
+	"regexp"
 
 	"gopkg.in/yaml.v3"
 )
+
+// validAgentName matches safe agent names (alphanumeric, hyphens, underscores).
+var validAgentName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
 
 // Agentfile is the top-level manifest declaring which agents to build.
 type Agentfile struct {
@@ -40,6 +44,9 @@ func ParseAgentfile(path string) (*Agentfile, error) {
 		return nil, fmt.Errorf("agentfile: at least one agent is required")
 	}
 	for name, ref := range af.Agents {
+		if !validAgentName.MatchString(name) {
+			return nil, fmt.Errorf("agent %q: name contains invalid characters (only alphanumeric, hyphens, underscores allowed)", name)
+		}
 		if ref.Path == "" {
 			return nil, fmt.Errorf("agent %q: path is required", name)
 		}

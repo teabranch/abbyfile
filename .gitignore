@@ -31,6 +31,9 @@ go.work.sum
 # .idea/
 # .vscode/
 
+# Generated MCP config
+.mcp.json
+
 # Build output (agentfile CLI + agent binaries)
 build/
 
@@ -43,6 +46,9 @@ build/
 # AI
 plans/**
 CLAUDE.md
+
+# Root Agentfile (use examples/ for reference configurations)
+/Agentfile
 
 .git
 .git/**

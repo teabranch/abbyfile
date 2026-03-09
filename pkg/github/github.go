@@ -167,11 +167,11 @@ func (c *Client) DownloadAsset(ctx context.Context, asset Asset, w io.Writer) er
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1 MB max for error bodies
 		return fmt.Errorf("download failed (HTTP %d): %s", resp.StatusCode, body)
 	}
 
-	_, err = io.Copy(w, resp.Body)
+	_, err = io.Copy(w, io.LimitReader(resp.Body, 500<<20)) // 500 MB max for asset downloads
 	return err
 }
 
@@ -224,7 +224,7 @@ func (c *Client) get(ctx context.Context, url string) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20)) // 10 MB max for API responses
 	if err != nil {
 		return nil, fmt.Errorf("reading response: %w", err)
 	}

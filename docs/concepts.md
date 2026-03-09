@@ -208,12 +208,22 @@ Within a version, the embedded system prompt is immutable. It is baked into the 
 
 For development, use the override mechanism: place an `override.md` file at `~/.agentfile/<name>/override.md` and it replaces the embedded prompt without rebuilding. See the [Prompts Guide](./guides/prompts.md).
 
-## When to Use Agentfile vs. CLAUDE.md
+## When to Use What
 
 **Use CLAUDE.md when:**
 - You have repo-specific instructions for a single project
 - No tools, memory, or versioning needed
 - Instructions change frequently during active development
+
+**Use Agent Skills when:**
+- You need context-only instructions (no executable tools)
+- Progressive disclosure is important (many skills, few active at a time)
+- You want maximum portability (just markdown folders)
+
+**Use Sub-agents when:**
+- You need context isolation (verbose output shouldn't pollute main context)
+- The task is exploratory or one-shot (no persistent state needed)
+- You're delegating independent work units
 
 **Use Agentfile when:**
 - You want to version and distribute agent logic
@@ -223,7 +233,7 @@ For development, use the override mechanism: place an `override.md` file at `~/.
 - You need MCP-based composition with other agents or tools
 - You want one-command install from GitHub: `agentfile install github.com/org/repo/agent`
 
-They are not mutually exclusive. A project can have a CLAUDE.md for repo-level instructions and also use Agentfile binaries for specialized agent capabilities registered via `.mcp.json`.
+**Composition patterns:** These are not mutually exclusive. A project can have a CLAUDE.md for repo-level instructions, Agent Skills for lightweight context injection, and Agentfile binaries for specialized agent capabilities registered via `.mcp.json`. Sub-agents can also invoke Agentfile agents' MCP tools.
 
 ## Plugins: Beyond the Binary
 

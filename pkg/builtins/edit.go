@@ -52,6 +52,11 @@ func handleEditFile(input map[string]any) (string, error) {
 		return "", fmt.Errorf("missing required parameter: new_string")
 	}
 
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("stat file: %w", err)
+	}
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("reading file: %w", err)
@@ -67,7 +72,7 @@ func handleEditFile(input map[string]any) (string, error) {
 	}
 
 	content = strings.Replace(content, oldStr, newStr, 1)
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(content), info.Mode().Perm()); err != nil {
 		return "", fmt.Errorf("writing file: %w", err)
 	}
 	return fmt.Sprintf("Edited %s", path), nil

@@ -13,7 +13,7 @@ import (
 func RunCommandTool() *tools.Definition {
 	return tools.BuiltinTool(
 		"run_command",
-		"Execute a shell command and return its output",
+		"Execute an arbitrary shell command via sh -c and return its output. Runs with the permissions of the current user.",
 		map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -30,7 +30,7 @@ func RunCommandTool() *tools.Definition {
 		},
 		handleRunCommand,
 	).WithAnnotations(&tools.Annotations{
-		DestructiveHint: tools.BoolPtr(false),
+		DestructiveHint: tools.BoolPtr(true),
 		OpenWorldHint:   tools.BoolPtr(true),
 		Title:           "Run Command",
 	})

@@ -8,17 +8,17 @@ No Go code. No manual config. Just `agentfile build`.
 
 ## Why We Built This
 
-CLAUDE.md files are great for single-repo instructions, but they don't version, don't distribute, and can't carry tools or memory. MCP servers solve the tool problem but weren't designed with context efficiency in mind — broad platform-wrapper servers can consume a significant portion of your context window on every turn.
+CLAUDE.md files are great for single-repo instructions, but they don't version, don't distribute, and can't carry tools or memory. Agent Skills add progressive disclosure but still lack executable tools and persistent state. Sub-agents provide context isolation but re-pay Claude Code's ~9.2K baseline on every invocation. MCP servers solve the tool problem but weren't designed with context efficiency in mind — broad platform-wrapper servers can consume a significant portion of your context window on every turn.
 
 We wanted agents that follow the Unix philosophy: small, focused, composable. Each agent does one thing well with 6-15 purpose-built tools, keeping context overhead minimal while remaining easy to build, test, and share as real software.
 
-The result is a packaging format that gives agents the same lifecycle as any other software artifact: build, test, version, publish, install, update.
+The result is a packaging format that gives agents the same lifecycle as any other software artifact: build, test, version, publish, install, update — at marginal context cost on the existing window, with no baseline re-payment.
 
-We've benchmarked the context cost of focused agents vs. broad MCP servers extensively. See **[our benchmark methodology and results](docs/guides/benchmarks.md)** for the full analysis.
+We've benchmarked the context cost against skills, sub-agents, and broad MCP servers extensively. See **[our benchmark methodology and results](docs/guides/benchmarks.md)** for the full analysis.
 
 ## How It Works
 
-**Agents are repos.** An `Agentfile` manifest plus markdown definitions, versioned and released like any other software.
+**Agents are repos.** An `Agentfile` manifest plus markdown definitions, versioned and released like any other software. See [`examples/`](examples/) for complete working setups.
 
 ```
 my-agent/
@@ -106,15 +106,15 @@ agentfile install github.com/you/my-agent
 
 ## What You Get
 
-| | CLAUDE.md | Agentfile |
-|---|---|---|
-| **Versioning** | Git history | Semantic versioning, pinnable releases |
-| **Distribution** | Copy the file | `agentfile install` from anywhere |
-| **Tools** | Described in prose | Registered, validated, executable via MCP |
-| **Memory** | None | Persistent key-value store per agent |
-| **Testing** | Manual | `go test`, integration tests, `validate` |
-| **Discovery** | Claude reads the file | MCP auto-discovery |
-| **Updates** | Pull and hope | `agentfile update` |
+| | CLAUDE.md | Agent Skills | Sub-agents | Agentfile |
+|---|---|---|---|---|
+| **Context cost** | File size | ~3KT loaded | ~10.6KT/call (baseline re-paid) | ~1.5KT marginal |
+| **Custom tools** | Described in prose | No | Inherited from parent | Registered, validated, executable via MCP |
+| **Persistent memory** | None | None | None | Key-value store per agent |
+| **Versioning** | Git history | None | None | Semantic versioning, pinnable releases |
+| **Distribution** | Copy the file | Folder copy | N/A | `agentfile install` from anywhere |
+| **Context isolation** | No | No | Yes | No |
+| **Cost model** | One-time | Text in context | Baseline per call | Marginal per turn |
 
 ## Install
 
@@ -146,6 +146,7 @@ make build && make install
 | **[Testing](docs/guides/testing.md)** | Unit, integration, and MCP testing |
 | **[Benchmarks](docs/guides/benchmarks.md)** | Token cost methodology and results |
 | **[Reference](docs/reference.md)** | All options, subcommands, flags, types |
+| **[Examples](examples/)** | Working agent configurations |
 | **[FAQ](docs/faq.md)** | Common questions |
 | **[Development](docs/development.md)** | Contributing to Agentfile |
 

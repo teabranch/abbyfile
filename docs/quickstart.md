@@ -151,6 +151,7 @@ Claude Code auto-discovers the agent via MCP. It sees the agent's tools, can rea
 
 ## Next Steps
 
+- [Examples](../examples/) -- working single-agent and multi-agent configurations
 - [Agentfile Format](./guides/agentfile-format.md) -- Agentfile YAML + agent .md reference
 - [Concepts](./concepts.md) -- understand the architecture and mental model
 - [Tools Guide](./guides/tools.md) -- builtin tools, annotations

@@ -3,10 +3,14 @@ package definition
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 )
+
+// validName matches safe agent, tool, and skill names (alphanumeric, hyphens, underscores).
+var validName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
 
 // CustomToolDef describes a custom CLI tool declared in agent frontmatter.
 type CustomToolDef struct {
@@ -91,6 +95,13 @@ func ParseAgentMD(path string) (*AgentDef, error) {
 		return nil, fmt.Errorf("parsing second frontmatter block: %w", err)
 	}
 
+	if fm1.Name == "" {
+		return nil, fmt.Errorf("agent name is required in first frontmatter block")
+	}
+	if !validName.MatchString(fm1.Name) {
+		return nil, fmt.Errorf("agent name %q contains invalid characters (only alphanumeric, hyphens, underscores allowed)", fm1.Name)
+	}
+
 	def := &AgentDef{
 		Name:       fm1.Name,
 		Memory:     fm1.Memory != "",
@@ -118,6 +129,9 @@ func ParseAgentMD(path string) (*AgentDef, error) {
 	for i, ct := range fm2.CustomTools {
 		if ct.Name == "" {
 			return nil, fmt.Errorf("custom_tools[%d]: name is required", i)
+		}
+		if !validName.MatchString(ct.Name) {
+			return nil, fmt.Errorf("custom_tools[%d]: name %q contains invalid characters", i, ct.Name)
 		}
 		if ct.Command == "" {
 			return nil, fmt.Errorf("custom_tools[%d] (%s): command is required", i, ct.Name)
@@ -151,6 +165,9 @@ func parseDualFrontmatter(content string) (block1, block2, body string, err erro
 	for i, line := range lines {
 		if strings.TrimSpace(line) == "---" {
 			delimIndices = append(delimIndices, i)
+			if len(delimIndices) == 4 {
+				break
+			}
 		}
 	}
 

@@ -1,0 +1,8 @@
+version: "1"
+agents:
+  golang-pro:
+    path: agents/golang-pro.md
+    version: 0.1.0
+  code-reviewer:
+    path: agents/code-reviewer.md
+    version: 0.1.0

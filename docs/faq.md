@@ -17,6 +17,16 @@ CLAUDE.md works well for repo-specific instructions in a single project. Agentfi
 
 They are not mutually exclusive. A project can have both a CLAUDE.md and Agentfile agents in `.mcp.json`.
 
+## When should I use skills vs sub-agents vs Agentfile agents?
+
+Quick decision guide:
+
+- **Need just instructions?** Use Agent Skills — markdown files with progressive disclosure, zero infrastructure
+- **Need context isolation?** Use Sub-agents — separate context windows for exploratory or one-shot tasks
+- **Need tools + memory + versioning?** Use Agentfile — executable MCP tools, persistent memory, and one-command distribution at marginal context cost
+
+These approaches compose well together. An Agentfile agent can coexist with skills in the same project, and sub-agents can invoke Agentfile agents' MCP tools. See the **[benchmark comparison](docs/guides/benchmarks.md#skills-vs-sub-agents-vs-agentfile)** for measured cost data.
+
 ## Can I use this without Claude Code?
 
 Yes. The `serve-mcp` subcommand starts a standard MCP-over-stdio server. Any MCP client can connect to it. The binary is a generic MCP server that happens to be built with Agentfile.
