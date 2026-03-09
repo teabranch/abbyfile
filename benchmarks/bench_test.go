@@ -406,8 +406,8 @@ func TestMeasureHandshakeWithMemory(t *testing.T) {
 			memToolCount++
 		}
 	}
-	if memToolCount != 4 {
-		t.Errorf("expected 4 memory tools, got %d", memToolCount)
+	if memToolCount != 5 {
+		t.Errorf("expected 5 memory tools, got %d", memToolCount)
 	}
 
 	fmt.Fprintf(os.Stderr, "Context budget: %.1f%% of 128K\n", payload.ContextBudgetPercent())

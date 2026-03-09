@@ -3,12 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/teabranch/agentfile/pkg/fsutil"
 	"github.com/teabranch/agentfile/pkg/github"
 	"github.com/teabranch/agentfile/pkg/registry"
 )
@@ -57,7 +57,7 @@ func runLocalInstall(name string, global bool) error {
 	}
 
 	dst := filepath.Join(binDir, name)
-	if err := copyFile(src, dst); err != nil {
+	if err := fsutil.CopyFile(src, dst); err != nil {
 		return fmt.Errorf("copying binary: %w", err)
 	}
 	if err := os.Chmod(dst, 0o755); err != nil {
@@ -147,6 +147,27 @@ func runRemoteInstall(ref string, global bool) error {
 	}
 	fmt.Printf("Verified: %s v%s\n", manifest.Name, manifest.Version)
 
+	// Verify checksum if a checksums file exists in the release.
+	if sumsAsset := findChecksumAsset(release, parsed.Agent); sumsAsset != nil {
+		fmt.Printf("Verifying checksum...\n")
+		sumsFile, sErr := os.CreateTemp("", "agentfile-sums-*")
+		if sErr == nil {
+			if sErr = client.DownloadAsset(ctx, *sumsAsset, sumsFile); sErr == nil {
+				sumsFile.Close()
+				sumsData, _ := os.ReadFile(sumsFile.Name())
+				sums := github.ParseChecksumFile(string(sumsData))
+				if expected, ok := sums[asset.Name]; ok {
+					if vErr := github.VerifyChecksum(tmpPath, expected); vErr != nil {
+						os.Remove(sumsFile.Name())
+						return fmt.Errorf("checksum verification failed: %w", vErr)
+					}
+					fmt.Printf("Checksum verified ✓\n")
+				}
+			}
+			os.Remove(sumsFile.Name())
+		}
+	}
+
 	// Move to install location.
 	binDir, mcpPath := installPaths(global)
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
@@ -154,7 +175,7 @@ func runRemoteInstall(ref string, global bool) error {
 	}
 
 	dst := filepath.Join(binDir, parsed.Agent)
-	if err := copyFile(tmpPath, dst); err != nil {
+	if err := fsutil.CopyFile(tmpPath, dst); err != nil {
 		return fmt.Errorf("installing binary: %w", err)
 	}
 	if err := os.Chmod(dst, 0o755); err != nil {
@@ -218,21 +239,18 @@ func trackInstall(name, source, version, path, scope string) error {
 	return reg.Save()
 }
 
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
+// findChecksumAsset looks for a SHA256SUMS file in the release assets.
+func findChecksumAsset(release *github.Release, agentName string) *github.Asset {
+	for _, name := range []string{
+		agentName + "-sha256sums.txt",
+		"SHA256SUMS",
+		"checksums.txt",
+	} {
+		for i := range release.Assets {
+			if release.Assets[i].Name == name {
+				return &release.Assets[i]
+			}
+		}
 	}
-	defer in.Close()
-
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-
-	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
-		return err
-	}
-	return out.Close()
+	return nil
 }

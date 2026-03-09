@@ -44,6 +44,7 @@ type Client struct {
 
 // NewClient creates a client. It reads GITHUB_TOKEN from the environment,
 // falling back to `gh auth token` if the gh CLI is available.
+// Uses a retry transport for resilience against transient failures.
 func NewClient() *Client {
 	token := os.Getenv("GITHUB_TOKEN")
 	if token == "" {
@@ -52,9 +53,11 @@ func NewClient() *Client {
 		}
 	}
 	return &Client{
-		HTTPClient: http.DefaultClient,
-		BaseURL:    "https://api.github.com",
-		Token:      token,
+		HTTPClient: &http.Client{
+			Transport: NewRetryTransport(http.DefaultTransport, 3),
+		},
+		BaseURL: "https://api.github.com",
+		Token:   token,
 	}
 }
 
@@ -102,23 +105,29 @@ func IsRemoteRef(ref string) bool {
 
 // LatestRelease finds the latest release for the given agent.
 // For multi-agent repos (tag format: <agent>/v<version>), it filters by agent prefix.
+// Supports pagination to handle repos with many releases.
 func (c *Client) LatestRelease(ctx context.Context, ref ReleaseRef) (*Release, error) {
 	url := fmt.Sprintf("%s/repos/%s/%s/releases", c.BaseURL, ref.Owner, ref.Repo)
-	data, err := c.get(ctx, url)
-	if err != nil {
-		return nil, err
-	}
-
-	var releases []Release
-	if err := json.Unmarshal(data, &releases); err != nil {
-		return nil, fmt.Errorf("parsing releases: %w", err)
-	}
-
 	prefix := ref.Agent + "/v"
-	for _, r := range releases {
-		if strings.HasPrefix(r.TagName, prefix) {
-			return &r, nil
+
+	for url != "" {
+		data, nextURL, err := c.getWithPagination(ctx, url)
+		if err != nil {
+			return nil, err
 		}
+
+		var releases []Release
+		if err := json.Unmarshal(data, &releases); err != nil {
+			return nil, fmt.Errorf("parsing releases: %w", err)
+		}
+
+		for _, r := range releases {
+			if strings.HasPrefix(r.TagName, prefix) {
+				return &r, nil
+			}
+		}
+
+		url = nextURL
 	}
 	return nil, fmt.Errorf("no release found for agent %q", ref.Agent)
 }
@@ -209,9 +218,14 @@ func assetNames(r *Release) string {
 }
 
 func (c *Client) get(ctx context.Context, url string) ([]byte, error) {
+	data, _, err := c.getWithPagination(ctx, url)
+	return data, err
+}
+
+func (c *Client) getWithPagination(ctx context.Context, url string) ([]byte, string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	if c.Token != "" {
@@ -220,17 +234,39 @@ func (c *Client) get(ctx context.Context, url string) ([]byte, error) {
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("GitHub API request: %w", err)
+		return nil, "", fmt.Errorf("GitHub API request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20)) // 10 MB max for API responses
 	if err != nil {
-		return nil, fmt.Errorf("reading response: %w", err)
+		return nil, "", fmt.Errorf("reading response: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GitHub API error (HTTP %d): %s", resp.StatusCode, body)
+		return nil, "", fmt.Errorf("GitHub API error (HTTP %d): %s", resp.StatusCode, body)
 	}
-	return body, nil
+
+	nextURL := parseLinkHeader(resp.Header.Get("Link"))
+	return body, nextURL, nil
+}
+
+// parseLinkHeader extracts the "next" URL from a GitHub Link header.
+// Format: <url>; rel="next", <url>; rel="last"
+func parseLinkHeader(header string) string {
+	if header == "" {
+		return ""
+	}
+	for _, part := range strings.Split(header, ",") {
+		part = strings.TrimSpace(part)
+		if !strings.Contains(part, `rel="next"`) {
+			continue
+		}
+		start := strings.Index(part, "<")
+		end := strings.Index(part, ">")
+		if start >= 0 && end > start {
+			return part[start+1 : end]
+		}
+	}
+	return ""
 }

@@ -61,6 +61,11 @@ func TestParseAgentfile_Validation(t *testing.T) {
 			wantErr: "version is required",
 		},
 		{
+			name:    "unsupported version",
+			content: "version: \"2\"\nagents:\n  x:\n    path: x.md\n    version: 1.0.0\n",
+			wantErr: "unsupported version",
+		},
+		{
 			name:    "no agents",
 			content: "version: \"1\"\n",
 			wantErr: "at least one agent",
@@ -439,6 +444,358 @@ func TestParseAgentMD_SkillsValidation(t *testing.T) {
 				t.Errorf("error = %q, want to contain %q", err.Error(), tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestParseAgentMD_SingleFrontmatter(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agent.md")
+
+	content := `---
+name: my-agent
+description: "A single-frontmatter agent"
+model: sonnet
+agentfile:
+  tools:
+    - Read
+    - Write
+    - Bash
+  memory: project
+---
+
+You are a single-frontmatter agent.
+
+Do single things.
+`
+	os.WriteFile(path, []byte(content), 0o644)
+
+	def, err := ParseAgentMD(path)
+	if err != nil {
+		t.Fatalf("ParseAgentMD (single): %v", err)
+	}
+
+	if def.Name != "my-agent" {
+		t.Errorf("name = %q, want %q", def.Name, "my-agent")
+	}
+	if def.Description != "A single-frontmatter agent" {
+		t.Errorf("description = %q", def.Description)
+	}
+	if !def.Memory {
+		t.Error("memory = false, want true")
+	}
+
+	wantTools := []string{"Read", "Write", "Bash"}
+	if len(def.Tools) != len(wantTools) {
+		t.Fatalf("tools = %v, want %v", def.Tools, wantTools)
+	}
+	for i, tool := range def.Tools {
+		if tool != wantTools[i] {
+			t.Errorf("tools[%d] = %q, want %q", i, tool, wantTools[i])
+		}
+	}
+
+	if !containsStr(def.PromptBody, "You are a single-frontmatter agent.") {
+		t.Errorf("prompt body missing expected content, got: %q", def.PromptBody)
+	}
+}
+
+func TestParseAgentMD_SingleFrontmatter_NoMemory(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agent.md")
+
+	content := `---
+name: minimal-single
+agentfile:
+  tools:
+    - Read
+---
+
+Minimal single prompt.
+`
+	os.WriteFile(path, []byte(content), 0o644)
+
+	def, err := ParseAgentMD(path)
+	if err != nil {
+		t.Fatalf("ParseAgentMD (single): %v", err)
+	}
+
+	if def.Memory {
+		t.Error("memory = true, want false")
+	}
+	if len(def.Tools) != 1 || def.Tools[0] != "Read" {
+		t.Errorf("tools = %v, want [Read]", def.Tools)
+	}
+}
+
+func TestParseAgentMD_SingleFrontmatter_CustomTools(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agent.md")
+
+	content := `---
+name: deploy-single
+description: "Deploy agent (single format)"
+agentfile:
+  tools:
+    - Read
+  custom_tools:
+    - name: lint
+      command: golangci-lint
+      description: "Run linter"
+    - name: deploy
+      command: ./scripts/deploy.sh
+      description: "Deploy the application"
+      args: ["--verbose"]
+---
+
+Single format deploy agent.
+`
+	os.WriteFile(path, []byte(content), 0o644)
+
+	def, err := ParseAgentMD(path)
+	if err != nil {
+		t.Fatalf("ParseAgentMD (single custom tools): %v", err)
+	}
+
+	if len(def.Tools) != 1 || def.Tools[0] != "Read" {
+		t.Errorf("tools = %v, want [Read]", def.Tools)
+	}
+	if len(def.CustomTools) != 2 {
+		t.Fatalf("custom tools count = %d, want 2", len(def.CustomTools))
+	}
+	if def.CustomTools[0].Name != "lint" {
+		t.Errorf("custom_tools[0].name = %q, want %q", def.CustomTools[0].Name, "lint")
+	}
+	if def.CustomTools[1].Command != "./scripts/deploy.sh" {
+		t.Errorf("custom_tools[1].command = %q", def.CustomTools[1].Command)
+	}
+}
+
+func TestParseAgentMD_SingleFrontmatter_Skills(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agent.md")
+
+	content := `---
+name: reviewer
+description: "Code reviewer"
+agentfile:
+  tools:
+    - Read
+  skills:
+    - name: review
+      description: "Code review"
+      path: skills/review.md
+---
+
+You review code.
+`
+	os.WriteFile(path, []byte(content), 0o644)
+
+	def, err := ParseAgentMD(path)
+	if err != nil {
+		t.Fatalf("ParseAgentMD (single skills): %v", err)
+	}
+
+	if len(def.Skills) != 1 {
+		t.Fatalf("skills count = %d, want 1", len(def.Skills))
+	}
+	if def.Skills[0].Name != "review" {
+		t.Errorf("skills[0].name = %q, want %q", def.Skills[0].Name, "review")
+	}
+	if def.Skills[0].Path != "skills/review.md" {
+		t.Errorf("skills[0].path = %q", def.Skills[0].Path)
+	}
+}
+
+func TestParseAgentMD_SingleFrontmatter_MissingAgentfileKey(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agent.md")
+
+	// Single frontmatter without the agentfile: key should fail.
+	content := `---
+name: bad-agent
+description: "No agentfile key"
+---
+
+Prompt body.
+`
+	os.WriteFile(path, []byte(content), 0o644)
+
+	_, err := ParseAgentMD(path)
+	if err == nil {
+		t.Fatal("expected error for single frontmatter without agentfile key")
+	}
+	if !containsStr(err.Error(), "agentfile") {
+		t.Errorf("error = %q, want to mention agentfile", err.Error())
+	}
+}
+
+func TestParseAgentMD_SingleFrontmatter_MissingName(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agent.md")
+
+	content := `---
+description: "No name"
+agentfile:
+  tools:
+    - Read
+---
+
+Prompt body.
+`
+	os.WriteFile(path, []byte(content), 0o644)
+
+	_, err := ParseAgentMD(path)
+	if err == nil {
+		t.Fatal("expected error for missing name")
+	}
+	if !containsStr(err.Error(), "name is required") {
+		t.Errorf("error = %q, want to contain 'name is required'", err.Error())
+	}
+}
+
+func TestParseAgentMD_DualStillWorks(t *testing.T) {
+	// Verify that dual-frontmatter format still works after adding single-frontmatter support.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agent.md")
+
+	content := `---
+name: dual-agent
+memory: project
+---
+
+---
+description: "Dual format agent"
+tools: Read, Write
+---
+
+Dual format prompt.
+`
+	os.WriteFile(path, []byte(content), 0o644)
+
+	def, err := ParseAgentMD(path)
+	if err != nil {
+		t.Fatalf("ParseAgentMD (dual): %v", err)
+	}
+
+	if def.Name != "dual-agent" {
+		t.Errorf("name = %q, want %q", def.Name, "dual-agent")
+	}
+	if !def.Memory {
+		t.Error("memory = false, want true")
+	}
+	if len(def.Tools) != 2 {
+		t.Errorf("tools = %v, want [Read, Write]", def.Tools)
+	}
+}
+
+func TestParseAgentfile_Dependencies(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "Agentfile")
+
+	content := `version: "1"
+agents:
+  go-pro:
+    path: .claude/agents/go-pro.md
+    version: 0.1.0
+  tool-eng:
+    path: .claude/agents/tool-eng.md
+    version: 0.2.0
+    dependencies:
+      - go-pro
+`
+	os.WriteFile(path, []byte(content), 0o644)
+
+	af, err := ParseAgentfile(path)
+	if err != nil {
+		t.Fatalf("ParseAgentfile: %v", err)
+	}
+
+	te := af.Agents["tool-eng"]
+	if len(te.Dependencies) != 1 || te.Dependencies[0] != "go-pro" {
+		t.Errorf("tool-eng dependencies = %v, want [go-pro]", te.Dependencies)
+	}
+}
+
+func TestParseAgentfile_InvalidDependency(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "Agentfile")
+
+	content := `version: "1"
+agents:
+  go-pro:
+    path: .claude/agents/go-pro.md
+    version: 0.1.0
+    dependencies:
+      - nonexistent
+`
+	os.WriteFile(path, []byte(content), 0o644)
+
+	_, err := ParseAgentfile(path)
+	if err == nil {
+		t.Fatal("expected error for invalid dependency")
+	}
+	if !containsStr(err.Error(), "not found in agents") {
+		t.Errorf("error = %q, want to contain 'not found in agents'", err.Error())
+	}
+}
+
+func TestParseAgentfile_SelfDependency(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "Agentfile")
+
+	content := `version: "1"
+agents:
+  go-pro:
+    path: .claude/agents/go-pro.md
+    version: 0.1.0
+    dependencies:
+      - go-pro
+`
+	os.WriteFile(path, []byte(content), 0o644)
+
+	_, err := ParseAgentfile(path)
+	if err == nil {
+		t.Fatal("expected error for self-dependency")
+	}
+	if !containsStr(err.Error(), "cannot depend on itself") {
+		t.Errorf("error = %q, want to contain 'cannot depend on itself'", err.Error())
+	}
+}
+
+func TestParseAgentfile_PublishTargets(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "Agentfile")
+
+	content := `version: "1"
+agents:
+  go-pro:
+    path: .claude/agents/go-pro.md
+    version: 0.1.0
+publish:
+  targets:
+    - os: darwin
+      arch: arm64
+    - os: linux
+      arch: amd64
+`
+	os.WriteFile(path, []byte(content), 0o644)
+
+	af, err := ParseAgentfile(path)
+	if err != nil {
+		t.Fatalf("ParseAgentfile: %v", err)
+	}
+
+	if af.Publish == nil {
+		t.Fatal("publish is nil")
+	}
+	if len(af.Publish.Targets) != 2 {
+		t.Fatalf("publish targets count = %d, want 2", len(af.Publish.Targets))
+	}
+	if af.Publish.Targets[0].OS != "darwin" || af.Publish.Targets[0].Arch != "arm64" {
+		t.Errorf("target[0] = %v, want darwin/arm64", af.Publish.Targets[0])
+	}
+	if af.Publish.Targets[1].OS != "linux" || af.Publish.Targets[1].Arch != "amd64" {
+		t.Errorf("target[1] = %v, want linux/amd64", af.Publish.Targets[1])
 	}
 }
 

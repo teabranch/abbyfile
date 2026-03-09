@@ -20,10 +20,11 @@ var templateFS embed.FS
 
 // BuildConfig controls the build process.
 type BuildConfig struct {
-	OutputDir  string // directory for compiled binaries
-	ModuleDir  string // local agentfile module path (for replace directive)
-	TargetOS   string // GOOS for cross-compilation (empty = native)
-	TargetArch string // GOARCH for cross-compilation (empty = native)
+	OutputDir   string // directory for compiled binaries
+	ModuleDir   string // local agentfile module path (for replace directive)
+	TargetOS    string // GOOS for cross-compilation (empty = native)
+	TargetArch  string // GOARCH for cross-compilation (empty = native)
+	Parallelism int    // max concurrent builds (0 = sequential)
 }
 
 // customToolData holds pre-serialized custom tool info for code generation.
@@ -103,14 +104,50 @@ func Build(def *definition.AgentDef, cfg BuildConfig) error {
 	return nil
 }
 
-// BuildAll builds all agent definitions.
+// BuildAll builds all agent definitions, optionally in parallel.
 func BuildAll(defs map[string]*definition.AgentDef, cfg BuildConfig) error {
-	for name, def := range defs {
-		fmt.Fprintf(os.Stderr, "Building %s...\n", name)
-		if err := Build(def, cfg); err != nil {
-			return fmt.Errorf("building %s: %w", name, err)
+	if cfg.Parallelism <= 1 || len(defs) <= 1 {
+		// Sequential build.
+		for name, def := range defs {
+			fmt.Fprintf(os.Stderr, "Building %s...\n", name)
+			if err := Build(def, cfg); err != nil {
+				return fmt.Errorf("building %s: %w", name, err)
+			}
+			fmt.Fprintf(os.Stderr, "  → %s/%s\n", cfg.OutputDir, name)
 		}
-		fmt.Fprintf(os.Stderr, "  → %s/%s\n", cfg.OutputDir, name)
+		return nil
+	}
+
+	// Parallel build with bounded concurrency.
+	type result struct {
+		name string
+		err  error
+	}
+	sem := make(chan struct{}, cfg.Parallelism)
+	results := make(chan result, len(defs))
+
+	for name, def := range defs {
+		sem <- struct{}{}
+		go func(n string, d *definition.AgentDef) {
+			defer func() { <-sem }()
+			fmt.Fprintf(os.Stderr, "Building %s...\n", n)
+			err := Build(d, cfg)
+			if err == nil {
+				fmt.Fprintf(os.Stderr, "  → %s/%s\n", cfg.OutputDir, n)
+			}
+			results <- result{n, err}
+		}(name, def)
+	}
+
+	var errs []string
+	for range defs {
+		r := <-results
+		if r.err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", r.name, r.err))
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("build failures:\n  %s", strings.Join(errs, "\n  "))
 	}
 	return nil
 }

@@ -5,10 +5,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/teabranch/agentfile/pkg/builder"
 	"github.com/teabranch/agentfile/pkg/definition"
+	"github.com/teabranch/agentfile/pkg/fsutil"
 )
 
 // crossTarget is a GOOS/GOARCH pair for cross-compilation.
@@ -99,9 +101,18 @@ func runPublish(agentfilePath, agentName string, dryRun bool) error {
 		def.Name = name
 		def.Version = ref.Version
 
+		// Determine cross-compilation targets: prefer Agentfile publish config, fall back to defaults.
+		targets := defaultTargets
+		if af.Publish != nil && len(af.Publish.Targets) > 0 {
+			targets = nil
+			for _, pt := range af.Publish.Targets {
+				targets = append(targets, crossTarget{OS: pt.OS, Arch: pt.Arch})
+			}
+		}
+
 		// Cross-compile for all targets.
 		var assetPaths []string
-		for _, target := range defaultTargets {
+		for _, target := range targets {
 			fmt.Fprintf(os.Stderr, "Building %s for %s/%s...\n", name, target.OS, target.Arch)
 
 			cfg := builder.BuildConfig{
@@ -118,9 +129,24 @@ func runPublish(agentfilePath, agentName string, dryRun bool) error {
 			assetPaths = append(assetPaths, assetPath)
 		}
 
+		// Generate SHA256 checksums file.
+		var checksumLines []string
+		for _, ap := range assetPaths {
+			hash, hashErr := fsutil.SHA256File(ap)
+			if hashErr != nil {
+				return fmt.Errorf("computing checksum for %s: %w", ap, hashErr)
+			}
+			checksumLines = append(checksumLines, fmt.Sprintf("%s  %s", hash, filepath.Base(ap)))
+		}
+		sumsPath := filepath.Join(publishDir, name+"-sha256sums.txt")
+		if err := os.WriteFile(sumsPath, []byte(strings.Join(checksumLines, "\n")+"\n"), 0o644); err != nil {
+			return fmt.Errorf("writing checksums: %w", err)
+		}
+		assetPaths = append(assetPaths, sumsPath)
+
 		if dryRun {
 			fmt.Printf("Dry run: built %d binaries for %s v%s in %s\n",
-				len(assetPaths), name, ref.Version, publishDir)
+				len(assetPaths)-1, name, ref.Version, publishDir)
 			continue
 		}
 

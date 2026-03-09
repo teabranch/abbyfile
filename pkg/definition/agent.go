@@ -59,9 +59,26 @@ type frontmatter2 struct {
 	Model       string          `yaml:"model"`
 }
 
-// ParseAgentMD reads an agent .md file with dual frontmatter blocks.
+// singleFrontmatter is the alternative single-block frontmatter format.
+// All agent metadata lives under an `agentfile:` key alongside name/description.
+type singleFrontmatter struct {
+	Name        string          `yaml:"name"`
+	Description string          `yaml:"description"`
+	Model       string          `yaml:"model"`
+	Agentfile   *agentfileBlock `yaml:"agentfile"`
+}
+
+// agentfileBlock holds tool, memory, and skill configuration in single-frontmatter format.
+type agentfileBlock struct {
+	Tools       []string        `yaml:"tools"`
+	Memory      string          `yaml:"memory"`
+	CustomTools []CustomToolDef `yaml:"custom_tools"`
+	Skills      []SkillDef      `yaml:"skills"`
+}
+
+// ParseAgentMD reads an agent .md file with dual or single frontmatter blocks.
 //
-// Format:
+// Dual format (4 delimiters):
 //
 //	---
 //	name: go-pro
@@ -74,17 +91,44 @@ type frontmatter2 struct {
 //	---
 //
 //	Prompt body here...
+//
+// Single format (2 delimiters, with agentfile: key):
+//
+//	---
+//	name: my-agent
+//	description: "Full description"
+//	agentfile:
+//	  tools: [Read, Write, Bash]
+//	  memory: true
+//	---
+//
+//	Prompt body here...
 func ParseAgentMD(path string) (*AgentDef, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading agent file: %w", err)
 	}
 
-	block1Str, block2Str, body, err := parseDualFrontmatter(string(data))
-	if err != nil {
-		return nil, fmt.Errorf("parsing frontmatter in %s: %w", path, err)
+	content := string(data)
+
+	// Try dual-frontmatter first.
+	block1Str, block2Str, body, dualErr := parseDualFrontmatter(content)
+	if dualErr == nil {
+		return parseDualFormat(block1Str, block2Str, body, path)
 	}
 
+	// Fall back to single-frontmatter.
+	fmStr, singleBody, singleErr := parseSingleFrontmatter(content)
+	if singleErr != nil {
+		// Return the original dual-frontmatter error for backward compatibility.
+		return nil, fmt.Errorf("parsing frontmatter in %s: %w", path, dualErr)
+	}
+
+	return parseSingleFormat(fmStr, singleBody, path)
+}
+
+// parseDualFormat processes the dual-frontmatter format into an AgentDef.
+func parseDualFormat(block1Str, block2Str, body, path string) (*AgentDef, error) {
 	var fm1 frontmatter1
 	if err := yaml.Unmarshal([]byte(block1Str), &fm1); err != nil {
 		return nil, fmt.Errorf("parsing first frontmatter block: %w", err)
@@ -125,35 +169,115 @@ func ParseAgentMD(path string) (*AgentDef, error) {
 		}
 	}
 
-	// Validate and assign custom tools.
-	for i, ct := range fm2.CustomTools {
-		if ct.Name == "" {
-			return nil, fmt.Errorf("custom_tools[%d]: name is required", i)
-		}
-		if !validName.MatchString(ct.Name) {
-			return nil, fmt.Errorf("custom_tools[%d]: name %q contains invalid characters", i, ct.Name)
-		}
-		if ct.Command == "" {
-			return nil, fmt.Errorf("custom_tools[%d] (%s): command is required", i, ct.Name)
-		}
+	if err := validateCustomTools(fm2.CustomTools); err != nil {
+		return nil, err
 	}
 	def.CustomTools = fm2.CustomTools
 
-	// Validate and assign skills.
-	for i, s := range fm2.Skills {
-		if s.Name == "" {
-			return nil, fmt.Errorf("skills[%d]: name is required", i)
-		}
-		if s.Description == "" {
-			return nil, fmt.Errorf("skills[%d] (%s): description is required", i, s.Name)
-		}
-		if s.Path == "" {
-			return nil, fmt.Errorf("skills[%d] (%s): path is required", i, s.Name)
-		}
+	if err := validateSkills(fm2.Skills); err != nil {
+		return nil, err
 	}
 	def.Skills = fm2.Skills
 
 	return def, nil
+}
+
+// parseSingleFormat processes the single-frontmatter format into an AgentDef.
+func parseSingleFormat(fmStr, body, path string) (*AgentDef, error) {
+	var sfm singleFrontmatter
+	if err := yaml.Unmarshal([]byte(fmStr), &sfm); err != nil {
+		return nil, fmt.Errorf("parsing single frontmatter block in %s: %w", path, err)
+	}
+
+	if sfm.Name == "" {
+		return nil, fmt.Errorf("agent name is required in frontmatter block")
+	}
+	if !validName.MatchString(sfm.Name) {
+		return nil, fmt.Errorf("agent name %q contains invalid characters (only alphanumeric, hyphens, underscores allowed)", sfm.Name)
+	}
+	if sfm.Agentfile == nil {
+		return nil, fmt.Errorf("parsing frontmatter in %s: single-frontmatter format requires an 'agentfile:' key", path)
+	}
+
+	def := &AgentDef{
+		Name:        sfm.Name,
+		Description: sfm.Description,
+		PromptBody:  body,
+	}
+
+	if sfm.Agentfile != nil {
+		def.Tools = sfm.Agentfile.Tools
+		def.Memory = sfm.Agentfile.Memory != ""
+
+		if err := validateCustomTools(sfm.Agentfile.CustomTools); err != nil {
+			return nil, err
+		}
+		def.CustomTools = sfm.Agentfile.CustomTools
+
+		if err := validateSkills(sfm.Agentfile.Skills); err != nil {
+			return nil, err
+		}
+		def.Skills = sfm.Agentfile.Skills
+	}
+
+	return def, nil
+}
+
+// parseSingleFrontmatter splits content with a single --- delimited block (2 delimiters).
+// Returns the YAML text and the body after the block.
+func parseSingleFrontmatter(content string) (fmBlock, body string, err error) {
+	lines := strings.Split(content, "\n")
+
+	var delimIndices []int
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "---" {
+			delimIndices = append(delimIndices, i)
+			if len(delimIndices) == 2 {
+				break
+			}
+		}
+	}
+
+	if len(delimIndices) < 2 {
+		return "", "", fmt.Errorf("expected at least 2 '---' delimiters, found %d", len(delimIndices))
+	}
+
+	fmBlock = strings.Join(lines[delimIndices[0]+1:delimIndices[1]], "\n")
+	body = strings.TrimSpace(strings.Join(lines[delimIndices[1]+1:], "\n"))
+
+	return fmBlock, body, nil
+}
+
+// validateCustomTools validates a slice of custom tool definitions.
+func validateCustomTools(cts []CustomToolDef) error {
+	for i, ct := range cts {
+		if ct.Name == "" {
+			return fmt.Errorf("custom_tools[%d]: name is required", i)
+		}
+		if !validName.MatchString(ct.Name) {
+			return fmt.Errorf("custom_tools[%d]: name %q contains invalid characters", i, ct.Name)
+		}
+		if ct.Command == "" {
+			return fmt.Errorf("custom_tools[%d] (%s): command is required", i, ct.Name)
+		}
+	}
+	return nil
+}
+
+// validateSkills validates a slice of skill definitions.
+func validateSkills(skills []SkillDef) error {
+	for i, s := range skills {
+		if s.Name == "" {
+			return fmt.Errorf("skills[%d]: name is required", i)
+		}
+		if s.Description == "" {
+			return fmt.Errorf("skills[%d] (%s): description is required", i, s.Name)
+		}
+		if s.Path == "" {
+			return fmt.Errorf("skills[%d] (%s): path is required", i, s.Name)
+		}
+	}
+	return nil
 }
 
 // parseDualFrontmatter splits content with two --- delimited blocks.

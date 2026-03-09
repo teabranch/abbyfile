@@ -1,10 +1,14 @@
 package memory
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/teabranch/agentfile/pkg/tools"
 )
@@ -137,8 +141,8 @@ func TestManager_Tools(t *testing.T) {
 	mgr := NewManager(store)
 
 	memTools := mgr.Tools()
-	if len(memTools) != 4 {
-		t.Fatalf("Tools() count = %d, want 4", len(memTools))
+	if len(memTools) != 5 {
+		t.Fatalf("Tools() count = %d, want 5", len(memTools))
 	}
 
 	names := make(map[string]bool)
@@ -146,7 +150,7 @@ func TestManager_Tools(t *testing.T) {
 		names[tool.Name] = true
 	}
 
-	for _, want := range []string{"memory_read", "memory_write", "memory_list", "memory_delete"} {
+	for _, want := range []string{"memory_read", "memory_write", "memory_list", "memory_delete", "memory_search"} {
 		if !names[want] {
 			t.Errorf("missing tool %q", want)
 		}
@@ -333,6 +337,379 @@ func TestFileStore_ZeroLimitsUnlimited(t *testing.T) {
 		key := fmt.Sprintf("key-%d", i)
 		if err := store.Write(key, strings.Repeat("x", 1000)); err != nil {
 			t.Fatalf("Write(%q) with zero limits: %v", key, err)
+		}
+	}
+}
+
+func TestFileStore_MetadataSidecar(t *testing.T) {
+	store := newTestStore(t)
+
+	if err := store.Write("notes", "some notes"); err != nil {
+		t.Fatal(err)
+	}
+
+	meta := store.ReadMetadata("notes")
+	if meta.CreatedAt.IsZero() {
+		t.Error("CreatedAt should be set after Write")
+	}
+	if meta.UpdatedAt.IsZero() {
+		t.Error("UpdatedAt should be set after Write")
+	}
+
+	// Verify sidecar file exists on disk.
+	metaPath := store.metaPath("notes")
+	data, err := os.ReadFile(metaPath)
+	if err != nil {
+		t.Fatalf("reading meta file: %v", err)
+	}
+	var diskMeta Metadata
+	if err := json.Unmarshal(data, &diskMeta); err != nil {
+		t.Fatalf("unmarshaling meta: %v", err)
+	}
+	if diskMeta.CreatedAt.IsZero() {
+		t.Error("disk metadata CreatedAt is zero")
+	}
+}
+
+func TestFileStore_MetadataPreservesCreatedAt(t *testing.T) {
+	store := newTestStore(t)
+
+	store.Write("key", "v1")
+	meta1 := store.ReadMetadata("key")
+
+	time.Sleep(10 * time.Millisecond)
+	store.Write("key", "v2")
+	meta2 := store.ReadMetadata("key")
+
+	if !meta2.CreatedAt.Equal(meta1.CreatedAt) {
+		t.Errorf("CreatedAt changed on overwrite: %v -> %v", meta1.CreatedAt, meta2.CreatedAt)
+	}
+	if !meta2.UpdatedAt.After(meta1.UpdatedAt) {
+		t.Error("UpdatedAt should advance on overwrite")
+	}
+}
+
+func TestFileStore_AppendUpdatesMetadata(t *testing.T) {
+	store := newTestStore(t)
+
+	store.Write("log", "line1\n")
+	meta1 := store.ReadMetadata("log")
+
+	time.Sleep(10 * time.Millisecond)
+	store.Append("log", "line2\n")
+	meta2 := store.ReadMetadata("log")
+
+	if !meta2.CreatedAt.Equal(meta1.CreatedAt) {
+		t.Error("CreatedAt should not change on Append")
+	}
+	if !meta2.UpdatedAt.After(meta1.UpdatedAt) {
+		t.Error("UpdatedAt should advance on Append")
+	}
+}
+
+func TestFileStore_TTLExpiry(t *testing.T) {
+	store := newTestStoreWithLimits(t, Limits{TTL: 50 * time.Millisecond})
+
+	store.Write("ephemeral", "data")
+
+	// Should be readable immediately.
+	val, err := store.Read("ephemeral")
+	if err != nil {
+		t.Fatalf("immediate read failed: %v", err)
+	}
+	if val != "data" {
+		t.Errorf("got %q, want %q", val, "data")
+	}
+
+	// Wait for expiry.
+	time.Sleep(60 * time.Millisecond)
+
+	_, err = store.Read("ephemeral")
+	if err == nil {
+		t.Fatal("expected error after TTL expiry")
+	}
+	if !errors.Is(err, ErrExpired) {
+		t.Errorf("expected ErrExpired, got: %v", err)
+	}
+}
+
+func TestFileStore_PerKeyTTL(t *testing.T) {
+	store := newTestStore(t) // no store-level TTL
+
+	// Write a key, then manually set a short TTL in its metadata.
+	store.Write("temp", "value")
+	meta := store.ReadMetadata("temp")
+	meta.TTL = "50ms"
+	store.writeMetadata("temp", meta)
+
+	// Should be readable immediately.
+	if _, err := store.Read("temp"); err != nil {
+		t.Fatalf("immediate read failed: %v", err)
+	}
+
+	time.Sleep(60 * time.Millisecond)
+
+	_, err := store.Read("temp")
+	if !errors.Is(err, ErrExpired) {
+		t.Errorf("expected ErrExpired, got: %v", err)
+	}
+}
+
+func TestFileStore_NoMetadataBackwardCompat(t *testing.T) {
+	store := newTestStore(t)
+
+	// Write a file directly without metadata (simulating old data).
+	os.WriteFile(store.keyPath("legacy"), []byte("old data"), 0o600)
+
+	val, err := store.Read("legacy")
+	if err != nil {
+		t.Fatalf("reading legacy key: %v", err)
+	}
+	if val != "old data" {
+		t.Errorf("got %q, want %q", val, "old data")
+	}
+}
+
+func TestFileStore_KeysSkipsMetaJSON(t *testing.T) {
+	store := newTestStore(t)
+
+	store.Write("alpha", "a")
+	store.Write("beta", "b")
+
+	keys, err := store.Keys()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range keys {
+		if strings.Contains(k, "meta.json") {
+			t.Errorf("Keys() should not include meta files, got %q", k)
+		}
+	}
+	if len(keys) != 2 {
+		t.Errorf("Keys() count = %d, want 2", len(keys))
+	}
+}
+
+func TestFileStore_TotalSizeSkipsMetaJSON(t *testing.T) {
+	store := newTestStoreWithLimits(t, Limits{MaxTotalBytes: 100})
+
+	store.Write("a", "hello") // 5 bytes data + metadata sidecar
+
+	total, err := store.totalSize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// totalSize should only count the .md file (5 bytes), not the .meta.json.
+	if total != 5 {
+		t.Errorf("totalSize() = %d, want 5", total)
+	}
+}
+
+func TestFileStore_DeleteRemovesSidecar(t *testing.T) {
+	store := newTestStore(t)
+
+	store.Write("temp", "data")
+	metaPath := store.metaPath("temp")
+	if _, err := os.Stat(metaPath); err != nil {
+		t.Fatal("expected meta file to exist after write")
+	}
+
+	store.Delete("temp")
+	if _, err := os.Stat(metaPath); !os.IsNotExist(err) {
+		t.Error("expected meta file to be removed after delete")
+	}
+}
+
+func TestFileStore_Search(t *testing.T) {
+	store := newTestStore(t)
+
+	store.Write("notes", "line one\nfind me here\nline three")
+	store.Write("log", "other stuff\nalso find me\n")
+	store.Write("empty", "nothing relevant")
+
+	results, err := store.Search("find me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("Search() returned %d results, want 2", len(results))
+	}
+
+	foundKeys := map[string]bool{}
+	for _, r := range results {
+		foundKeys[r.Key] = true
+		if !strings.Contains(r.Line, "find me") {
+			t.Errorf("result line %q does not contain search pattern", r.Line)
+		}
+	}
+	if !foundKeys["notes"] || !foundKeys["log"] {
+		t.Errorf("expected results from 'notes' and 'log', got keys: %v", foundKeys)
+	}
+}
+
+func TestFileStore_SearchNoResults(t *testing.T) {
+	store := newTestStore(t)
+
+	store.Write("data", "some content")
+
+	results, err := store.Search("nonexistent pattern")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 0 {
+		t.Errorf("Search() returned %d results, want 0", len(results))
+	}
+}
+
+func TestManager_Search(t *testing.T) {
+	store := newTestStore(t)
+	mgr := NewManager(store)
+
+	mgr.Set("doc", "important info\nfind this line\nother")
+
+	results, err := mgr.Search("find this")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("Search() returned %d results, want 1", len(results))
+	}
+	if results[0].Key != "doc" {
+		t.Errorf("result key = %q, want %q", results[0].Key, "doc")
+	}
+}
+
+func TestManager_SearchTool(t *testing.T) {
+	store := newTestStore(t)
+	mgr := NewManager(store)
+
+	mgr.Set("data", "hello world\nfoo bar baz")
+
+	memTools := mgr.Tools()
+	var searchTool *tools.Definition
+	for _, tool := range memTools {
+		if tool.Name == "memory_search" {
+			searchTool = tool
+			break
+		}
+	}
+	if searchTool == nil {
+		t.Fatal("memory_search tool not found")
+	}
+
+	result, err := searchTool.Handler(map[string]any{"pattern": "foo bar"})
+	if err != nil {
+		t.Fatalf("search tool error: %v", err)
+	}
+	if !strings.Contains(result, "foo bar baz") {
+		t.Errorf("search result = %q, want it to contain 'foo bar baz'", result)
+	}
+}
+
+func TestManager_GC(t *testing.T) {
+	store := newTestStoreWithLimits(t, Limits{TTL: 50 * time.Millisecond})
+	mgr := NewManager(store)
+
+	mgr.Set("short-lived", "data1")
+	mgr.Set("also-short", "data2")
+
+	// Immediately, GC should not delete anything.
+	count, err := mgr.GC()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Errorf("GC() deleted %d keys immediately, want 0", count)
+	}
+
+	time.Sleep(60 * time.Millisecond)
+
+	count, err = mgr.GC()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Errorf("GC() deleted %d keys, want 2", count)
+	}
+
+	keys, _ := mgr.Keys()
+	if len(keys) != 0 {
+		t.Errorf("after GC, %d keys remain, want 0", len(keys))
+	}
+}
+
+func TestManager_GC_NoTTL(t *testing.T) {
+	store := newTestStore(t) // no TTL
+	mgr := NewManager(store)
+
+	mgr.Set("permanent", "data")
+
+	count, err := mgr.GC()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Errorf("GC() deleted %d keys with no TTL, want 0", count)
+	}
+}
+
+func TestManager_FormatSummaryAsContext(t *testing.T) {
+	store := newTestStore(t)
+	mgr := NewManager(store)
+
+	// Empty store.
+	if got := mgr.FormatSummaryAsContext(1000); got != "" {
+		t.Errorf("FormatSummaryAsContext() on empty = %q, want empty", got)
+	}
+
+	mgr.Set("short", "hello")
+	mgr.Set("long", strings.Repeat("x", 300))
+
+	got := mgr.FormatSummaryAsContext(10000)
+	if !strings.Contains(got, "short: hello") {
+		t.Errorf("expected 'short: hello' in output, got %q", got)
+	}
+	if !strings.Contains(got, "[truncated]") {
+		t.Errorf("expected '[truncated]' for long value, got %q", got)
+	}
+}
+
+func TestManager_FormatSummaryAsContext_MaxBytes(t *testing.T) {
+	store := newTestStore(t)
+	mgr := NewManager(store)
+
+	for i := 0; i < 10; i++ {
+		mgr.Set(fmt.Sprintf("key%d", i), strings.Repeat("a", 50))
+	}
+
+	got := mgr.FormatSummaryAsContext(100)
+	// Should be truncated — not all 10 keys fit in 100 bytes.
+	lines := strings.Split(strings.TrimSpace(got), "\n")
+	if len(lines) >= 10 {
+		t.Errorf("FormatSummaryAsContext should truncate, got %d lines", len(lines))
+	}
+	if len(got) > 100 {
+		t.Errorf("output length %d exceeds maxTotalBytes 100", len(got))
+	}
+}
+
+func TestManager_Tools_Count(t *testing.T) {
+	store := newTestStore(t)
+	mgr := NewManager(store)
+
+	memTools := mgr.Tools()
+	if len(memTools) != 5 {
+		t.Fatalf("Tools() count = %d, want 5", len(memTools))
+	}
+
+	names := make(map[string]bool)
+	for _, tool := range memTools {
+		names[tool.Name] = true
+	}
+
+	for _, want := range []string{"memory_read", "memory_write", "memory_list", "memory_delete", "memory_search"} {
+		if !names[want] {
+			t.Errorf("missing tool %q", want)
 		}
 	}
 }

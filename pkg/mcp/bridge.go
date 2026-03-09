@@ -20,14 +20,15 @@ import (
 
 // BridgeConfig holds everything the MCP bridge needs to expose an agent.
 type BridgeConfig struct {
-	Name        string
-	Version     string
-	Description string
-	Registry    *tools.Registry
-	Executor    *tools.Executor
-	Loader      *prompt.Loader
-	Memory      *memory.Manager // nil if memory is disabled
-	Logger      *slog.Logger    // nil disables logging
+	Name            string
+	Version         string
+	Description     string
+	Registry        *tools.Registry
+	Executor        *tools.Executor
+	Loader          *prompt.Loader
+	Memory          *memory.Manager // nil if memory is disabled
+	Logger          *slog.Logger    // nil disables logging
+	LazyToolLoading bool            // when true, only register search_tools meta-tool initially
 }
 
 // Bridge translates an agentfile tools.Registry into an MCP server.
@@ -64,13 +65,19 @@ func (b *Bridge) ServeTransport(ctx context.Context, transport gomcp.Transport) 
 		Instructions: instructions,
 	})
 
-	// Register each agentfile tool as an MCP tool.
-	for _, def := range b.cfg.Registry.All() {
-		b.addTool(server, def)
+	if b.cfg.LazyToolLoading {
+		// In lazy mode, only register the search_tools meta-tool and
+		// get_instructions initially. Clients discover tools via search.
+		b.addSearchToolsTool(server)
+		b.addGetInstructionsTool(server)
+	} else {
+		// Register each agentfile tool as an MCP tool.
+		for _, def := range b.cfg.Registry.All() {
+			b.addTool(server, def)
+		}
+		// Register the special get_instructions tool (backward compatibility).
+		b.addGetInstructionsTool(server)
 	}
-
-	// Register the special get_instructions tool (backward compatibility).
-	b.addGetInstructionsTool(server)
 
 	// Register memory resources if memory is enabled.
 	if b.cfg.Memory != nil {
@@ -92,6 +99,11 @@ func (b *Bridge) addTool(server *gomcp.Server, def *tools.Definition) {
 		Name:        def.Name,
 		Description: def.Description,
 		InputSchema: schema,
+	}
+
+	// Pass through output schema if the tool defines one.
+	if def.OutputSchema != nil {
+		tool.OutputSchema = schemaToRaw(def.OutputSchema)
 	}
 
 	// Map agentfile annotations to MCP tool annotations.
@@ -154,6 +166,65 @@ func (b *Bridge) addGetInstructionsTool(server *gomcp.Server) {
 		}
 		return &gomcp.CallToolResult{
 			Content: []gomcp.Content{&gomcp.TextContent{Text: text}},
+		}, nil
+	})
+}
+
+// addSearchToolsTool registers a search_tools meta-tool that lets clients
+// discover available tools by searching name and description. Used in lazy
+// tool loading mode.
+func (b *Bridge) addSearchToolsTool(server *gomcp.Server) {
+	tool := &gomcp.Tool{
+		Name:        "search_tools",
+		Description: "Search available tools by name or description. Returns matching tool names and descriptions.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"Substring to match against tool names and descriptions"}},"required":["query"]}`),
+		Annotations: &gomcp.ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+			Title:          "Search Tools",
+		},
+	}
+
+	server.AddTool(tool, func(ctx context.Context, req *gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
+		var input map[string]any
+		if len(req.Params.Arguments) > 0 {
+			if err := json.Unmarshal(req.Params.Arguments, &input); err != nil {
+				return errorResult(fmt.Sprintf("invalid arguments: %v", err)), nil
+			}
+		}
+
+		query, _ := input["query"].(string)
+		if query == "" {
+			return errorResult("missing required parameter: query"), nil
+		}
+
+		queryLower := strings.ToLower(query)
+		type toolMatch struct {
+			Name        string `json:"name"`
+			Description string `json:"description"`
+		}
+		var matches []toolMatch
+
+		for _, def := range b.cfg.Registry.All() {
+			nameLower := strings.ToLower(def.Name)
+			descLower := strings.ToLower(def.Description)
+			if strings.Contains(nameLower, queryLower) || strings.Contains(descLower, queryLower) {
+				matches = append(matches, toolMatch{
+					Name:        def.Name,
+					Description: def.Description,
+				})
+			}
+		}
+
+		if len(matches) == 0 {
+			return &gomcp.CallToolResult{
+				Content: []gomcp.Content{&gomcp.TextContent{Text: "No tools matched query: " + query}},
+			}, nil
+		}
+
+		data, _ := json.Marshal(matches)
+		return &gomcp.CallToolResult{
+			Content: []gomcp.Content{&gomcp.TextContent{Text: string(data)}},
 		}, nil
 	})
 }
@@ -268,6 +339,7 @@ func (b *Bridge) addPrompts(server *gomcp.Server) {
 			}
 
 			// Return summary of all keys.
+			// TODO: use mgr.FormatSummaryAsContext(4096) for richer context when available.
 			summary := mgr.FormatKeysAsContext()
 			if summary == "" {
 				summary = "No keys in memory."

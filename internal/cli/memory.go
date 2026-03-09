@@ -21,6 +21,7 @@ func NewMemoryCommand(mgr *memory.Manager) *cobra.Command {
 		newMemoryListCmd(mgr),
 		newMemoryDeleteCmd(mgr),
 		newMemoryAppendCmd(mgr),
+		newMemoryGCCmd(mgr),
 	)
 
 	return cmd
@@ -90,6 +91,22 @@ func newMemoryDeleteCmd(mgr *memory.Manager) *cobra.Command {
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Deleted key %q\n", args[0])
+			return nil
+		},
+	}
+}
+
+func newMemoryGCCmd(mgr *memory.Manager) *cobra.Command {
+	return &cobra.Command{
+		Use:   "gc",
+		Short: "Remove expired memory keys",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			count, err := mgr.GC()
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Removed %d expired key(s)\n", count)
 			return nil
 		},
 	}

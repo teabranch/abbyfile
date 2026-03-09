@@ -36,10 +36,18 @@ func RunCommandTool() *tools.Definition {
 	})
 }
 
+// defaultRunCommandPolicy is applied to run_command when no explicit policy is set.
+var defaultRunCommandPolicy = tools.DefaultCommandPolicy()
+
 func handleRunCommand(input map[string]any) (string, error) {
 	command, ok := input["command"].(string)
 	if !ok {
 		return "", fmt.Errorf("missing required parameter: command")
+	}
+
+	// Enforce command policy.
+	if err := defaultRunCommandPolicy.Check(command); err != nil {
+		return "", err
 	}
 
 	timeout := 30 * time.Second

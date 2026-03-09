@@ -2,7 +2,10 @@
 // for agentfile agents.
 package tools
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+)
 
 // Annotations provides MCP tool annotation hints per tool.
 // These are hints only — clients should not make tool use decisions based on
@@ -17,17 +20,20 @@ type Annotations struct {
 
 // Definition describes a tool that an agent can invoke.
 type Definition struct {
-	Name        string
-	Description string
-	InputSchema any
-	Annotations *Annotations
-	Builtin     bool // true for built-in tools (memory, etc.) — not executed as subprocesses
-	StdinInput  bool // when true, pipe full input as JSON to stdin
+	Name         string
+	Description  string
+	InputSchema  any
+	OutputSchema any // optional JSON Schema for structured output validation
+	Annotations  *Annotations
+	Builtin      bool // true for built-in tools (memory, etc.) — not executed as subprocesses
+	StdinInput   bool // when true, pipe full input as JSON to stdin
 	// For CLI tools
 	Command string   // the binary to run
 	Args    []string // default arguments
 	// For built-in tools
 	Handler func(input map[string]any) (string, error)
+	// Security policy for command execution (applies to run_command and CLI tools)
+	Policy *CommandPolicy
 }
 
 // WithAnnotations sets annotation hints on the definition and returns it for chaining.
@@ -67,12 +73,15 @@ func (r *Registry) Get(name string) *Definition {
 	return r.tools[name]
 }
 
-// All returns all registered tool definitions.
+// All returns all registered tool definitions in deterministic (sorted by name) order.
 func (r *Registry) All() []*Definition {
 	defs := make([]*Definition, 0, len(r.tools))
 	for _, def := range r.tools {
 		defs = append(defs, def)
 	}
+	sort.Slice(defs, func(i, j int) bool {
+		return defs[i].Name < defs[j].Name
+	})
 	return defs
 }
 

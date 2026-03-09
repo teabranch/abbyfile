@@ -3,11 +3,11 @@ package plugin
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 
 	"github.com/teabranch/agentfile/pkg/definition"
+	"github.com/teabranch/agentfile/pkg/fsutil"
 )
 
 // GenerateConfig configures plugin directory generation.
@@ -63,7 +63,7 @@ func Generate(def *definition.AgentDef, skills []SkillFile, cfg GenerateConfig) 
 
 	// 2. Copy binary into plugin dir.
 	binaryDest := filepath.Join(pluginDir, def.Name)
-	if err := copyFile(cfg.BinaryPath, binaryDest); err != nil {
+	if err := fsutil.CopyFile(cfg.BinaryPath, binaryDest); err != nil {
 		return fmt.Errorf("copying binary: %w", err)
 	}
 	if err := os.Chmod(binaryDest, 0o755); err != nil {
@@ -107,23 +107,4 @@ func writeJSON(path string, v any) error {
 		return err
 	}
 	return os.WriteFile(path, append(data, '\n'), 0o644)
-}
-
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	if _, err := io.Copy(out, in); err != nil {
-		return err
-	}
-	return out.Close()
 }

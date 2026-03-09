@@ -2,18 +2,41 @@
 package memory
 
 import (
+	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"github.com/teabranch/agentfile/pkg/fsutil"
 )
+
+// ErrExpired is returned when a memory key has exceeded its TTL.
+var ErrExpired = fmt.Errorf("memory key expired")
+
+// Metadata holds sidecar metadata for a memory key.
+type Metadata struct {
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+	TTL       string    `json:"ttl,omitempty"` // duration string, e.g. "30m"
+	Tags      []string  `json:"tags,omitempty"`
+}
+
+// SearchResult represents a single search hit.
+type SearchResult struct {
+	Key  string `json:"key"`
+	Line string `json:"line"`
+}
 
 // Limits configures capacity limits for a FileStore.
 // Zero values mean unlimited (backward compatible).
 type Limits struct {
-	MaxKeys       int   `json:"maxKeys,omitempty"`
-	MaxValueBytes int64 `json:"maxValueBytes,omitempty"`
-	MaxTotalBytes int64 `json:"maxTotalBytes,omitempty"`
+	MaxKeys       int           `json:"maxKeys,omitempty"`
+	MaxValueBytes int64         `json:"maxValueBytes,omitempty"`
+	MaxTotalBytes int64         `json:"maxTotalBytes,omitempty"`
+	TTL           time.Duration `json:"ttl,omitempty"`
 }
 
 // FileStore implements file-based key-value storage under ~/.agentfile/<agent>/memory/.
@@ -58,10 +81,18 @@ func validateKey(key string) error {
 }
 
 // Read returns the content stored under the given key.
+// If the key has a TTL (via metadata sidecar or store-level Limits.TTL) and
+// the entry has expired, Read returns ErrExpired.
 func (s *FileStore) Read(key string) (string, error) {
 	if err := validateKey(key); err != nil {
 		return "", err
 	}
+
+	// Check TTL expiration before returning data.
+	if err := s.checkExpired(key); err != nil {
+		return "", err
+	}
+
 	data, err := os.ReadFile(s.keyPath(key))
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -73,6 +104,7 @@ func (s *FileStore) Read(key string) (string, error) {
 }
 
 // Write stores content under the given key, overwriting any existing value.
+// Uses atomic write (temp-file-then-rename) and writes a metadata sidecar.
 func (s *FileStore) Write(key, content string) error {
 	if err := validateKey(key); err != nil {
 		return err
@@ -86,7 +118,22 @@ func (s *FileStore) Write(key, content string) error {
 	if err := s.checkTotalSize(key, int64(len(content))); err != nil {
 		return err
 	}
-	return os.WriteFile(s.keyPath(key), []byte(content), 0o600)
+
+	if err := fsutil.WriteAtomic(s.keyPath(key), []byte(content), 0o600); err != nil {
+		return fmt.Errorf("writing memory key %q: %w", key, err)
+	}
+
+	// Write metadata sidecar.
+	now := time.Now().UTC()
+	meta := s.readMetadata(key)
+	if meta.CreatedAt.IsZero() {
+		meta.CreatedAt = now
+	}
+	meta.UpdatedAt = now
+	if s.limits.TTL > 0 && meta.TTL == "" {
+		meta.TTL = s.limits.TTL.String()
+	}
+	return s.writeMetadata(key, meta)
 }
 
 // Append adds content to the end of an existing key, or creates it.
@@ -120,11 +167,24 @@ func (s *FileStore) Append(key, content string) error {
 		return fmt.Errorf("appending to memory key %q: %w", key, err)
 	}
 	defer f.Close()
-	_, err = f.WriteString(content)
-	return err
+	if _, err := f.WriteString(content); err != nil {
+		return err
+	}
+
+	// Update metadata sidecar.
+	now := time.Now().UTC()
+	meta := s.readMetadata(key)
+	if meta.CreatedAt.IsZero() {
+		meta.CreatedAt = now
+	}
+	meta.UpdatedAt = now
+	if s.limits.TTL > 0 && meta.TTL == "" {
+		meta.TTL = s.limits.TTL.String()
+	}
+	return s.writeMetadata(key, meta)
 }
 
-// Delete removes a key from the store.
+// Delete removes a key from the store (including its metadata sidecar).
 func (s *FileStore) Delete(key string) error {
 	if err := validateKey(key); err != nil {
 		return err
@@ -133,10 +193,12 @@ func (s *FileStore) Delete(key string) error {
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("deleting memory key %q: %w", key, err)
 	}
+	// Best-effort removal of metadata sidecar.
+	os.Remove(s.metaPath(key))
 	return nil
 }
 
-// Keys returns all stored keys.
+// Keys returns all stored keys (skips .meta.json sidecar files).
 func (s *FileStore) Keys() ([]string, error) {
 	entries, err := os.ReadDir(s.dir)
 	if err != nil {
@@ -149,6 +211,9 @@ func (s *FileStore) Keys() ([]string, error) {
 			continue
 		}
 		name := e.Name()
+		if strings.HasSuffix(name, ".meta.json") {
+			continue
+		}
 		if strings.HasSuffix(name, ".md") {
 			keys = append(keys, strings.TrimSuffix(name, ".md"))
 		}
@@ -156,8 +221,91 @@ func (s *FileStore) Keys() ([]string, error) {
 	return keys, nil
 }
 
+// Search performs substring matching across all values, returning key + matching line.
+func (s *FileStore) Search(pattern string) ([]SearchResult, error) {
+	keys, err := s.Keys()
+	if err != nil {
+		return nil, err
+	}
+
+	var results []SearchResult
+	for _, key := range keys {
+		data, err := os.ReadFile(s.keyPath(key))
+		if err != nil {
+			continue
+		}
+		scanner := bufio.NewScanner(strings.NewReader(string(data)))
+		for scanner.Scan() {
+			line := scanner.Text()
+			if strings.Contains(line, pattern) {
+				results = append(results, SearchResult{Key: key, Line: line})
+			}
+		}
+	}
+	return results, nil
+}
+
 func (s *FileStore) keyPath(key string) string {
 	return filepath.Join(s.dir, key+".md")
+}
+
+func (s *FileStore) metaPath(key string) string {
+	return filepath.Join(s.dir, key+".meta.json")
+}
+
+// readMetadata reads the metadata sidecar for a key. Returns zero Metadata if not found.
+func (s *FileStore) readMetadata(key string) Metadata {
+	data, err := os.ReadFile(s.metaPath(key))
+	if err != nil {
+		return Metadata{}
+	}
+	var meta Metadata
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return Metadata{}
+	}
+	return meta
+}
+
+// writeMetadata writes the metadata sidecar for a key.
+func (s *FileStore) writeMetadata(key string, meta Metadata) error {
+	data, err := json.Marshal(meta)
+	if err != nil {
+		return fmt.Errorf("marshaling metadata for %q: %w", key, err)
+	}
+	return fsutil.WriteAtomic(s.metaPath(key), data, 0o600)
+}
+
+// checkExpired checks if a key's TTL has expired. Returns a wrapped ErrExpired if so.
+func (s *FileStore) checkExpired(key string) error {
+	meta := s.readMetadata(key)
+	if meta.UpdatedAt.IsZero() {
+		// No metadata — backward compatible, no TTL enforcement.
+		return nil
+	}
+
+	var ttl time.Duration
+	if meta.TTL != "" {
+		parsed, err := time.ParseDuration(meta.TTL)
+		if err == nil {
+			ttl = parsed
+		}
+	}
+	if ttl == 0 && s.limits.TTL > 0 {
+		ttl = s.limits.TTL
+	}
+	if ttl == 0 {
+		return nil
+	}
+
+	if time.Since(meta.UpdatedAt) > ttl {
+		return fmt.Errorf("key %q: %w", key, ErrExpired)
+	}
+	return nil
+}
+
+// ReadMetadata returns the metadata for a key (exported for Manager use).
+func (s *FileStore) ReadMetadata(key string) Metadata {
+	return s.readMetadata(key)
 }
 
 // checkValueSize returns an error if the value exceeds MaxValueBytes.
@@ -208,7 +356,7 @@ func (s *FileStore) checkTotalSize(key string, newSize int64) error {
 	return nil
 }
 
-// totalSize returns the sum of all stored values in bytes.
+// totalSize returns the sum of all stored values in bytes (skips .meta.json files).
 func (s *FileStore) totalSize() (int64, error) {
 	entries, err := os.ReadDir(s.dir)
 	if err != nil {
@@ -217,6 +365,9 @@ func (s *FileStore) totalSize() (int64, error) {
 	var total int64
 	for _, e := range entries {
 		if e.IsDir() {
+			continue
+		}
+		if strings.HasSuffix(e.Name(), ".meta.json") {
 			continue
 		}
 		info, err := e.Info()

@@ -2,6 +2,7 @@ package memory
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -54,6 +55,76 @@ func (m *Manager) Keys() ([]string, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.store.Keys()
+}
+
+// Search performs substring matching across all values.
+func (m *Manager) Search(pattern string) ([]SearchResult, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.store.Search(pattern)
+}
+
+// GC deletes expired keys (based on TTL). Returns count of deleted keys.
+func (m *Manager) GC() (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	keys, err := m.store.Keys()
+	if err != nil {
+		return 0, err
+	}
+
+	deleted := 0
+	for _, key := range keys {
+		if err := m.store.checkExpired(key); err != nil && errors.Is(err, ErrExpired) {
+			if delErr := m.store.Delete(key); delErr == nil {
+				deleted++
+			}
+		}
+	}
+	return deleted, nil
+}
+
+// FormatSummaryAsContext returns key names + first 200 bytes of each value
+// (truncated with "[truncated]"), stopping when total bytes would exceed maxTotalBytes.
+func (m *Manager) FormatSummaryAsContext(maxTotalBytes int) string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	keys, err := m.store.Keys()
+	if err != nil || len(keys) == 0 {
+		return ""
+	}
+
+	var buf strings.Builder
+	total := 0
+
+	for _, key := range keys {
+		val, err := m.store.Read(key)
+		if err != nil {
+			continue
+		}
+
+		preview := val
+		truncated := false
+		if len(preview) > 200 {
+			preview = preview[:200]
+			truncated = true
+		}
+
+		line := key + ": " + preview
+		if truncated {
+			line += "[truncated]"
+		}
+		line += "\n"
+
+		if total+len(line) > maxTotalBytes {
+			break
+		}
+		buf.WriteString(line)
+		total += len(line)
+	}
+	return buf.String()
 }
 
 // Tools returns the built-in tool definitions for memory operations.
@@ -138,6 +209,26 @@ func (m *Manager) Tools() []*tools.Definition {
 			OpenWorldHint: closedWorld,
 			Title:         "Delete Memory Key",
 		}),
+		tools.BuiltinTool(
+			"memory_search",
+			"Search for a substring across all memory values",
+			map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"pattern": map[string]any{
+						"type":        "string",
+						"description": "Substring to search for across all memory values",
+					},
+				},
+				"required": []string{"pattern"},
+			},
+			m.handleSearch,
+		).WithAnnotations(&tools.Annotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+			OpenWorldHint:  closedWorld,
+			Title:          "Search Memory",
+		}),
 	}
 }
 
@@ -185,6 +276,22 @@ func (m *Manager) handleDelete(input map[string]any) (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("Deleted key %q", key), nil
+}
+
+func (m *Manager) handleSearch(input map[string]any) (string, error) {
+	pattern, ok := input["pattern"].(string)
+	if !ok {
+		return "", fmt.Errorf("missing required parameter: pattern")
+	}
+	results, err := m.Search(pattern)
+	if err != nil {
+		return "", err
+	}
+	if len(results) == 0 {
+		return "No matches found.", nil
+	}
+	data, _ := json.Marshal(results)
+	return string(data), nil
 }
 
 // FormatKeysAsContext returns a summary of all memory keys for inclusion

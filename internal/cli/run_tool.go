@@ -13,7 +13,7 @@ import (
 )
 
 // NewRunToolCommand creates the `run-tool` subcommand.
-func NewRunToolCommand(registry *tools.Registry, timeout time.Duration, logger *slog.Logger) *cobra.Command {
+func NewRunToolCommand(registry *tools.Registry, timeout time.Duration, logger *slog.Logger, execOpts ...tools.ExecutorOption) *cobra.Command {
 	var inputJSON string
 
 	cmd := &cobra.Command{
@@ -40,7 +40,7 @@ func NewRunToolCommand(registry *tools.Registry, timeout time.Duration, logger *
 				return fmt.Errorf("invalid input for tool %q: %w", name, err)
 			}
 
-			executor := tools.NewExecutor(timeout, logger)
+			executor := tools.NewExecutor(timeout, logger, execOpts...)
 			result, err := executor.Run(context.Background(), def, input)
 			if err != nil {
 				return err

@@ -2,6 +2,8 @@
 package cli
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -14,21 +16,24 @@ import (
 
 // AgentManifest is the JSON description of an agent, used for discovery.
 type AgentManifest struct {
-	Name         string              `json:"name"`
-	Version      string              `json:"version"`
-	Description  string              `json:"description"`
-	Tools        []ToolManifestEntry `json:"tools,omitempty"`
-	Memory       bool                `json:"memory"`
-	MemoryLimits *memory.Limits      `json:"memoryLimits,omitempty"`
+	SchemaVersion  string              `json:"schemaVersion"`
+	Name           string              `json:"name"`
+	Version        string              `json:"version"`
+	Description    string              `json:"description"`
+	PromptChecksum string              `json:"promptChecksum,omitempty"`
+	Tools          []ToolManifestEntry `json:"tools,omitempty"`
+	Memory         bool                `json:"memory"`
+	MemoryLimits   *memory.Limits      `json:"memoryLimits,omitempty"`
 }
 
 // ToolManifestEntry describes a single tool in the manifest.
 type ToolManifestEntry struct {
-	Name        string             `json:"name"`
-	Description string             `json:"description"`
-	Builtin     bool               `json:"builtin"`
-	InputSchema any                `json:"inputSchema,omitempty"`
-	Annotations *tools.Annotations `json:"annotations,omitempty"`
+	Name         string             `json:"name"`
+	Description  string             `json:"description"`
+	Builtin      bool               `json:"builtin"`
+	InputSchema  any                `json:"inputSchema,omitempty"`
+	OutputSchema any                `json:"outputSchema,omitempty"`
+	Annotations  *tools.Annotations `json:"annotations,omitempty"`
 }
 
 // Options configures the root command.
@@ -82,20 +87,28 @@ func NewRootCommand(opts Options) *cobra.Command {
 
 func printManifest(cmd *cobra.Command, opts Options) error {
 	manifest := AgentManifest{
-		Name:         opts.Name,
-		Version:      opts.Version,
-		Description:  opts.Description,
-		Memory:       opts.Memory,
-		MemoryLimits: opts.MemoryLimits,
+		SchemaVersion: "v1",
+		Name:          opts.Name,
+		Version:       opts.Version,
+		Description:   opts.Description,
+		Memory:        opts.Memory,
+		MemoryLimits:  opts.MemoryLimits,
+	}
+
+	// Compute prompt checksum.
+	if p, err := opts.Loader.Load(); err == nil {
+		h := sha256.Sum256([]byte(p))
+		manifest.PromptChecksum = hex.EncodeToString(h[:])
 	}
 
 	for _, def := range opts.Registry.All() {
 		manifest.Tools = append(manifest.Tools, ToolManifestEntry{
-			Name:        def.Name,
-			Description: def.Description,
-			Builtin:     def.Builtin,
-			InputSchema: def.InputSchema,
-			Annotations: def.Annotations,
+			Name:         def.Name,
+			Description:  def.Description,
+			Builtin:      def.Builtin,
+			InputSchema:  def.InputSchema,
+			OutputSchema: def.OutputSchema,
+			Annotations:  def.Annotations,
 		})
 	}
 

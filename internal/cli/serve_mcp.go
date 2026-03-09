@@ -14,13 +14,13 @@ import (
 // NewServeMCPCommand creates the `serve-mcp` subcommand that starts an
 // MCP-over-stdio server exposing all registered tools.
 func NewServeMCPCommand(name, version, description string, registry *tools.Registry,
-	timeout time.Duration, loader *prompt.Loader, mgr *memory.Manager, logger *slog.Logger) *cobra.Command {
+	timeout time.Duration, loader *prompt.Loader, mgr *memory.Manager, logger *slog.Logger, execOpts ...tools.ExecutorOption) *cobra.Command {
 	return &cobra.Command{
 		Use:   "serve-mcp",
 		Short: "Start an MCP server over stdio",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			executor := tools.NewExecutor(timeout, logger)
+			executor := tools.NewExecutor(timeout, logger, execOpts...)
 			bridge := mcp.NewBridge(mcp.BridgeConfig{
 				Name:        name,
 				Version:     version,

@@ -41,6 +41,7 @@ func newBuildCommand() *cobra.Command {
 		outputDir     string
 		agentName     string
 		pluginFlag    bool
+		parallelism   int
 	)
 
 	cmd := &cobra.Command{
@@ -51,7 +52,7 @@ and compiles standalone binaries into the output directory.
 
 Also generates/updates .mcp.json with serve-mcp entries for each agent.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runBuild(agentfilePath, outputDir, agentName, pluginFlag)
+			return runBuild(agentfilePath, outputDir, agentName, pluginFlag, parallelism)
 		},
 	}
 
@@ -59,11 +60,12 @@ Also generates/updates .mcp.json with serve-mcp entries for each agent.`,
 	cmd.Flags().StringVarP(&outputDir, "output", "o", "./build", "Output directory for binaries")
 	cmd.Flags().StringVar(&agentName, "agent", "", "Build a single agent by name")
 	cmd.Flags().BoolVar(&pluginFlag, "plugin", false, "Also generate a Claude Code plugin directory")
+	cmd.Flags().IntVar(&parallelism, "parallelism", 0, "Max concurrent agent builds (0 = sequential)")
 
 	return cmd
 }
 
-func runBuild(agentfilePath, outputDir, agentName string, pluginOutput bool) error {
+func runBuild(agentfilePath, outputDir, agentName string, pluginOutput bool, parallelism int) error {
 	if agentfilePath == "" {
 		agentfilePath = resolveAgentfile()
 	}
@@ -84,8 +86,9 @@ func runBuild(agentfilePath, outputDir, agentName string, pluginOutput bool) err
 	moduleDir := builder.DetectModuleDir()
 
 	cfg := builder.BuildConfig{
-		OutputDir: outputDir,
-		ModuleDir: moduleDir,
+		OutputDir:   outputDir,
+		ModuleDir:   moduleDir,
+		Parallelism: parallelism,
 	}
 
 	defs := make(map[string]*definition.AgentDef)

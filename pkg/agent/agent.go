@@ -34,6 +34,9 @@ type Agent struct {
 	memoryEnabled bool
 	memoryLimits  memory.Limits
 
+	commandPolicy *tools.CommandPolicy
+	executionHook tools.ExecutionHook
+
 	logger *slog.Logger
 }
 
@@ -112,9 +115,18 @@ func (a *Agent) Execute() int {
 	}
 	cmd := cli.NewRootCommand(cliOpts)
 
+	// Build executor options from agent config.
+	var execOpts []tools.ExecutorOption
+	if a.commandPolicy != nil {
+		execOpts = append(execOpts, tools.WithDefaultPolicy(a.commandPolicy))
+	}
+	if a.executionHook != nil {
+		execOpts = append(execOpts, tools.WithExecutionHook(a.executionHook))
+	}
+
 	// Add subcommands
-	cmd.AddCommand(cli.NewRunToolCommand(registry, a.toolTimeout, a.logger))
-	cmd.AddCommand(cli.NewServeMCPCommand(a.name, a.version, a.description, registry, a.toolTimeout, loader, mgr, a.logger))
+	cmd.AddCommand(cli.NewRunToolCommand(registry, a.toolTimeout, a.logger, execOpts...))
+	cmd.AddCommand(cli.NewServeMCPCommand(a.name, a.version, a.description, registry, a.toolTimeout, loader, mgr, a.logger, execOpts...))
 	cmd.AddCommand(cli.NewValidateCommand(a.name, a.version, loader, registry, a.memoryEnabled))
 
 	if mgr != nil {

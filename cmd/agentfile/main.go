@@ -39,6 +39,7 @@ and tool declarations, then run 'agentfile build' to get binaries.`,
 	cmd.AddCommand(newListCommand())
 	cmd.AddCommand(newUninstallCommand())
 	cmd.AddCommand(newUpdateCommand())
+	cmd.AddCommand(newDiffCommand())
 
 	return cmd
 }

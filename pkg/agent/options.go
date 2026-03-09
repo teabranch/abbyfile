@@ -57,6 +57,16 @@ func WithMemoryLimits(limits memory.Limits) Option {
 	return func(a *Agent) { a.memoryLimits = limits }
 }
 
+// WithCommandPolicy sets a default command policy for tool execution.
+func WithCommandPolicy(p *tools.CommandPolicy) Option {
+	return func(a *Agent) { a.commandPolicy = p }
+}
+
+// WithExecutionHook sets a callback invoked after each tool execution.
+func WithExecutionHook(h tools.ExecutionHook) Option {
+	return func(a *Agent) { a.executionHook = h }
+}
+
 // WithLogger sets the structured logger for the agent.
 func WithLogger(logger *slog.Logger) Option {
 	return func(a *Agent) { a.logger = logger }

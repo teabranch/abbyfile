@@ -17,12 +17,25 @@ var validAgentName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
 type Agentfile struct {
 	Version string              `yaml:"version"`
 	Agents  map[string]AgentRef `yaml:"agents"`
+	Publish *PublishConfig      `yaml:"publish,omitempty"`
+}
+
+// PublishConfig holds cross-compilation target configuration.
+type PublishConfig struct {
+	Targets []PublishTarget `yaml:"targets,omitempty"`
+}
+
+// PublishTarget specifies an OS/architecture pair for cross-compilation.
+type PublishTarget struct {
+	OS   string `yaml:"os"`
+	Arch string `yaml:"arch"`
 }
 
 // AgentRef points to an agent's .md file and its version.
 type AgentRef struct {
-	Path    string `yaml:"path"`
-	Version string `yaml:"version"`
+	Path         string   `yaml:"path"`
+	Version      string   `yaml:"version"`
+	Dependencies []string `yaml:"dependencies,omitempty"` // other agent names in this Agentfile
 }
 
 // ParseAgentfile reads and validates an Agentfile YAML manifest.
@@ -40,6 +53,9 @@ func ParseAgentfile(path string) (*Agentfile, error) {
 	if af.Version == "" {
 		return nil, fmt.Errorf("agentfile: version is required")
 	}
+	if af.Version != "1" {
+		return nil, fmt.Errorf("agentfile: unsupported version %q (only \"1\" is supported)", af.Version)
+	}
 	if len(af.Agents) == 0 {
 		return nil, fmt.Errorf("agentfile: at least one agent is required")
 	}
@@ -52,6 +68,18 @@ func ParseAgentfile(path string) (*Agentfile, error) {
 		}
 		if ref.Version == "" {
 			return nil, fmt.Errorf("agent %q: version is required", name)
+		}
+	}
+
+	// Validate dependencies reference existing agent names.
+	for name, ref := range af.Agents {
+		for _, dep := range ref.Dependencies {
+			if _, exists := af.Agents[dep]; !exists {
+				return nil, fmt.Errorf("agent %q: dependency %q not found in agents", name, dep)
+			}
+			if dep == name {
+				return nil, fmt.Errorf("agent %q: cannot depend on itself", name)
+			}
 		}
 	}
 
