@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/teabranch/agentfile/internal/cli"
+	"github.com/teabranch/agentfile/pkg/config"
 	"github.com/teabranch/agentfile/pkg/memory"
 	"github.com/teabranch/agentfile/pkg/prompt"
 	"github.com/teabranch/agentfile/pkg/tools"
@@ -24,6 +25,7 @@ type Agent struct {
 	name        string
 	version     string
 	description string
+	model       string
 
 	promptFS   *embed.FS
 	promptPath string
@@ -36,6 +38,10 @@ type Agent struct {
 
 	commandPolicy *tools.CommandPolicy
 	executionHook tools.ExecutionHook
+
+	lazyToolLoading bool
+
+	configPath string // override config.yaml path (for testing)
 
 	logger *slog.Logger
 }
@@ -63,7 +69,78 @@ func New(opts ...Option) (*Agent, error) {
 		a.logger = slog.New(slog.NewTextHandler(os.Stderr, nil))
 	}
 
+	// Load runtime config overrides (after compiled defaults are set).
+	var cfg *config.Config
+	var cfgErr error
+	if a.configPath != "" {
+		cfg, cfgErr = config.LoadFrom(a.configPath)
+	} else {
+		cfg, cfgErr = config.Load(a.name)
+	}
+	if cfgErr != nil {
+		a.logger.Warn("failed to load config override", "error", cfgErr)
+	} else if !cfg.IsZero() {
+		a.applyConfigOverrides(cfg)
+		a.logger.Info("applied config overrides", "path", config.Path(a.name))
+	}
+
 	return a, nil
+}
+
+// compiledDefaults captures the compiled-in values before config overrides.
+func (a *Agent) compiledDefaults() cli.CompiledDefaults {
+	return cli.CompiledDefaults{
+		Model:       a.model,
+		ToolTimeout: a.toolTimeout,
+	}
+}
+
+// applyConfigOverrides merges non-nil fields from a Config into the agent.
+func (a *Agent) applyConfigOverrides(cfg *config.Config) {
+	if cfg.Model != nil {
+		a.model = *cfg.Model
+	}
+	if cfg.ToolTimeout != nil {
+		if d, err := time.ParseDuration(*cfg.ToolTimeout); err == nil {
+			a.toolTimeout = d
+		} else {
+			a.logger.Warn("invalid tool_timeout in config, keeping default", "value", *cfg.ToolTimeout, "error", err)
+		}
+	}
+	if cfg.MemoryLimits != nil {
+		ml := cfg.MemoryLimits
+		if ml.MaxKeys != nil {
+			a.memoryLimits.MaxKeys = *ml.MaxKeys
+		}
+		if ml.MaxValueBytes != nil {
+			a.memoryLimits.MaxValueBytes = *ml.MaxValueBytes
+		}
+		if ml.MaxTotalBytes != nil {
+			a.memoryLimits.MaxTotalBytes = *ml.MaxTotalBytes
+		}
+		if ml.TTL != nil {
+			if d, err := time.ParseDuration(*ml.TTL); err == nil {
+				a.memoryLimits.TTL = d
+			} else {
+				a.logger.Warn("invalid memory TTL in config, keeping default", "value", *ml.TTL, "error", err)
+			}
+		}
+	}
+	if cfg.CommandPolicy != nil {
+		cp := cfg.CommandPolicy
+		if a.commandPolicy == nil {
+			a.commandPolicy = &tools.CommandPolicy{}
+		}
+		if cp.AllowedPrefixes != nil {
+			a.commandPolicy.AllowedPrefixes = *cp.AllowedPrefixes
+		}
+		if cp.DeniedSubstrings != nil {
+			a.commandPolicy.DeniedSubstrings = *cp.DeniedSubstrings
+		}
+		if cp.MaxOutputBytes != nil {
+			a.commandPolicy.MaxOutputBytes = *cp.MaxOutputBytes
+		}
+	}
 }
 
 // Execute sets up the CLI and runs the agent binary. Returns an exit code.
@@ -102,13 +179,16 @@ func (a *Agent) Execute() int {
 
 	// Build root command
 	cliOpts := cli.Options{
-		Name:        a.name,
-		Version:     a.version,
-		Description: a.description,
-		Loader:      loader,
-		Registry:    registry,
-		Memory:      a.memoryEnabled,
-		Logger:      a.logger,
+		Name:          a.name,
+		Version:       a.version,
+		Description:   a.description,
+		Model:         a.model,
+		Loader:        loader,
+		Registry:      registry,
+		Memory:        a.memoryEnabled,
+		ToolTimeout:   a.toolTimeout,
+		CommandPolicy: a.commandPolicy,
+		Logger:        a.logger,
 	}
 	if a.memoryEnabled {
 		cliOpts.MemoryLimits = &a.memoryLimits
@@ -126,8 +206,9 @@ func (a *Agent) Execute() int {
 
 	// Add subcommands
 	cmd.AddCommand(cli.NewRunToolCommand(registry, a.toolTimeout, a.logger, execOpts...))
-	cmd.AddCommand(cli.NewServeMCPCommand(a.name, a.version, a.description, registry, a.toolTimeout, loader, mgr, a.logger, execOpts...))
+	cmd.AddCommand(cli.NewServeMCPCommand(a.name, a.version, a.description, a.model, registry, a.toolTimeout, loader, mgr, a.logger, execOpts...))
 	cmd.AddCommand(cli.NewValidateCommand(a.name, a.version, loader, registry, a.memoryEnabled))
+	cmd.AddCommand(cli.NewConfigCommand(a.name, a.compiledDefaults()))
 
 	if mgr != nil {
 		cmd.AddCommand(cli.NewMemoryCommand(mgr))

@@ -23,6 +23,7 @@ type BridgeConfig struct {
 	Name            string
 	Version         string
 	Description     string
+	Model           string // model hint/recommendation for the runtime
 	Registry        *tools.Registry
 	Executor        *tools.Executor
 	Loader          *prompt.Loader
@@ -57,6 +58,7 @@ func (b *Bridge) Serve(ctx context.Context) error {
 func (b *Bridge) ServeTransport(ctx context.Context, transport gomcp.Transport) error {
 	// Load the system prompt for server instructions.
 	instructions, _ := b.cfg.Loader.Load()
+	instructions = b.appendModelHint(instructions)
 
 	server := gomcp.NewServer(&gomcp.Implementation{
 		Name:    b.cfg.Name,
@@ -164,6 +166,7 @@ func (b *Bridge) addGetInstructionsTool(server *gomcp.Server) {
 		if err != nil {
 			return errorResult(fmt.Sprintf("failed to load instructions: %v", err)), nil
 		}
+		text = b.appendModelHint(text)
 		return &gomcp.CallToolResult{
 			Content: []gomcp.Content{&gomcp.TextContent{Text: text}},
 		}, nil
@@ -353,6 +356,14 @@ func (b *Bridge) addPrompts(server *gomcp.Server) {
 			}, nil
 		})
 	}
+}
+
+// appendModelHint appends a model preference section to instructions if a model is configured.
+func (b *Bridge) appendModelHint(instructions string) string {
+	if b.cfg.Model == "" {
+		return instructions
+	}
+	return instructions + "\n\n## Model Preference\n\nThis agent was designed for model: " + b.cfg.Model
 }
 
 // errorResult creates a CallToolResult with IsError set.

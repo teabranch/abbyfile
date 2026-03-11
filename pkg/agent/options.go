@@ -27,6 +27,11 @@ func WithDescription(desc string) Option {
 	return func(a *Agent) { a.description = desc }
 }
 
+// WithModel sets the agent's model hint (informational metadata).
+func WithModel(model string) Option {
+	return func(a *Agent) { a.model = model }
+}
+
 // WithPromptFS sets the embedded filesystem and path for the system prompt.
 func WithPromptFS(fs embed.FS, path string) Option {
 	return func(a *Agent) {
@@ -70,4 +75,17 @@ func WithExecutionHook(h tools.ExecutionHook) Option {
 // WithLogger sets the structured logger for the agent.
 func WithLogger(logger *slog.Logger) Option {
 	return func(a *Agent) { a.logger = logger }
+}
+
+// WithLazyToolLoading enables lazy tool loading via the search_tools meta-tool.
+// When enabled, the MCP server only registers search_tools initially;
+// clients discover tools by searching.
+func WithLazyToolLoading(enabled bool) Option {
+	return func(a *Agent) { a.lazyToolLoading = enabled }
+}
+
+// WithConfigPath overrides the default config.yaml location.
+// Primarily useful for testing.
+func WithConfigPath(path string) Option {
+	return func(a *Agent) { a.configPath = path }
 }
