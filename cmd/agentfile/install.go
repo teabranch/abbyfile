@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/teabranch/agentfile/pkg/config"
 	"github.com/teabranch/agentfile/pkg/fsutil"
 	"github.com/teabranch/agentfile/pkg/github"
 	"github.com/teabranch/agentfile/pkg/registry"
@@ -15,6 +16,7 @@ import (
 
 func newInstallCommand() *cobra.Command {
 	var global bool
+	var modelOverride string
 
 	cmd := &cobra.Command{
 		Use:   "install <agent-name | github.com/owner/repo[/agent][@version]>",
@@ -29,17 +31,42 @@ Remote install (from GitHub Releases):
   agentfile install github.com/owner/repo/agent@1.0.0
 
 By default, installs to .agentfile/bin/ (project-local) and updates .mcp.json.
-With --global, installs to /usr/local/bin/ and updates ~/.claude/mcp.json.`,
+With --global, installs to /usr/local/bin/ and updates ~/.claude/mcp.json.
+
+Override settings at install time:
+  agentfile install --model gpt-5 github.com/owner/repo/agent`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			var agentName string
 			if github.IsRemoteRef(args[0]) {
-				return runRemoteInstall(args[0], global)
+				parsed, err := github.ParseRef(args[0])
+				if err != nil {
+					return err
+				}
+				agentName = parsed.Agent
+				if err := runRemoteInstall(args[0], global); err != nil {
+					return err
+				}
+			} else {
+				agentName = args[0]
+				if err := runLocalInstall(args[0], global); err != nil {
+					return err
+				}
 			}
-			return runLocalInstall(args[0], global)
+
+			// Write config override if --model was specified.
+			if modelOverride != "" {
+				if err := config.WriteField(agentName, "model", modelOverride); err != nil {
+					return fmt.Errorf("writing model override: %w", err)
+				}
+				fmt.Printf("Set model override: %s → %s\n", agentName, modelOverride)
+			}
+			return nil
 		},
 	}
 
 	cmd.Flags().BoolVarP(&global, "global", "g", false, "Install globally to /usr/local/bin")
+	cmd.Flags().StringVar(&modelOverride, "model", "", "Override the agent's model in ~/.agentfile/<name>/config.yaml")
 
 	return cmd
 }

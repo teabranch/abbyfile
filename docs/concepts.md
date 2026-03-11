@@ -15,6 +15,7 @@ Agent Binary (Agentfile)
   +-- --custom-instructions  -> system prompt text
   +-- run-tool <name>        -> execute a tool (CLI or builtin)
   +-- memory read|write|list|delete|append  -> persistent state
+  +-- config get|set|reset|path            -> runtime config overrides
   +-- serve-mcp              -> MCP-over-stdio server
   +-- validate               -> check agent wiring
 
@@ -89,6 +90,7 @@ agent.Execute()        Wire Cobra CLI, register tools, init memory
        +-- cli.NewServeMCPCommand()  Add serve-mcp subcommand
        +-- cli.NewValidateCommand()  Add validate subcommand
        +-- cli.NewMemoryCommand()    Add memory subcommand group (if enabled)
+       +-- cli.NewConfigCommand()    Add config subcommand (get/set/reset/path)
        |
        v
 cmd.Execute()          Run the Cobra command tree
@@ -207,6 +209,28 @@ Within a version, the embedded system prompt is immutable. It is baked into the 
 3. Run `agentfile build` and redistribute
 
 For development, use the override mechanism: place an `override.md` file at `~/.agentfile/<name>/override.md` and it replaces the embedded prompt without rebuilding. See the [Prompts Guide](./guides/prompts.md).
+
+## Runtime Config Overrides
+
+While the binary ships with compiled defaults, consumers can override certain settings without rebuilding via `~/.agentfile/<name>/config.yaml`:
+
+```bash
+./my-agent config set model opus        # override the model hint
+./my-agent config set tool_timeout 120s # override tool timeout
+./my-agent config get                   # show all (compiled + overrides)
+./my-agent config reset model           # revert to compiled default
+./my-agent config path                  # print config file location
+```
+
+Overridable fields: `model`, `tool_timeout`, `memory_limits`, `command_policy`. Overrides are loaded at startup — the `--describe` manifest and MCP server instructions reflect the effective (post-override) values.
+
+Install-time overrides are also supported:
+
+```bash
+agentfile install --model opus github.com/acme/my-agent
+```
+
+This writes the override to `config.yaml` during install so it takes effect immediately.
 
 ## When to Use What
 

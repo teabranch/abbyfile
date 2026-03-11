@@ -61,6 +61,19 @@ Other options:
 
 Since agents compile to static Go binaries, they have no runtime dependencies.
 
+## How do I override agent settings without rebuilding?
+
+Use the `config` subcommand:
+
+```bash
+./my-agent config set model opus          # override the model hint
+./my-agent config set tool_timeout 120s   # override tool timeout
+./my-agent config get                     # see all settings with source
+./my-agent config reset model             # revert to compiled default
+```
+
+Overrides are stored at `~/.agentfile/<name>/config.yaml`. You can also set overrides at install time: `agentfile install --model opus github.com/owner/repo/agent`.
+
 ## What about secrets and configuration?
 
 Do not embed secrets in the binary. Use environment variables:

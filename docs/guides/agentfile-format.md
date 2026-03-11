@@ -56,7 +56,7 @@ The first frontmatter block identifies the agent to Claude Code:
 | `name` | yes | Agent name (used as binary name if not overridden by Agentfile) |
 | `description` | no | Short description shown in Claude Code's agent picker |
 | `memory` | no | Set to any value (e.g. `project`) to enable persistent memory |
-| `model` | no | Hint for Claude Code (not used by the binary) |
+| `model` | no | Model hint for the runtime (surfaced in `--describe` and MCP instructions). Can be overridden at install time (`--model`) or via `config set model` |
 
 ### Block 2 — Tools and Detailed Description
 

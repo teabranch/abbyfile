@@ -19,6 +19,16 @@ Example tool listing for an agent with `tools: Read, Write` and memory enabled:
 
 The system prompt is set as the MCP server's `instructions` field during the initialization handshake. MCP clients that support server instructions receive the prompt automatically.
 
+If a model hint is configured (via the agent definition or a config override), a `## Model Preference` section is appended to the instructions, e.g.:
+
+```
+## Model Preference
+
+This agent was designed for model: claude-opus-4-6
+```
+
+This is informational — the runtime decides which model to use.
+
 ### Resources (when memory is enabled)
 
 - `memory://<name>/` -- JSON array of all memory keys

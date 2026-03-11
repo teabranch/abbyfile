@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/teabranch/agentfile/pkg/memory"
@@ -16,14 +17,17 @@ import (
 
 // AgentManifest is the JSON description of an agent, used for discovery.
 type AgentManifest struct {
-	SchemaVersion  string              `json:"schemaVersion"`
-	Name           string              `json:"name"`
-	Version        string              `json:"version"`
-	Description    string              `json:"description"`
-	PromptChecksum string              `json:"promptChecksum,omitempty"`
-	Tools          []ToolManifestEntry `json:"tools,omitempty"`
-	Memory         bool                `json:"memory"`
-	MemoryLimits   *memory.Limits      `json:"memoryLimits,omitempty"`
+	SchemaVersion  string               `json:"schemaVersion"`
+	Name           string               `json:"name"`
+	Version        string               `json:"version"`
+	Description    string               `json:"description"`
+	Model          string               `json:"model,omitempty"`
+	PromptChecksum string               `json:"promptChecksum,omitempty"`
+	Tools          []ToolManifestEntry  `json:"tools,omitempty"`
+	Memory         bool                 `json:"memory"`
+	MemoryLimits   *memory.Limits       `json:"memoryLimits,omitempty"`
+	ToolTimeout    string               `json:"toolTimeout,omitempty"`
+	CommandPolicy  *tools.CommandPolicy `json:"commandPolicy,omitempty"`
 }
 
 // ToolManifestEntry describes a single tool in the manifest.
@@ -38,14 +42,17 @@ type ToolManifestEntry struct {
 
 // Options configures the root command.
 type Options struct {
-	Name         string
-	Version      string
-	Description  string
-	Loader       *prompt.Loader
-	Registry     *tools.Registry
-	Memory       bool
-	MemoryLimits *memory.Limits
-	Logger       *slog.Logger
+	Name          string
+	Version       string
+	Description   string
+	Model         string
+	Loader        *prompt.Loader
+	Registry      *tools.Registry
+	Memory        bool
+	MemoryLimits  *memory.Limits
+	ToolTimeout   time.Duration
+	CommandPolicy *tools.CommandPolicy
+	Logger        *slog.Logger
 }
 
 // NewRootCommand creates the root Cobra command for an agent binary.
@@ -91,8 +98,13 @@ func printManifest(cmd *cobra.Command, opts Options) error {
 		Name:          opts.Name,
 		Version:       opts.Version,
 		Description:   opts.Description,
+		Model:         opts.Model,
 		Memory:        opts.Memory,
 		MemoryLimits:  opts.MemoryLimits,
+		CommandPolicy: opts.CommandPolicy,
+	}
+	if opts.ToolTimeout > 0 {
+		manifest.ToolTimeout = opts.ToolTimeout.String()
 	}
 
 	// Compute prompt checksum.

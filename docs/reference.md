@@ -45,6 +45,18 @@ Enables or disables persistent memory. Default: `false`. When enabled, creates a
 
 Sets capacity limits for the memory store. Only meaningful when memory is enabled.
 
+### `WithModel(model string) Option`
+
+Sets the agent's model hint. This is informational metadata — the runtime (Claude Code, etc.) picks its own model. The value is surfaced in `--describe` JSON and as a "Model Preference" hint in MCP server instructions.
+
+### `WithLazyToolLoading(enabled bool) Option`
+
+Enables lazy tool loading via the `search_tools` meta-tool. When enabled, the MCP server only registers `search_tools` and `get_instructions` initially; clients discover other tools by searching.
+
+### `WithConfigPath(path string) Option`
+
+Overrides the default config.yaml location (`~/.agentfile/<name>/config.yaml`). Primarily useful for testing.
+
 ### `WithLogger(logger *slog.Logger) Option`
 
 Sets the structured logger. Default: `slog.NewTextHandler(os.Stderr, nil)`. Logs go to stderr so they do not interfere with MCP protocol on stdout.
@@ -103,6 +115,43 @@ Commands:
   delete <key>            Delete a key from memory
 ```
 
+### `config`
+
+Inspect and modify runtime configuration overrides stored at `~/.agentfile/<name>/config.yaml`.
+
+```
+Usage:
+  <agent-name> config [command]
+
+Commands:
+  get [field]             Show configuration (compiled defaults + overrides)
+  set <field> <value>     Set a config override
+  reset <field>           Remove an override, reverting to compiled default
+  path                    Print the config file path
+```
+
+Examples:
+
+```bash
+./my-agent config get                   # show all fields with source
+./my-agent config get model             # show just model
+./my-agent config set model opus        # set override
+./my-agent config set tool_timeout 120s # set timeout override
+./my-agent config reset model           # revert to compiled default
+./my-agent config path                  # ~/.agentfile/my-agent/config.yaml
+```
+
+Output format for `get`:
+
+```
+model: opus (override)
+tool_timeout: 30s (compiled)
+```
+
+Supported fields for `set`/`reset`: `model`, `tool_timeout`. Complex fields (`memory_limits`, `command_policy`) can be set by editing the YAML directly.
+
+When `reset` removes the last field, the config file is deleted.
+
 ### `serve-mcp`
 
 Start an MCP-over-stdio server.
@@ -152,6 +201,8 @@ Validation PASSED
   "name": "string",
   "version": "string",
   "description": "string",
+  "model": "string",
+  "toolTimeout": "30s",
   "tools": [
     {
       "name": "string",
@@ -177,6 +228,8 @@ Validation PASSED
 ```
 
 Notes:
+- `model` is only present if set (compiled default or config override)
+- `toolTimeout` is only present if non-default
 - `tools` includes both user-registered tools and memory tools (if enabled)
 - `memoryLimits` is only present when memory is enabled and limits are set
 - `annotations` is only present when set on the tool definition
@@ -394,14 +447,16 @@ func NewBridge(cfg BridgeConfig) *Bridge
 
 ```go
 type BridgeConfig struct {
-    Name        string
-    Version     string
-    Description string
-    Registry    *tools.Registry
-    Executor    *tools.Executor
-    Loader      *prompt.Loader
-    Memory      *memory.Manager   // nil if memory disabled
-    Logger      *slog.Logger      // nil disables logging
+    Name            string
+    Version         string
+    Description     string
+    Model           string          // model hint, appended to instructions
+    Registry        *tools.Registry
+    Executor        *tools.Executor
+    Loader          *prompt.Loader
+    Memory          *memory.Manager // nil if memory disabled
+    Logger          *slog.Logger    // nil disables logging
+    LazyToolLoading bool            // only register search_tools initially
 }
 ```
 
@@ -436,7 +491,8 @@ Usage:
   agentfile install <agent-name | github.com/owner/repo[/agent][@version]> [flags]
 
 Flags:
-  -g, --global   Install globally to /usr/local/bin
+  -g, --global        Install globally to /usr/local/bin
+      --model string  Override the agent's model in ~/.agentfile/<name>/config.yaml
 ```
 
 Installs an agent binary and wires it into MCP. Supports two modes:

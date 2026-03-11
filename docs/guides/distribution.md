@@ -148,6 +148,16 @@ agentfile install github.com/your-org/private-repo/agent
 
 The token is also used for GitHub API rate limiting on public repos.
 
+### Install-Time Config Overrides
+
+Override settings at install time without editing config files:
+
+```bash
+agentfile install --model opus github.com/owner/repo/agent
+```
+
+This writes the override to `~/.agentfile/<name>/config.yaml`. The agent's `--describe` manifest and MCP instructions reflect the overridden value immediately. You can change it later with `<agent> config set model <value>` or revert with `<agent> config reset model`.
+
 ### Local Install (unchanged)
 
 Local installs from `./build/` continue to work as before, and now also track in the registry:

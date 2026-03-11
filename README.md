@@ -52,6 +52,7 @@ Claude Code (LLM Runtime)
 Agent Binary
   +-- --custom-instructions  -> system prompt
   +-- serve-mcp              -> MCP server (tools + memory)
+  +-- config get|set|reset   -> runtime config overrides
   +-- --version              -> semver
   +-- --describe             -> JSON manifest
   +-- validate               -> check wiring
@@ -115,6 +116,26 @@ agentfile install github.com/you/my-agent
 | **Distribution** | Copy the file | Folder copy | N/A | `agentfile install` from anywhere |
 | **Context isolation** | No | No | Yes | No |
 | **Cost model** | One-time | Text in context | Baseline per call | Marginal per turn |
+| **Runtime config** | Edit the file | N/A | N/A | `config set model opus` — override without rebuilding |
+
+## Runtime Configuration
+
+Agents ship with compiled defaults, but consumers can override settings without rebuilding:
+
+```bash
+# Override the model hint at install time
+agentfile install --model opus github.com/acme/my-agent
+
+# Or change it later
+./my-agent config set model opus
+./my-agent config get model          # opus (override)
+./my-agent config reset model        # revert to compiled default
+
+# Show all config (compiled defaults + overrides)
+./my-agent config get
+```
+
+Overrides are stored at `~/.agentfile/<name>/config.yaml`. The model hint is surfaced to the runtime via MCP server instructions. See the [model-override example](examples/model-override/) for a complete setup.
 
 ## Install
 

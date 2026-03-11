@@ -44,6 +44,28 @@ agentfile build            # -> ./build/golang-pro, ./build/code-reviewer + .mcp
 
 Both agents are auto-discovered by Claude Code via the generated `.mcp.json`.
 
+### [`model-override/`](model-override/)
+
+Demonstrates the runtime config override feature. The agent declares a model hint (`model: claude-opus-4-6`) and consumers can override it at install time or later via the `config` subcommand.
+
+```
+model-override/
+  Agentfile                     # declares one agent with a model hint
+  agents/smart-reviewer.md      # code reviewer recommending opus
+```
+
+Build and use:
+
+```bash
+cd model-override
+agentfile build                 # -> ./build/smart-reviewer + .mcp.json
+./build/smart-reviewer --describe             # shows model in manifest
+./build/smart-reviewer config get             # shows compiled defaults
+./build/smart-reviewer config set model sonnet  # override at runtime
+./build/smart-reviewer config get model       # sonnet (override)
+./build/smart-reviewer config reset model     # revert to compiled default
+```
+
 ## Creating Your Own
 
 1. Create an `Agentfile` at your project root

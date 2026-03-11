@@ -13,7 +13,7 @@ import (
 
 // NewServeMCPCommand creates the `serve-mcp` subcommand that starts an
 // MCP-over-stdio server exposing all registered tools.
-func NewServeMCPCommand(name, version, description string, registry *tools.Registry,
+func NewServeMCPCommand(name, version, description, model string, registry *tools.Registry,
 	timeout time.Duration, loader *prompt.Loader, mgr *memory.Manager, logger *slog.Logger, execOpts ...tools.ExecutorOption) *cobra.Command {
 	return &cobra.Command{
 		Use:   "serve-mcp",
@@ -25,6 +25,7 @@ func NewServeMCPCommand(name, version, description string, registry *tools.Regis
 				Name:        name,
 				Version:     version,
 				Description: description,
+				Model:       model,
 				Registry:    registry,
 				Executor:    executor,
 				Loader:      loader,

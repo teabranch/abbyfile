@@ -110,6 +110,11 @@ See the [Agentfile Format Guide](./guides/agentfile-format.md) for full details.
 
 # Validate wiring (checks prompt, tools, memory, version)
 ./build/my-agent validate
+
+# Runtime config overrides (no rebuild needed)
+./build/my-agent config get                    # show compiled defaults
+./build/my-agent config set model opus         # override the model hint
+./build/my-agent config reset model            # revert to default
 ```
 
 ## Step 6: Connect to Claude Code

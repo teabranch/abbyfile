@@ -554,6 +554,57 @@ func TestBridgeLazyToolLoadingSearchTools(t *testing.T) {
 	}
 }
 
+func TestBridgeModelHintInInstructions(t *testing.T) {
+	registry := tools.NewRegistry()
+	session, _ := startBridgeWithConfig(t, agentmcp.BridgeConfig{
+		Name:     "test-agent",
+		Version:  "v0.1.0",
+		Model:    "claude-opus-4-6",
+		Registry: registry,
+		Executor: tools.NewExecutor(30*time.Second, nil),
+		Loader:   newTestLoader(t),
+	})
+	ctx := context.Background()
+
+	// get_instructions should include model hint.
+	result, err := session.CallTool(ctx, &gomcp.CallToolParams{
+		Name: "get_instructions",
+	})
+	if err != nil {
+		t.Fatalf("call get_instructions: %v", err)
+	}
+	text := extractText(result)
+	if !strings.Contains(text, "claude-opus-4-6") {
+		t.Errorf("instructions should contain model hint, got: %s", text)
+	}
+	if !strings.Contains(text, "Model Preference") {
+		t.Errorf("instructions should contain 'Model Preference' header, got: %s", text)
+	}
+}
+
+func TestBridgeNoModelHintWhenEmpty(t *testing.T) {
+	registry := tools.NewRegistry()
+	session, _ := startBridgeWithConfig(t, agentmcp.BridgeConfig{
+		Name:     "test-agent",
+		Version:  "v0.1.0",
+		Registry: registry,
+		Executor: tools.NewExecutor(30*time.Second, nil),
+		Loader:   newTestLoader(t),
+	})
+	ctx := context.Background()
+
+	result, err := session.CallTool(ctx, &gomcp.CallToolParams{
+		Name: "get_instructions",
+	})
+	if err != nil {
+		t.Fatalf("call get_instructions: %v", err)
+	}
+	text := extractText(result)
+	if strings.Contains(text, "Model Preference") {
+		t.Errorf("instructions should NOT contain model hint when model is empty, got: %s", text)
+	}
+}
+
 func extractText(result *gomcp.CallToolResult) string {
 	for _, c := range result.Content {
 		if tc, ok := c.(*gomcp.TextContent); ok {
