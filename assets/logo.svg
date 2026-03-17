@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 600" width="100%" height="100%">
+  <polygon points="250,220 353.9,280 353.9,400 250,460 146.1,400 146.1,280" 
+           fill="none" 
+           stroke="#1E293B" 
+           stroke-width="26" 
+           stroke-linejoin="round" />
+
+  <g stroke="#0EA5E9" stroke-width="22" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <polyline points="210,300 250,340 210,380" />
+    <line x1="265" y1="380" x2="310" y2="380" />
+  </g>
+
+  <path d="M 190 210 
+           C 190 150, 210 120, 230 120 
+           C 240 120, 245 135, 250 135 
+           C 255 135, 260 120, 270 120 
+           C 290 120, 310 150, 310 210 Z" 
+        fill="#1E293B" />
+  
+  <path d="M 188 200 Q 250 215 312 200 L 308 180 Q 250 195 192 180 Z" 
+        fill="#FFFFFF" />
+        
+  <path d="M 130 215 
+           C 150 190, 350 190, 370 215 
+           C 380 230, 120 230, 130 215 Z" 
+        fill="#1E293B" />
+
+  <text x="250" y="540" 
+        font-family="system-ui, -apple-system, sans-serif" 
+        font-size="76" 
+        font-weight="800" 
+        text-anchor="middle" 
+        letter-spacing="-1.5">
+    <tspan fill="#1E293B">abby</tspan><tspan fill="#0EA5E9">file</tspan>
+  </text>
+</svg>

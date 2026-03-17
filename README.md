@@ -1,6 +1,19 @@
-# Abbyfile
+<p align="center">
+  <img src="assets/logo.svg" alt="abbyfile" width="200">
+</p>
 
-**A packaging format for AI agents.** Build, version, and distribute focused agents as standalone binaries — with MCP auto-discovery built in.
+<h1 align="center">Abbyfile</h1>
+
+<p align="center"><strong>A packaging format for AI agents.</strong></p>
+
+<p align="center">
+  <a href="https://github.com/teabranch/abbyfile/actions/workflows/ci.yml"><img src="https://github.com/teabranch/abbyfile/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/teabranch/abbyfile/releases"><img src="https://img.shields.io/github/v/release/teabranch/abbyfile" alt="Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/teabranch/abbyfile" alt="License"></a>
+  <img src="https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go&logoColor=white" alt="Go 1.22+">
+</p>
+
+--- Build, version, and distribute focused agents as standalone binaries — with MCP auto-discovery built in.
 
 Abbyfile turns agent definitions — a system prompt, tools, and memory — into versioned, distributable CLI binaries. Authors publish to GitHub Releases. Consumers install with one command. Claude Code auto-discovers the rest.
 
