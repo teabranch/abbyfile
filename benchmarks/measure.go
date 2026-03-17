@@ -1,5 +1,5 @@
 // Package benchmarks provides MCP token cost measurement and benchmarking for
-// agentfile agents. It measures tool schema overhead, system prompt size,
+// abbyfile agents. It measures tool schema overhead, system prompt size,
 // and total context budget consumed by each agent.
 package benchmarks
 
@@ -10,8 +10,8 @@ import (
 	"time"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	agentmcp "github.com/teabranch/agentfile/pkg/mcp"
-	"github.com/teabranch/agentfile/pkg/tools"
+	agentmcp "github.com/teabranch/abbyfile/pkg/mcp"
+	"github.com/teabranch/abbyfile/pkg/tools"
 )
 
 // ContextWindow is the standard context window size used for budget calculations.

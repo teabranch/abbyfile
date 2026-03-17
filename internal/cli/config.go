@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/teabranch/agentfile/pkg/config"
+	"github.com/teabranch/abbyfile/pkg/config"
 )
 
 // CompiledDefaults captures the compiled-in values before config overrides are applied.

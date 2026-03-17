@@ -1,4 +1,4 @@
-// Package mcp provides an MCP-over-stdio bridge for agentfile binaries.
+// Package mcp provides an MCP-over-stdio bridge for abbyfile binaries.
 // It translates a tools.Registry into MCP tools so Claude Code can discover
 // and invoke them via the Model Context Protocol. It also exposes server
 // instructions, tool annotations, memory resources, and prompt templates.
@@ -13,9 +13,9 @@ import (
 	"strings"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/teabranch/agentfile/pkg/memory"
-	"github.com/teabranch/agentfile/pkg/prompt"
-	"github.com/teabranch/agentfile/pkg/tools"
+	"github.com/teabranch/abbyfile/pkg/memory"
+	"github.com/teabranch/abbyfile/pkg/prompt"
+	"github.com/teabranch/abbyfile/pkg/tools"
 )
 
 // BridgeConfig holds everything the MCP bridge needs to expose an agent.
@@ -32,7 +32,7 @@ type BridgeConfig struct {
 	LazyToolLoading bool            // when true, only register search_tools meta-tool initially
 }
 
-// Bridge translates an agentfile tools.Registry into an MCP server.
+// Bridge translates an abbyfile tools.Registry into an MCP server.
 type Bridge struct {
 	cfg    BridgeConfig
 	logger *slog.Logger
@@ -73,7 +73,7 @@ func (b *Bridge) ServeTransport(ctx context.Context, transport gomcp.Transport) 
 		b.addSearchToolsTool(server)
 		b.addGetInstructionsTool(server)
 	} else {
-		// Register each agentfile tool as an MCP tool.
+		// Register each abbyfile tool as an MCP tool.
 		for _, def := range b.cfg.Registry.All() {
 			b.addTool(server, def)
 		}
@@ -93,7 +93,7 @@ func (b *Bridge) ServeTransport(ctx context.Context, transport gomcp.Transport) 
 	return server.Run(ctx, transport)
 }
 
-// addTool registers a single agentfile tool definition as an MCP tool.
+// addTool registers a single abbyfile tool definition as an MCP tool.
 func (b *Bridge) addTool(server *gomcp.Server, def *tools.Definition) {
 	schema := schemaToRaw(def.InputSchema)
 
@@ -108,7 +108,7 @@ func (b *Bridge) addTool(server *gomcp.Server, def *tools.Definition) {
 		tool.OutputSchema = schemaToRaw(def.OutputSchema)
 	}
 
-	// Map agentfile annotations to MCP tool annotations.
+	// Map abbyfile annotations to MCP tool annotations.
 	if def.Annotations != nil {
 		tool.Annotations = &gomcp.ToolAnnotations{
 			ReadOnlyHint:    def.Annotations.ReadOnlyHint,

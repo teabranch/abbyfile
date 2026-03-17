@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	tiktoken "github.com/pkoukk/tiktoken-go"
-	"github.com/teabranch/agentfile/pkg/tools"
+	"github.com/teabranch/abbyfile/pkg/tools"
 )
 
 // TokenCounter counts tokens in a string.

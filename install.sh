@@ -1,9 +1,9 @@
 #!/bin/sh
-# Install script for the agentfile CLI.
+# Install script for the abby CLI.
 # Downloads a pre-built binary from GitHub Releases.
 #
 # Usage:
-#   curl -sSL https://raw.githubusercontent.com/teabranch/agentfile/main/install.sh | sh
+#   curl -sSL https://raw.githubusercontent.com/teabranch/abbyfile/main/install.sh | sh
 #
 # Environment variables:
 #   VERSION      Pin to a specific version (e.g. "1.0.0"). Default: latest.
@@ -11,7 +11,7 @@
 
 set -e
 
-REPO="teabranch/agentfile"
+REPO="teabranch/abbyfile"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 
 # Detect OS
@@ -36,14 +36,14 @@ case "$ARCH" in
 esac
 
 # Build download URL
-BINARY="agentfile-${OS}-${ARCH}"
+BINARY="abby-${OS}-${ARCH}"
 if [ -n "$VERSION" ]; then
   URL="https://github.com/${REPO}/releases/download/v${VERSION}/${BINARY}"
 else
   URL="https://github.com/${REPO}/releases/latest/download/${BINARY}"
 fi
 
-echo "Downloading agentfile for ${OS}/${ARCH}..."
+echo "Downloading abby for ${OS}/${ARCH}..."
 echo "  ${URL}"
 
 # Download to temp file
@@ -63,14 +63,14 @@ chmod +x "$TMP"
 
 # Install
 mkdir -p "$INSTALL_DIR"
-mv "$TMP" "${INSTALL_DIR}/agentfile"
+mv "$TMP" "${INSTALL_DIR}/abby"
 trap - EXIT
 
-echo "Installed agentfile to ${INSTALL_DIR}/agentfile"
+echo "Installed abby to ${INSTALL_DIR}/abby"
 
 # Verify
-if "${INSTALL_DIR}/agentfile" --version >/dev/null 2>&1; then
-  echo "  $("${INSTALL_DIR}/agentfile" --version)"
+if "${INSTALL_DIR}/abby" --version >/dev/null 2>&1; then
+  echo "  $("${INSTALL_DIR}/abby" --version)"
 else
   echo "  (could not verify version)"
 fi

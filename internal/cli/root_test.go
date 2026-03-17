@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/teabranch/agentfile/pkg/prompt"
-	"github.com/teabranch/agentfile/pkg/tools"
+	"github.com/teabranch/abbyfile/pkg/prompt"
+	"github.com/teabranch/abbyfile/pkg/tools"
 )
 
 //go:embed testdata/system.md

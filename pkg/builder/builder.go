@@ -12,7 +12,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/teabranch/agentfile/pkg/definition"
+	"github.com/teabranch/abbyfile/pkg/definition"
 )
 
 //go:embed templates/*.tmpl
@@ -21,7 +21,7 @@ var templateFS embed.FS
 // BuildConfig controls the build process.
 type BuildConfig struct {
 	OutputDir   string // directory for compiled binaries
-	ModuleDir   string // local agentfile module path (for replace directive)
+	ModuleDir   string // local abbyfile module path (for replace directive)
 	TargetOS    string // GOOS for cross-compilation (empty = native)
 	TargetArch  string // GOARCH for cross-compilation (empty = native)
 	Parallelism int    // max concurrent builds (0 = sequential)
@@ -50,7 +50,7 @@ type templateData struct {
 
 // Build generates source code from an AgentDef and compiles it into a binary.
 func Build(def *definition.AgentDef, cfg BuildConfig) error {
-	tmpDir, err := os.MkdirTemp("", "agentfile-build-*")
+	tmpDir, err := os.MkdirTemp("", "abbyfile-build-*")
 	if err != nil {
 		return fmt.Errorf("creating temp dir: %w", err)
 	}
@@ -215,7 +215,7 @@ func GenerateSource(dir string, def *definition.AgentDef, moduleDir string) erro
 	return nil
 }
 
-// DetectModuleDir checks if we're running inside the agentfile framework repo.
+// DetectModuleDir checks if we're running inside the abbyfile framework repo.
 // If yes, returns the repo root for use as a replace directive. Otherwise returns "".
 func DetectModuleDir() string {
 	dir, err := os.Getwd()
@@ -226,7 +226,7 @@ func DetectModuleDir() string {
 		modPath := filepath.Join(dir, "go.mod")
 		data, err := os.ReadFile(modPath)
 		if err == nil {
-			if strings.Contains(string(data), "module github.com/teabranch/agentfile") {
+			if strings.Contains(string(data), "module github.com/teabranch/abbyfile") {
 				return dir
 			}
 		}

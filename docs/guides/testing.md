@@ -1,6 +1,6 @@
 # Testing Guide
 
-Agentfile has three levels of testing: unit tests for individual packages, integration tests against built binaries, and MCP bridge tests for the protocol layer.
+Abbyfile has three levels of testing: unit tests for individual packages, integration tests against built binaries, and MCP bridge tests for the protocol layer.
 
 ## Unit Testing Tools
 
@@ -165,7 +165,7 @@ func TestLoader_Override(t *testing.T) {
     tmpHome := t.TempDir()
     t.Setenv("HOME", tmpHome)
 
-    overrideDir := filepath.Join(tmpHome, ".agentfile", "test-agent")
+    overrideDir := filepath.Join(tmpHome, ".abbyfile", "test-agent")
     os.MkdirAll(overrideDir, 0o755)
     os.WriteFile(
         filepath.Join(overrideDir, "override.md"),
@@ -257,7 +257,7 @@ The `TestMain` function builds the binary once for all tests:
 //go:build integration
 
 func TestMain(m *testing.M) {
-    tmp, _ := os.MkdirTemp("", "agentfile-integration-*")
+    tmp, _ := os.MkdirTemp("", "abbyfile-integration-*")
     defer os.RemoveAll(tmp)
 
     binaryPath = filepath.Join(tmp, "my-agent")
@@ -308,7 +308,7 @@ Runs four stages in order:
 1. **fmtcheck** -- verify all files are `gofmt`-formatted
 2. **vet** -- `go vet ./...` for static analysis
 3. **test** -- `go test -race ./...` (all unit tests)
-4. **build** -- build the agentfile CLI
+4. **build** -- build the abby CLI
 
 Individual stages:
 
@@ -386,8 +386,8 @@ End-to-end test that builds a real agent with `--plugin` and verifies the full o
 
 ```go
 func TestBuildPlugin(t *testing.T) {
-    // Create Agentfile, agent .md with skills, skill .md files
-    // Run: agentfile build --plugin
+    // Create Abbyfile, agent .md with skills, skill .md files
+    // Run: abby build --plugin
     // Verify: plugin directory structure, plugin.json, .mcp.json, SKILL.md content, binary executable
 }
 ```
@@ -406,9 +406,9 @@ func TestList(t *testing.T) {
 
 func TestInstallLocalWithRegistry(t *testing.T) {
     // Installs a binary from ./build/, verifies:
-    // - Binary copied to .agentfile/bin/
+    // - Binary copied to .abbyfile/bin/
     // - Registry entry created with source="local" and correct version
-    // - agentfile list shows the agent
+    // - abby list shows the agent
 }
 
 func TestUninstall(t *testing.T) {
@@ -477,7 +477,7 @@ pkg/tools       -- registry, executor, validation
 pkg/memory      -- file store, limits, concurrency, manager tools
 pkg/prompt      -- loader, override, paths
 pkg/builtins    -- builtin tool implementations
-pkg/definition  -- Agentfile + agent .md parsing (including skills)
+pkg/definition  -- Abbyfile + agent .md parsing (including skills)
 pkg/builder     -- code generation templates
 pkg/mcp         -- bridge, tools, annotations, resources, prompts
 pkg/plugin      -- plugin directory generation

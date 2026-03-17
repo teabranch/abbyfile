@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/teabranch/agentfile/pkg/definition"
+	"github.com/teabranch/abbyfile/pkg/definition"
 )
 
 func TestGenerateSource(t *testing.T) {
@@ -63,7 +63,7 @@ func TestGenerateSource(t *testing.T) {
 		t.Fatalf("reading go.mod: %v", err)
 	}
 	goModStr := string(goMod)
-	if !strings.Contains(goModStr, "agentfile-gen/test-agent") {
+	if !strings.Contains(goModStr, "abbyfile-gen/test-agent") {
 		t.Error("go.mod missing module name")
 	}
 	if !strings.Contains(goModStr, "replace") {
@@ -187,7 +187,7 @@ func TestGenerateSource_CustomTools(t *testing.T) {
 	if !strings.Contains(mainStr, `"encoding/json"`) {
 		t.Error("main.go missing encoding/json import")
 	}
-	if !strings.Contains(mainStr, `"github.com/teabranch/agentfile/pkg/tools"`) {
+	if !strings.Contains(mainStr, `"github.com/teabranch/abbyfile/pkg/tools"`) {
 		t.Error("main.go missing tools package import")
 	}
 
@@ -230,23 +230,23 @@ func TestGenerateSource_NoCustomTools(t *testing.T) {
 	if strings.Contains(mainStr, `"encoding/json"`) {
 		t.Error("main.go should not import encoding/json without custom tools")
 	}
-	if strings.Contains(mainStr, `"github.com/teabranch/agentfile/pkg/tools"`) {
+	if strings.Contains(mainStr, `"github.com/teabranch/abbyfile/pkg/tools"`) {
 		t.Error("main.go should not import tools package without custom tools")
 	}
 }
 
 func TestDetectModuleDir(t *testing.T) {
-	// Running inside the agentfile repo should detect it.
+	// Running inside the abbyfile repo should detect it.
 	dir := DetectModuleDir()
 	if dir == "" {
-		t.Skip("not running inside agentfile repo")
+		t.Skip("not running inside abbyfile repo")
 	}
 	// Verify it contains go.mod with the right module.
 	data, err := os.ReadFile(filepath.Join(dir, "go.mod"))
 	if err != nil {
 		t.Fatalf("reading go.mod: %v", err)
 	}
-	if !strings.Contains(string(data), "module github.com/teabranch/agentfile") {
+	if !strings.Contains(string(data), "module github.com/teabranch/abbyfile") {
 		t.Error("detected dir doesn't have the expected module")
 	}
 }

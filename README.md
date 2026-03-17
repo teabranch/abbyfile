@@ -1,10 +1,10 @@
-# Agentfile
+# Abbyfile
 
 **A packaging format for AI agents.** Build, version, and distribute focused agents as standalone binaries — with MCP auto-discovery built in.
 
-Agentfile turns agent definitions — a system prompt, tools, and memory — into versioned, distributable CLI binaries. Authors publish to GitHub Releases. Consumers install with one command. Claude Code auto-discovers the rest.
+Abbyfile turns agent definitions — a system prompt, tools, and memory — into versioned, distributable CLI binaries. Authors publish to GitHub Releases. Consumers install with one command. Claude Code auto-discovers the rest.
 
-No Go code. No manual config. Just `agentfile build`.
+No Go code. No manual config. Just `abby build`.
 
 ## Why We Built This
 
@@ -18,11 +18,11 @@ We've benchmarked the context cost against skills, sub-agents, and broad MCP ser
 
 ## How It Works
 
-**Agents are repos.** An `Agentfile` manifest plus markdown definitions, versioned and released like any other software. See [`examples/`](examples/) for complete working setups.
+**Agents are repos.** An `Abbyfile` manifest plus markdown definitions, versioned and released like any other software. See [`examples/`](examples/) for complete working setups.
 
 ```
 my-agent/
-  Agentfile              # declares agents + versions
+  Abbyfile              # declares agents + versions
   agents/my-agent.md     # system prompt + tool/memory config
 ```
 
@@ -30,14 +30,14 @@ my-agent/
 
 ```bash
 # 1. Build — compiles a standalone binary from YAML + markdown
-agentfile build
-agentfile build --plugin  # also generate a Claude Code plugin (with skills)
+abby build
+abby build --plugin  # also generate a Claude Code plugin (with skills)
 
 # 2. Publish — cross-compiles and creates a GitHub Release
-agentfile publish
+abby publish
 
 # 3. Install — one command, any machine, done
-agentfile install github.com/acme/my-agent
+abby install github.com/acme/my-agent
 ```
 
 That last command downloads the right binary for your platform, wires it into your MCP-compatible runtime (Claude Code, Codex, Gemini CLI — auto-detected), and tracks it for future updates. No cloning, no building from source, no editing config files.
@@ -62,7 +62,7 @@ Agent Binary
 
 ### 1. Define your agent
 
-**`Agentfile`**
+**`Abbyfile`**
 ```yaml
 version: "1"
 agents:
@@ -89,7 +89,7 @@ You are a helpful coding assistant. Use your tools to read and modify files.
 ### 2. Build and use
 
 ```bash
-agentfile build
+abby build
 # -> ./build/my-agent binary + MCP config for detected runtimes
 
 # Your runtime auto-discovers the agent — start using it immediately
@@ -99,21 +99,21 @@ agentfile build
 
 ```bash
 # Publish to GitHub Releases (cross-compiled for macOS + Linux)
-agentfile publish
+abby publish
 
 # Anyone can install it with one command
-agentfile install github.com/you/my-agent
+abby install github.com/you/my-agent
 ```
 
 ## What You Get
 
-| | CLAUDE.md | Agent Skills | Sub-agents | Agentfile |
+| | CLAUDE.md | Agent Skills | Sub-agents | Abbyfile |
 |---|---|---|---|---|
 | **Context cost** | File size | ~3KT loaded | ~10.6KT/call (baseline re-paid) | ~1.5KT marginal |
 | **Custom tools** | Described in prose | No | Inherited from parent | Registered, validated, executable via MCP |
 | **Persistent memory** | None | None | None | Key-value store per agent |
 | **Versioning** | Git history | None | None | Semantic versioning, pinnable releases |
-| **Distribution** | Copy the file | Folder copy | N/A | `agentfile install` from anywhere |
+| **Distribution** | Copy the file | Folder copy | N/A | `abby install` from anywhere |
 | **Context isolation** | No | No | Yes | No |
 | **Cost model** | One-time | Text in context | Baseline per call | Marginal per turn |
 | **Runtime config** | Edit the file | N/A | N/A | `config set model opus` — override without rebuilding |
@@ -124,7 +124,7 @@ Agents ship with compiled defaults, but consumers can override settings without 
 
 ```bash
 # Override the model hint at install time
-agentfile install --model opus github.com/acme/my-agent
+abby install --model opus github.com/acme/my-agent
 
 # Or change it later
 ./my-agent config set model opus
@@ -135,19 +135,19 @@ agentfile install --model opus github.com/acme/my-agent
 ./my-agent config get
 ```
 
-Overrides are stored at `~/.agentfile/<name>/config.yaml`. The model hint is surfaced to the runtime via MCP server instructions. See the [model-override example](examples/model-override/) for a complete setup.
+Overrides are stored at `~/.abbyfile/<name>/config.yaml`. The model hint is surfaced to the runtime via MCP server instructions. See the [model-override example](examples/model-override/) for a complete setup.
 
 ## Install
 
 ```bash
 # Pre-built binary (easiest)
-curl -sSL https://raw.githubusercontent.com/teabranch/agentfile/main/install.sh | sh
+curl -sSL https://raw.githubusercontent.com/teabranch/abbyfile/main/install.sh | sh
 
 # Go users
-go install github.com/teabranch/agentfile/cmd/agentfile@latest
+go install github.com/teabranch/abbyfile/cmd/abby@latest
 
 # From source
-git clone https://github.com/teabranch/agentfile.git && cd agentfile
+git clone https://github.com/teabranch/abbyfile.git && cd abbyfile
 make build && make install
 ```
 
@@ -157,7 +157,7 @@ make build && make install
 |-------|-------------|
 | **[Quickstart](docs/quickstart.md)** | Build an agent in 5 minutes |
 | **[Concepts](docs/concepts.md)** | Architecture and mental model |
-| **[Agentfile Format](docs/guides/agentfile-format.md)** | YAML manifest + agent .md reference |
+| **[Abbyfile Format](docs/guides/abbyfile-format.md)** | YAML manifest + agent .md reference |
 | **[Tools](docs/guides/tools.md)** | Built-in tools, custom CLI tools, annotations |
 | **[Memory](docs/guides/memory.md)** | Persistent key-value storage |
 | **[Prompts](docs/guides/prompts.md)** | Embedding and overriding prompts |
@@ -169,7 +169,7 @@ make build && make install
 | **[Reference](docs/reference.md)** | All options, subcommands, flags, types |
 | **[Examples](examples/)** | Working agent configurations |
 | **[FAQ](docs/faq.md)** | Common questions |
-| **[Development](docs/development.md)** | Contributing to Agentfile |
+| **[Development](docs/development.md)** | Contributing to Abbyfile |
 
 ## Status
 

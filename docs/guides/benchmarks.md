@@ -4,13 +4,13 @@
 
 A widely-cited article by Jannik Reinhard argues that MCP servers are "context hogs" — the GitHub MCP server (93 tools) costs ~55,000 tokens, and an enterprise stack can exceed 150,000 tokens. CLI tools cost 0 tokens since models know them from training data. The article shows a 35x token reduction for CLI over MCP.
 
-**Agentfile agents are fundamentally different.** They expose 6-15 focused tools per agent, not 93 platform-wide tools. Each agent has a single domain with a small, purpose-built toolset. This page documents our methodology for measuring and proving this difference.
+**Abbyfile agents are fundamentally different.** They expose 6-15 focused tools per agent, not 93 platform-wide tools. Each agent has a single domain with a small, purpose-built toolset. This page documents our methodology for measuring and proving this difference.
 
-## What Agentfile Measures Differently
+## What Abbyfile Measures Differently
 
 The article measures platform-wrapper MCP servers: GitHub (93 tools), Jira, Confluence, etc. These are designed to expose an entire platform's API surface as MCP tools.
 
-Agentfile agents follow a different pattern:
+Abbyfile agents follow a different pattern:
 - **Focused domain**: each agent does one thing well (Go development, code review, debugging)
 - **Small toolset**: 6-15 tools per agent, matching the task at hand
 - **System prompt**: a structured prompt tailored to the domain (~800-2,000 tokens live)
@@ -57,7 +57,7 @@ Run `make bench-report` to generate current numbers.
 Tool schema tokens grow linearly with tool count (~333 bytes/tool for focused agents):
 
 ```
-Focused-agent tools (Agentfile-style, 2-3 params):
+Focused-agent tools (Abbyfile-style, 2-3 params):
    6 tools:    477 tokens  (0.4% of 128K)
   10 tools:    836 tokens  (0.7% of 128K)
   15 tools:  1,254 tokens  (1.0% of 128K)  <- recommended max
@@ -103,14 +103,14 @@ Tool definitions are resent with every Claude API request. Over a 20-turn conver
 ```
 Configuration                          Per-turn     1t        5t       10t       20t       50t
 GitHub MCP (93 tools, article)          55000T    55000T   275000T   550000T  1100000T  2750000T
-Agentfile (10 tools + prompt)            1681T     1681T     8405T    16810T    33620T    84050T
+Abbyfile (10 tools + prompt)            1681T     1681T     8405T    16810T    33620T    84050T
 
 Savings (cumulative tokens avoided):
   Reduction                             53319T    53319T   266595T   533190T  1066380T  2665950T
   Ratio                                    33x       33x       33x       33x       33x       33x
 ```
 
-Over 20 turns: GitHub MCP costs 1,100,000T cumulative. Agentfile costs 33,620T. **33x reduction.**
+Over 20 turns: GitHub MCP costs 1,100,000T cumulative. Abbyfile costs 33,620T. **33x reduction.**
 
 ### Claude Code Baseline Analysis
 
@@ -123,12 +123,12 @@ Total baseline: ~9,200 tokens (7.2% of 128K, estimated)
 Likely actual (×1.31): ~12,000 tokens (9.4% of 128K)
 
 Marginal cost of adding agents (live-validated):
-  Single Agentfile agent   ~1,937 tokens (1.5% of 128K, live)
+  Single Abbyfile agent   ~1,937 tokens (1.5% of 128K, live)
   5 community agents       ~9,896 tokens (7.7% of 128K, live)
   GitHub MCP (93 tools)   ~55,000 tokens (43% of 128K, article)
 ```
 
-A focused Agentfile agent adds ~1,937 tokens (live) — 1.5% of the context window.
+A focused Abbyfile agent adds ~1,937 tokens (live) — 1.5% of the context window.
 
 ### Article Methodology Comparison
 
@@ -165,9 +165,9 @@ This keeps each agent under 5% of the context budget, leaving 95%+ for actual co
 
 The multi-turn analysis makes this even more compelling: over a typical 20-turn coding session, the cumulative token cost difference between a focused agent and a platform MCP server is over 1 million tokens.
 
-## Skills vs Sub-agents vs Agentfile
+## Skills vs Sub-agents vs Abbyfile
 
-The industry has converged on two dominant patterns for extending Claude Code: **Agent Skills** (Anthropic's progressive disclosure pattern, launched Dec 2025) and **Sub-agents** (separate context windows via the Agent tool). Agentfile occupies a different point in the design space.
+The industry has converged on two dominant patterns for extending Claude Code: **Agent Skills** (Anthropic's progressive disclosure pattern, launched Dec 2025) and **Sub-agents** (separate context windows via the Agent tool). Abbyfile occupies a different point in the design space.
 
 ### Three-Way Cost Model (Live-Validated)
 
@@ -175,26 +175,26 @@ Each approach has a fundamentally different cost structure per API turn. Live va
 
 - **Agent Skills**: loaded prompt tokens (text in context, no tool schemas). Progressive disclosure means only active skills pay full cost.
 - **Sub-agents**: baseline + tools + prompt per invocation. Each call opens a separate context window and re-pays Claude Code's full overhead.
-- **Agentfile**: tools + prompt as marginal tokens on the existing context window. Same API call, no baseline re-payment.
+- **Abbyfile**: tools + prompt as marginal tokens on the existing context window. Same API call, no baseline re-payment.
 
 ```
 Per-turn/per-call cost (cli-developer, 6 tools):
                     Estimated     Live (count_tokens)
   Agent Skills:     ~3,000T       816T
   Sub-agents:       ~10,600T      6,688T
-  Agentfile:        ~1,460T       1,937T
+  Abbyfile:        ~1,460T       1,937T
 ```
 
 ### Feature Comparison Matrix
 
 ```
-Feature                         Skills          Sub-agents      Agentfile
+Feature                         Skills          Sub-agents      Abbyfile
 ------------------------------  --------------  --------------  --------------
 Context cost (live)             816T loaded     6,688T/call     1,937T marginal
 Executable tools                no              yes (inherited) yes (MCP)
 Persistent memory               no              no              yes
 Versioning                      no              no              semver
-Distribution                    folder copy     no              agentfile install
+Distribution                    folder copy     no              abby install
 Context isolation               no              yes             no
 Validation/testing              no              no              yes
 ```
@@ -203,15 +203,15 @@ Validation/testing              no              no              yes
 
 Using a real community agent (cli-developer, 6 tools) measured with Claude's actual tokenizer:
 
-**Skills comparison**: A loaded skill costs **816T** (live) — much cheaper than our 3,000T estimate, which was based on Anthropic's blog post examples rather than our actual agent prompts. Agentfile costs **1,937T** (live), or **2.4x** a loaded skill. The trade-off: for 2.4x the token cost, you get executable tools, persistent memory, semantic versioning, and one-command distribution.
+**Skills comparison**: A loaded skill costs **816T** (live) — much cheaper than our 3,000T estimate, which was based on Anthropic's blog post examples rather than our actual agent prompts. Abbyfile costs **1,937T** (live), or **2.4x** a loaded skill. The trade-off: for 2.4x the token cost, you get executable tools, persistent memory, semantic versioning, and one-command distribution.
 
-**Sub-agent comparison**: Sub-agents cost **3.5x** Agentfile per invocation (6,688T vs 1,937T, live). The gap comes from re-paying Claude Code's baseline tools on every call.
+**Sub-agent comparison**: Sub-agents cost **3.5x** Abbyfile per invocation (6,688T vs 1,937T, live). The gap comes from re-paying Claude Code's baseline tools on every call.
 
 ```
-Sub-agent vs Agentfile cumulative cost (live):
+Sub-agent vs Abbyfile cumulative cost (live):
   Invocations         1          3          5         10         20
   Sub-agent       6,688T    20,064T    33,440T    66,880T   133,760T
-  Agentfile       1,937T     5,811T     9,685T    19,370T    38,740T
+  Abbyfile       1,937T     5,811T     9,685T    19,370T    38,740T
   Ratio             3.5x       3.5x       3.5x       3.5x       3.5x
 ```
 
@@ -223,19 +223,19 @@ Live validation corrected several assumptions in our offline estimates:
 
 2. **Sub-agent baseline was ~37% overestimated** (10,660T estimated vs 6,688T live). Our synthetic baseline tools generated descriptions sized to approximate token counts, but Claude's tokenizer handles them more efficiently than the bytes/4 heuristic predicted.
 
-3. **Agentfile cost was 33% underestimated** (1,460T estimated vs 1,937T live). The bytes/4 heuristic consistently underestimates Claude's tokenizer.
+3. **Abbyfile cost was 33% underestimated** (1,460T estimated vs 1,937T live). The bytes/4 heuristic consistently underestimates Claude's tokenizer.
 
-4. **The ranking holds**: Skill (816T) < Agentfile (1,937T) < Sub-agent (6,688T). The ratios changed but the conclusion is the same — Agentfile is the cheapest option that provides executable tools.
+4. **The ranking holds**: Skill (816T) < Abbyfile (1,937T) < Sub-agent (6,688T). The ratios changed but the conclusion is the same — Abbyfile is the cheapest option that provides executable tools.
 
-### Why Agentfile Is the Sweet Spot
+### Why Abbyfile Is the Sweet Spot
 
 Agent Skills are the lightest option at 816T — markdown files with progressive disclosure, ideal for context-only instructions without tools or memory.
 
-Sub-agents provide context isolation but cost 6,688T per invocation — 3.5x Agentfile's cost due to re-paying Claude Code's baseline on every call.
+Sub-agents provide context isolation but cost 6,688T per invocation — 3.5x Abbyfile's cost due to re-paying Claude Code's baseline on every call.
 
-Agentfile sits in the middle at 1,937T: executable tools, persistent memory, and versioned distribution at 2.4x the cost of a pure skill. For repeated use over a session, the cumulative savings over sub-agents are substantial (38,740T vs 133,760T over 20 invocations).
+Abbyfile sits in the middle at 1,937T: executable tools, persistent memory, and versioned distribution at 2.4x the cost of a pure skill. For repeated use over a session, the cumulative savings over sub-agents are substantial (38,740T vs 133,760T over 20 invocations).
 
-These are not mutually exclusive. An Agentfile agent can coexist with skills in the same project, and sub-agents can invoke Agentfile agents' MCP tools.
+These are not mutually exclusive. An Abbyfile agent can coexist with skills in the same project, and sub-agents can invoke Abbyfile agents' MCP tools.
 
 ### Sources
 
@@ -268,14 +268,14 @@ Tests skip gracefully without the key.
 | Approach | Live tokens | Our estimate | Error |
 |----------|------------|--------------|-------|
 | Skill (prompt only) | 816 | 3,000 | 3.7x over |
-| Agentfile (tools + prompt) | 1,937 | 1,460 | 33% under |
+| Abbyfile (tools + prompt) | 1,937 | 1,460 | 33% under |
 | Sub-agent (baseline + agent) | 6,688 | 10,660 | 37% over |
 
-**Ranking confirmed**: Agentfile (1,937T) costs 3.5x less than sub-agents (6,688T) per invocation.
+**Ranking confirmed**: Abbyfile (1,937T) costs 3.5x less than sub-agents (6,688T) per invocation.
 
 ### What each test measures
 
-- **TestLiveAgentfileTokenCount**: exact token count for a community agent vs heuristic/BPE estimates
+- **TestLiveAbbyfileTokenCount**: exact token count for a community agent vs heuristic/BPE estimates
 - **TestLiveSubAgentTokenCount**: full sub-agent invocation cost (baseline + agent tools + prompt)
 - **TestLiveThreeWayValidation**: all three configurations measured, ranking verified
 - **TestLiveCalibration**: all 5 community agents, average correction factors computed
@@ -333,13 +333,13 @@ go test -run TestClaudeCodeBaseline -v ./benchmarks/
 # Article methodology side-by-side
 go test -run TestArticleMethodology -v ./benchmarks/
 
-# Skills vs Agentfile comparison
+# Skills vs Abbyfile comparison
 go test -run TestSkillsComparison -v ./benchmarks/
 
 # Sub-agent cost model
 go test -run TestSubAgentCostModel -v ./benchmarks/
 
-# Three-way comparison (skills vs sub-agents vs agentfile)
+# Three-way comparison (skills vs sub-agents vs abbyfile)
 go test -run TestThreeWayComparison -v ./benchmarks/
 
 # Live validation (requires ANTHROPIC_API_KEY)

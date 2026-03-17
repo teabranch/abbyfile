@@ -10,7 +10,7 @@ CLAUDE.md files work for single-repo instructions, but they break down when you 
 - **Sharing** -- no way to distribute agent logic as a single artifact
 - **Composition** -- no way to wire multiple agents together through MCP
 
-Agentfile packages agent logic as a compiled Go binary. Claude Code remains the LLM -- the binary is just a packaging format.
+Abbyfile packages agent logic as a compiled Go binary. Claude Code remains the LLM -- the binary is just a packaging format.
 
 ## Prerequisites
 
@@ -23,20 +23,20 @@ Pick one:
 
 ```bash
 # Option A: Go users
-go install github.com/teabranch/agentfile/cmd/agentfile@latest
+go install github.com/teabranch/abbyfile/cmd/abby@latest
 
 # Option B: Pre-built binary
-curl -sSL https://raw.githubusercontent.com/teabranch/agentfile/main/install.sh | sh
+curl -sSL https://raw.githubusercontent.com/teabranch/abbyfile/main/install.sh | sh
 
 # Option C: From source
-git clone https://github.com/teabranch/agentfile.git
-cd agentfile
-make build    # → build/agentfile
+git clone https://github.com/teabranch/abbyfile.git
+cd abbyfile
+make build    # → build/abby
 ```
 
-## Step 2: Create an Agentfile
+## Step 2: Create an Abbyfile
 
-Create an `Agentfile` (or `agentfile.yaml`) at your project root:
+Create an `Abbyfile` (or `abbyfile.yaml`) at your project root:
 
 ```yaml
 version: "1"
@@ -71,22 +71,22 @@ When you have tools available, use them to gather information before responding.
 **Block 2** sets capabilities: `tools` (comma-separated) and `description`.
 **Body** is the system prompt baked into the binary.
 
-See the [Agentfile Format Guide](./guides/agentfile-format.md) for full details.
+See the [Abbyfile Format Guide](./guides/abbyfile-format.md) for full details.
 
 ## Step 4: Build
 
 ```bash
-./build/agentfile build
+./build/abby build
 # Building my-agent...
 #   → ./build/my-agent
 # Updated .mcp.json (claude-code)
 
 # Target a specific runtime or all runtimes
-./build/agentfile build --runtime codex    # → .codex/config.toml
-./build/agentfile build --runtime all      # → all detected runtimes
+./build/abby build --runtime codex    # → .codex/config.toml
+./build/abby build --runtime all      # → all detected runtimes
 
 # Optional: also generate a Claude Code plugin directory (with skills support)
-./build/agentfile build --plugin
+./build/abby build --plugin
 # → ./build/my-agent.claude-plugin/
 ```
 
@@ -123,7 +123,7 @@ See the [Agentfile Format Guide](./guides/agentfile-format.md) for full details.
 
 ## Step 6: Connect to Your Runtime
 
-`agentfile build` auto-generates MCP config for detected runtimes. For Claude Code, this is `.mcp.json`:
+`abby build` auto-generates MCP config for detected runtimes. For Claude Code, this is `.mcp.json`:
 
 ```json
 {
@@ -139,9 +139,9 @@ See the [Agentfile Format Guide](./guides/agentfile-format.md) for full details.
 Or install the binary explicitly:
 
 ```bash
-./build/agentfile install my-agent                  # local install, auto-detect runtimes
-./build/agentfile install -g my-agent               # global install
-./build/agentfile install --runtime codex my-agent  # target Codex specifically
+./build/abby install my-agent                  # local install, auto-detect runtimes
+./build/abby install -g my-agent               # global install
+./build/abby install --runtime codex my-agent  # target Codex specifically
 ```
 
 Supported runtimes:
@@ -156,7 +156,7 @@ Your runtime auto-discovers the agent via MCP. It sees the agent's tools, can re
 
 ## What You Get vs. a CLAUDE.md
 
-| Capability | CLAUDE.md | Agentfile Binary |
+| Capability | CLAUDE.md | Abbyfile Binary |
 |---|---|---|
 | System prompt | Markdown file in repo | Baked into binary, override for dev |
 | Versioning | Git history only | Semantic versioning (`--version`) |
@@ -170,7 +170,7 @@ Your runtime auto-discovers the agent via MCP. It sees the agent's tools, can re
 ## Next Steps
 
 - [Examples](../examples/) -- working single-agent and multi-agent configurations
-- [Agentfile Format](./guides/agentfile-format.md) -- Agentfile YAML + agent .md reference
+- [Abbyfile Format](./guides/abbyfile-format.md) -- Abbyfile YAML + agent .md reference
 - [Concepts](./concepts.md) -- understand the architecture and mental model
 - [Tools Guide](./guides/tools.md) -- builtin tools, annotations
 - [Memory Guide](./guides/memory.md) -- persistent state management

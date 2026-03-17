@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/teabranch/agentfile/pkg/tools"
+	"github.com/teabranch/abbyfile/pkg/tools"
 )
 
 // NewRunToolCommand creates the `run-tool` subcommand.

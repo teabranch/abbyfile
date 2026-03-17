@@ -6,11 +6,11 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/teabranch/agentfile/pkg/fsutil"
+	"github.com/teabranch/abbyfile/pkg/fsutil"
 	"gopkg.in/yaml.v3"
 )
 
-// Load reads config.yaml for the named agent from ~/.agentfile/<name>/config.yaml.
+// Load reads config.yaml for the named agent from ~/.abbyfile/<name>/config.yaml.
 // Returns a zero Config (all nil fields) if the file does not exist.
 func Load(agentName string) (*Config, error) {
 	p := Path(agentName)
@@ -38,16 +38,16 @@ func LoadFrom(path string) (*Config, error) {
 	return &cfg, nil
 }
 
-// Path returns ~/.agentfile/<name>/config.yaml, or "" if HOME cannot be resolved.
+// Path returns ~/.abbyfile/<name>/config.yaml, or "" if HOME cannot be resolved.
 func Path(agentName string) string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".agentfile", agentName, "config.yaml")
+	return filepath.Join(home, ".abbyfile", agentName, "config.yaml")
 }
 
-// Write writes a Config to ~/.agentfile/<name>/config.yaml atomically.
+// Write writes a Config to ~/.abbyfile/<name>/config.yaml atomically.
 // Only non-nil fields are written.
 func Write(agentName string, cfg *Config) error {
 	p := Path(agentName)

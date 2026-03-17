@@ -8,11 +8,11 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/teabranch/agentfile/pkg/config"
-	"github.com/teabranch/agentfile/pkg/fsutil"
-	"github.com/teabranch/agentfile/pkg/github"
-	"github.com/teabranch/agentfile/pkg/registry"
-	"github.com/teabranch/agentfile/pkg/runtimecfg"
+	"github.com/teabranch/abbyfile/pkg/config"
+	"github.com/teabranch/abbyfile/pkg/fsutil"
+	"github.com/teabranch/abbyfile/pkg/github"
+	"github.com/teabranch/abbyfile/pkg/registry"
+	"github.com/teabranch/abbyfile/pkg/runtimecfg"
 )
 
 func newInstallCommand() *cobra.Command {
@@ -26,18 +26,18 @@ func newInstallCommand() *cobra.Command {
 		Long: `Installs an agent binary and updates the MCP config for detected runtimes.
 
 Local install (from ./build/):
-  agentfile install my-agent
+  abbyfile install my-agent
 
 Remote install (from GitHub Releases):
-  agentfile install github.com/owner/repo/agent
-  agentfile install github.com/owner/repo/agent@1.0.0
+  abbyfile install github.com/owner/repo/agent
+  abbyfile install github.com/owner/repo/agent@1.0.0
 
-By default, installs to .agentfile/bin/ (project-local) and updates MCP config.
+By default, installs to .abbyfile/bin/ (project-local) and updates MCP config.
 With --global, installs to /usr/local/bin/ and updates global MCP config.
 
 Override settings at install time:
-  agentfile install --model gpt-5 github.com/owner/repo/agent
-  agentfile install --runtime codex github.com/owner/repo/agent`,
+  abbyfile install --model gpt-5 github.com/owner/repo/agent
+  abbyfile install --runtime codex github.com/owner/repo/agent`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			writers, err := runtimecfg.Resolve(runtimeFlag)
@@ -74,7 +74,7 @@ Override settings at install time:
 	}
 
 	cmd.Flags().BoolVarP(&global, "global", "g", false, "Install globally to /usr/local/bin")
-	cmd.Flags().StringVar(&modelOverride, "model", "", "Override the agent's model in ~/.agentfile/<name>/config.yaml")
+	cmd.Flags().StringVar(&modelOverride, "model", "", "Override the agent's model in ~/.abbyfile/<name>/config.yaml")
 	cmd.Flags().StringVar(&runtimeFlag, "runtime", "auto", "Target runtime: auto, all, claude-code, codex, gemini")
 
 	return cmd
@@ -83,7 +83,7 @@ Override settings at install time:
 func runLocalInstall(name string, global bool, writers []runtimecfg.ConfigWriter) error {
 	src := filepath.Join("build", name)
 	if _, err := os.Stat(src); err != nil {
-		return fmt.Errorf("binary not found: %s (run 'agentfile build' first)", src)
+		return fmt.Errorf("binary not found: %s (run 'abbyfile build' first)", src)
 	}
 
 	binDir := installBinDir(global)
@@ -158,7 +158,7 @@ func runRemoteInstall(ref string, global bool, writers []runtimecfg.ConfigWriter
 	fmt.Printf("Downloading %s from %s...\n", asset.Name, release.TagName)
 
 	// Download to temp file.
-	tmpFile, err := os.CreateTemp("", "agentfile-download-*")
+	tmpFile, err := os.CreateTemp("", "abbyfile-download-*")
 	if err != nil {
 		return fmt.Errorf("creating temp file: %w", err)
 	}
@@ -185,7 +185,7 @@ func runRemoteInstall(ref string, global bool, writers []runtimecfg.ConfigWriter
 	// Verify checksum if a checksums file exists in the release.
 	if sumsAsset := findChecksumAsset(release, parsed.Agent); sumsAsset != nil {
 		fmt.Printf("Verifying checksum...\n")
-		sumsFile, sErr := os.CreateTemp("", "agentfile-sums-*")
+		sumsFile, sErr := os.CreateTemp("", "abbyfile-sums-*")
 		if sErr == nil {
 			if sErr = client.DownloadAsset(ctx, *sumsAsset, sumsFile); sErr == nil {
 				sumsFile.Close()
@@ -243,12 +243,12 @@ func runRemoteInstall(ref string, global bool, writers []runtimecfg.ConfigWriter
 }
 
 // installBinDir returns the binary install directory.
-// Binary location is agentfile-internal, independent of runtime.
+// Binary location is abbyfile-internal, independent of runtime.
 func installBinDir(global bool) string {
 	if global {
 		return "/usr/local/bin"
 	}
-	return filepath.Join(".agentfile", "bin")
+	return filepath.Join(".abbyfile", "bin")
 }
 
 // mergeRuntimeConfigs writes MCP server entries to all target runtime configs.

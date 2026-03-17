@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/teabranch/agentfile/pkg/prompt"
-	"github.com/teabranch/agentfile/pkg/tools"
+	"github.com/teabranch/abbyfile/pkg/prompt"
+	"github.com/teabranch/abbyfile/pkg/tools"
 )
 
 // NewValidateCommand creates the `validate` subcommand that checks agent wiring.
@@ -59,7 +59,7 @@ func NewValidateCommand(name, version string, loader *prompt.Loader, registry *t
 					fmt.Fprintf(w, "[FAIL] Memory: cannot determine home directory: %v\n", err)
 					failed = true
 				} else {
-					memDir := filepath.Join(home, ".agentfile", name, "memory")
+					memDir := filepath.Join(home, ".abbyfile", name, "memory")
 					if err := os.MkdirAll(memDir, 0o755); err != nil {
 						fmt.Fprintf(w, "[FAIL] Memory: cannot create directory %s: %v\n", memDir, err)
 						failed = true

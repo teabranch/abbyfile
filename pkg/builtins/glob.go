@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/teabranch/agentfile/pkg/tools"
+	"github.com/teabranch/abbyfile/pkg/tools"
 )
 
 // GlobFilesTool returns a tool definition for file pattern matching.

@@ -9,10 +9,10 @@ import (
 	"time"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	agentmcp "github.com/teabranch/agentfile/pkg/mcp"
-	"github.com/teabranch/agentfile/pkg/memory"
-	"github.com/teabranch/agentfile/pkg/prompt"
-	"github.com/teabranch/agentfile/pkg/tools"
+	agentmcp "github.com/teabranch/abbyfile/pkg/mcp"
+	"github.com/teabranch/abbyfile/pkg/memory"
+	"github.com/teabranch/abbyfile/pkg/prompt"
+	"github.com/teabranch/abbyfile/pkg/tools"
 )
 
 //go:embed testdata/system.md

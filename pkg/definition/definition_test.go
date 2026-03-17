@@ -6,9 +6,9 @@ import (
 	"testing"
 )
 
-func TestParseAgentfile(t *testing.T) {
+func TestParseAbbyfile(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "Agentfile")
+	path := filepath.Join(dir, "Abbyfile")
 
 	content := `version: "1"
 agents:
@@ -23,9 +23,9 @@ agents:
 		t.Fatal(err)
 	}
 
-	af, err := ParseAgentfile(path)
+	af, err := ParseAbbyfile(path)
 	if err != nil {
-		t.Fatalf("ParseAgentfile: %v", err)
+		t.Fatalf("ParseAbbyfile: %v", err)
 	}
 
 	if af.Version != "1" {
@@ -49,7 +49,7 @@ agents:
 	}
 }
 
-func TestParseAgentfile_Validation(t *testing.T) {
+func TestParseAbbyfile_Validation(t *testing.T) {
 	tests := []struct {
 		name    string
 		content string
@@ -85,10 +85,10 @@ func TestParseAgentfile_Validation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
-			path := filepath.Join(dir, "Agentfile")
+			path := filepath.Join(dir, "Abbyfile")
 			os.WriteFile(path, []byte(tt.content), 0o644)
 
-			_, err := ParseAgentfile(path)
+			_, err := ParseAbbyfile(path)
 			if err == nil {
 				t.Fatal("expected error")
 			}
@@ -455,7 +455,7 @@ func TestParseAgentMD_SingleFrontmatter(t *testing.T) {
 name: my-agent
 description: "A single-frontmatter agent"
 model: sonnet
-agentfile:
+abbyfile:
   tools:
     - Read
     - Write
@@ -505,7 +505,7 @@ func TestParseAgentMD_SingleFrontmatter_NoMemory(t *testing.T) {
 
 	content := `---
 name: minimal-single
-agentfile:
+abbyfile:
   tools:
     - Read
 ---
@@ -534,7 +534,7 @@ func TestParseAgentMD_SingleFrontmatter_CustomTools(t *testing.T) {
 	content := `---
 name: deploy-single
 description: "Deploy agent (single format)"
-agentfile:
+abbyfile:
   tools:
     - Read
   custom_tools:
@@ -577,7 +577,7 @@ func TestParseAgentMD_SingleFrontmatter_Skills(t *testing.T) {
 	content := `---
 name: reviewer
 description: "Code reviewer"
-agentfile:
+abbyfile:
   tools:
     - Read
   skills:
@@ -606,14 +606,14 @@ You review code.
 	}
 }
 
-func TestParseAgentMD_SingleFrontmatter_MissingAgentfileKey(t *testing.T) {
+func TestParseAgentMD_SingleFrontmatter_MissingAbbyfileKey(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "agent.md")
 
-	// Single frontmatter without the agentfile: key should fail.
+	// Single frontmatter without the abbyfile: key should fail.
 	content := `---
 name: bad-agent
-description: "No agentfile key"
+description: "No abbyfile key"
 ---
 
 Prompt body.
@@ -622,10 +622,10 @@ Prompt body.
 
 	_, err := ParseAgentMD(path)
 	if err == nil {
-		t.Fatal("expected error for single frontmatter without agentfile key")
+		t.Fatal("expected error for single frontmatter without abbyfile key")
 	}
-	if !containsStr(err.Error(), "agentfile") {
-		t.Errorf("error = %q, want to mention agentfile", err.Error())
+	if !containsStr(err.Error(), "abbyfile") {
+		t.Errorf("error = %q, want to mention abbyfile", err.Error())
 	}
 }
 
@@ -635,7 +635,7 @@ func TestParseAgentMD_SingleFrontmatter_MissingName(t *testing.T) {
 
 	content := `---
 description: "No name"
-agentfile:
+abbyfile:
   tools:
     - Read
 ---
@@ -688,9 +688,9 @@ Dual format prompt.
 	}
 }
 
-func TestParseAgentfile_Dependencies(t *testing.T) {
+func TestParseAbbyfile_Dependencies(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "Agentfile")
+	path := filepath.Join(dir, "Abbyfile")
 
 	content := `version: "1"
 agents:
@@ -705,9 +705,9 @@ agents:
 `
 	os.WriteFile(path, []byte(content), 0o644)
 
-	af, err := ParseAgentfile(path)
+	af, err := ParseAbbyfile(path)
 	if err != nil {
-		t.Fatalf("ParseAgentfile: %v", err)
+		t.Fatalf("ParseAbbyfile: %v", err)
 	}
 
 	te := af.Agents["tool-eng"]
@@ -716,9 +716,9 @@ agents:
 	}
 }
 
-func TestParseAgentfile_InvalidDependency(t *testing.T) {
+func TestParseAbbyfile_InvalidDependency(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "Agentfile")
+	path := filepath.Join(dir, "Abbyfile")
 
 	content := `version: "1"
 agents:
@@ -730,7 +730,7 @@ agents:
 `
 	os.WriteFile(path, []byte(content), 0o644)
 
-	_, err := ParseAgentfile(path)
+	_, err := ParseAbbyfile(path)
 	if err == nil {
 		t.Fatal("expected error for invalid dependency")
 	}
@@ -739,9 +739,9 @@ agents:
 	}
 }
 
-func TestParseAgentfile_SelfDependency(t *testing.T) {
+func TestParseAbbyfile_SelfDependency(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "Agentfile")
+	path := filepath.Join(dir, "Abbyfile")
 
 	content := `version: "1"
 agents:
@@ -753,7 +753,7 @@ agents:
 `
 	os.WriteFile(path, []byte(content), 0o644)
 
-	_, err := ParseAgentfile(path)
+	_, err := ParseAbbyfile(path)
 	if err == nil {
 		t.Fatal("expected error for self-dependency")
 	}
@@ -762,9 +762,9 @@ agents:
 	}
 }
 
-func TestParseAgentfile_PublishTargets(t *testing.T) {
+func TestParseAbbyfile_PublishTargets(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "Agentfile")
+	path := filepath.Join(dir, "Abbyfile")
 
 	content := `version: "1"
 agents:
@@ -780,9 +780,9 @@ publish:
 `
 	os.WriteFile(path, []byte(content), 0o644)
 
-	af, err := ParseAgentfile(path)
+	af, err := ParseAbbyfile(path)
 	if err != nil {
-		t.Fatalf("ParseAgentfile: %v", err)
+		t.Fatalf("ParseAbbyfile: %v", err)
 	}
 
 	if af.Publish == nil {

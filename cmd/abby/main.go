@@ -1,4 +1,4 @@
-// Package main is the agentfile CLI — builds declarative agent definitions
+// Package main is the abby CLI — builds declarative agent definitions
 // into standalone CLI binaries that integrate with Claude Code via MCP.
 package main
 
@@ -21,17 +21,17 @@ func main() {
 
 func newRootCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "agentfile",
-		Short: "Build and manage Agentfile agents",
-		Long: `agentfile builds declarative agent definitions into standalone CLI binaries
+		Use:   "abby",
+		Short: "Build and manage Abbyfile agents",
+		Long: `abby builds declarative agent definitions into standalone CLI binaries
 that integrate with Claude Code via the MCP protocol.
 
-Declare agents in an Agentfile (YAML) pointing to .md files with prompts
-and tool declarations, then run 'agentfile build' to get binaries.`,
+Declare agents in an Abbyfile (YAML) pointing to .md files with prompts
+and tool declarations, then run 'abby build' to get binaries.`,
 	}
 
 	cmd.Version = cliVersion
-	cmd.SetVersionTemplate("agentfile v{{.Version}}\n")
+	cmd.SetVersionTemplate("abby v{{.Version}}\n")
 
 	cmd.AddCommand(newBuildCommand())
 	cmd.AddCommand(newInstallCommand())

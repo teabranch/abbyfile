@@ -6,31 +6,31 @@ import (
 	"testing"
 )
 
-func TestResolveAgentfile(t *testing.T) {
+func TestResolveAbbyfile(t *testing.T) {
 	tests := []struct {
 		name  string
 		files []string
 		want  string
 	}{
 		{
-			name:  "only Agentfile",
-			files: []string{"Agentfile"},
-			want:  "Agentfile",
+			name:  "only Abbyfile",
+			files: []string{"Abbyfile"},
+			want:  "Abbyfile",
 		},
 		{
-			name:  "only agentfile.yaml",
-			files: []string{"agentfile.yaml"},
-			want:  "agentfile.yaml",
+			name:  "only abbyfile.yaml",
+			files: []string{"abbyfile.yaml"},
+			want:  "abbyfile.yaml",
 		},
 		{
-			name:  "both present Agentfile wins",
-			files: []string{"Agentfile", "agentfile.yaml"},
-			want:  "Agentfile",
+			name:  "both present Abbyfile wins",
+			files: []string{"Abbyfile", "abbyfile.yaml"},
+			want:  "Abbyfile",
 		},
 		{
-			name:  "neither present falls back to Agentfile",
+			name:  "neither present falls back to Abbyfile",
 			files: nil,
-			want:  "Agentfile",
+			want:  "Abbyfile",
 		},
 	}
 
@@ -44,7 +44,7 @@ func TestResolveAgentfile(t *testing.T) {
 				}
 			}
 
-			// Run resolveAgentfile from inside the temp directory.
+			// Run resolveAbbyfile from inside the temp directory.
 			orig, err := os.Getwd()
 			if err != nil {
 				t.Fatal(err)
@@ -55,9 +55,9 @@ func TestResolveAgentfile(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			got := resolveAgentfile()
+			got := resolveAbbyfile()
 			if got != tt.want {
-				t.Errorf("resolveAgentfile() = %q, want %q", got, tt.want)
+				t.Errorf("resolveAbbyfile() = %q, want %q", got, tt.want)
 			}
 		})
 	}

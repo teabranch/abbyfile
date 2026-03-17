@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/teabranch/agentfile/pkg/tools"
+	"github.com/teabranch/abbyfile/pkg/tools"
 )
 
 // AnthropicClient is a thin HTTP client for the Anthropic count_tokens API.

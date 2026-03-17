@@ -1,6 +1,6 @@
 # Memory Guide
 
-Agentfile provides per-agent persistent memory as a file-based key-value store. Each agent's memory lives at `~/.agentfile/<name>/memory/` and persists across conversations.
+Abbyfile provides per-agent persistent memory as a file-based key-value store. Each agent's memory lives at `~/.abbyfile/<name>/memory/` and persists across conversations.
 
 ## Enabling Memory
 
@@ -10,7 +10,7 @@ agent.WithMemory(true),
 
 This does two things:
 
-1. Creates a `FileStore` at `~/.agentfile/<name>/memory/`
+1. Creates a `FileStore` at `~/.abbyfile/<name>/memory/`
 2. Registers four builtin tools: `memory_read`, `memory_write`, `memory_list`, `memory_delete`
 
 ## CLI Commands
@@ -79,7 +79,7 @@ A `memory-context` prompt template is registered:
 
 ## Storage Details
 
-Each key is stored as a file at `~/.agentfile/<name>/memory/<key>.md`. Keys:
+Each key is stored as a file at `~/.abbyfile/<name>/memory/<key>.md`. Keys:
 
 - Must not be empty
 - Must not contain path separators (`/` or `\`)
@@ -162,7 +162,7 @@ func TestMyAgent_Memory(t *testing.T) {
 }
 ```
 
-`NewFileStoreAt()` creates a store at a specific directory instead of `~/.agentfile/<name>/memory/`. This avoids polluting the user's home directory during tests.
+`NewFileStoreAt()` creates a store at a specific directory instead of `~/.abbyfile/<name>/memory/`. This avoids polluting the user's home directory during tests.
 
 For testing limits:
 

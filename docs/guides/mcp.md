@@ -1,6 +1,6 @@
 # MCP Integration Guide
 
-Agentfile agents integrate with MCP-compatible runtimes (Claude Code, Codex, Gemini CLI) through the Model Context Protocol (MCP). The `serve-mcp` subcommand starts an MCP-over-stdio server that exposes the agent's tools, prompts, and memory.
+Abbyfile agents integrate with MCP-compatible runtimes (Claude Code, Codex, Gemini CLI) through the Model Context Protocol (MCP). The `serve-mcp` subcommand starts an MCP-over-stdio server that exposes the agent's tools, prompts, and memory.
 
 ## What `serve-mcp` Exposes
 
@@ -41,7 +41,7 @@ This is informational — the runtime decides which model to use.
 
 ## Runtime Config Files
 
-`agentfile build` and `agentfile install` auto-generate MCP config for detected runtimes. Use `--runtime` to target a specific runtime.
+`abby build` and `abby install` auto-generate MCP config for detected runtimes. Use `--runtime` to target a specific runtime.
 
 | Runtime | Local Config | Global Config | Format |
 |---------|-------------|---------------|--------|
@@ -82,7 +82,7 @@ Use `go run` so code changes take effect without rebuilding:
 }
 ```
 
-`agentfile build` auto-generates `.mcp.json` with entries like:
+`abby build` auto-generates `.mcp.json` with entries like:
 
 ```json
 {
@@ -118,7 +118,7 @@ Each agent runs as a separate MCP server process. Claude Code manages the lifecy
 
 ## The MCP Bridge
 
-The `pkg/mcp` package translates between Agentfile's internal types and the MCP protocol. It uses the official Go MCP SDK (`github.com/modelcontextprotocol/go-sdk`).
+The `pkg/mcp` package translates between Abbyfile's internal types and the MCP protocol. It uses the official Go MCP SDK (`github.com/modelcontextprotocol/go-sdk`).
 
 The bridge:
 
@@ -229,10 +229,10 @@ agent.WithLogger(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
 
 ## Plugin Alternative
 
-Instead of wiring `.mcp.json` manually, you can generate a Claude Code plugin directory with `agentfile build --plugin`. The plugin wraps the binary with its own `.mcp.json` and adds skills:
+Instead of wiring `.mcp.json` manually, you can generate a Claude Code plugin directory with `abby build --plugin`. The plugin wraps the binary with its own `.mcp.json` and adds skills:
 
 ```bash
-agentfile build --plugin
+abby build --plugin
 claude --plugin-dir ./build/my-agent.claude-plugin/
 ```
 
@@ -240,6 +240,6 @@ The plugin's `.mcp.json` uses a relative path (`./my-agent`), making the directo
 
 ## Compatibility
 
-Agentfile uses the standard MCP protocol. All three supported runtimes (Claude Code, Codex, Gemini CLI) connect via MCP-over-stdio, and any other MCP client can connect to an agent's `serve-mcp` server. The binary is a generic MCP server that happens to be built with Agentfile.
+Abbyfile uses the standard MCP protocol. All three supported runtimes (Claude Code, Codex, Gemini CLI) connect via MCP-over-stdio, and any other MCP client can connect to an agent's `serve-mcp` server. The binary is a generic MCP server that happens to be built with Abbyfile.
 
 The `--runtime` flag on `build`, `install`, and `uninstall` controls which runtime configs are generated. The `auto` default detects installed runtimes. Use `all` to target all three.

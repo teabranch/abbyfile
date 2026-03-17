@@ -44,19 +44,19 @@ You are a test agent with plugin skills.
 `
 	os.WriteFile(filepath.Join(tmp, "agents", "plugin-test-agent.md"), []byte(agentMD), 0o644)
 
-	// Write Agentfile.
-	agentfile := `version: "1"
+	// Write Abbyfile.
+	abbyfileYAML := `version: "1"
 agents:
   plugin-test-agent:
     path: agents/plugin-test-agent.md
     version: 0.5.0
 `
-	os.WriteFile(filepath.Join(tmp, "Agentfile"), []byte(agentfile), 0o644)
+	os.WriteFile(filepath.Join(tmp, "Abbyfile"), []byte(abbyfileYAML), 0o644)
 
 	// Build with --plugin.
 	buildDir := filepath.Join(tmp, "build")
-	cmd := exec.Command(agentfileBin, "build",
-		"-f", filepath.Join(tmp, "Agentfile"),
+	cmd := exec.Command(abbyBin, "build",
+		"-f", filepath.Join(tmp, "Abbyfile"),
 		"-o", buildDir,
 		"--plugin",
 	)
@@ -64,7 +64,7 @@ agents:
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		t.Fatalf("agentfile build --plugin: %v", err)
+		t.Fatalf("abby build --plugin: %v", err)
 	}
 
 	pluginDir := filepath.Join(buildDir, "plugin-test-agent.claude-plugin")
@@ -96,7 +96,7 @@ agents:
 			Name        string `json:"name"`
 			Version     string `json:"version"`
 			Description string `json:"description"`
-			Agentfile   bool   `json:"agentfile"`
+			Abbyfile    bool   `json:"abbyfile"`
 		}
 		if err := json.Unmarshal(data, &pj); err != nil {
 			t.Fatalf("parsing plugin.json: %v", err)
@@ -107,8 +107,8 @@ agents:
 		if pj.Version != "0.5.0" {
 			t.Errorf("version = %q, want %q", pj.Version, "0.5.0")
 		}
-		if !pj.Agentfile {
-			t.Error("agentfile = false, want true")
+		if !pj.Abbyfile {
+			t.Error("abbyfile = false, want true")
 		}
 	})
 

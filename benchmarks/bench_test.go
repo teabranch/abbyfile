@@ -10,14 +10,14 @@ import (
 	"testing"
 	"time"
 
-	agentmcp "github.com/teabranch/agentfile/pkg/mcp"
-	"github.com/teabranch/agentfile/pkg/tools"
+	agentmcp "github.com/teabranch/abbyfile/pkg/mcp"
+	"github.com/teabranch/abbyfile/pkg/tools"
 
-	"github.com/teabranch/agentfile/benchmarks"
-	"github.com/teabranch/agentfile/pkg/builtins"
-	"github.com/teabranch/agentfile/pkg/definition"
-	"github.com/teabranch/agentfile/pkg/memory"
-	"github.com/teabranch/agentfile/pkg/prompt"
+	"github.com/teabranch/abbyfile/benchmarks"
+	"github.com/teabranch/abbyfile/pkg/builtins"
+	"github.com/teabranch/abbyfile/pkg/definition"
+	"github.com/teabranch/abbyfile/pkg/memory"
+	"github.com/teabranch/abbyfile/pkg/prompt"
 )
 
 //go:embed testdata/system.md
@@ -568,10 +568,10 @@ func TestTokenizerComparison(t *testing.T) {
 func TestMultiTurnProjection(t *testing.T) {
 	turns := benchmarks.DefaultTurnCounts()
 
-	// Agentfile 10-tool agent.
+	// Abbyfile 10-tool agent.
 	focusedTools := benchmarks.MeasureTools(benchmarks.GenerateTools(10))
-	agentfileReport := benchmarks.ProjectMultiTurn(
-		"Agentfile (10 tools + prompt)",
+	abbyfileReport := benchmarks.ProjectMultiTurn(
+		"Abbyfile (10 tools + prompt)",
 		focusedTools.SchemaTokens,
 		845, // prompt tokens from our system.md testdata
 		turns,
@@ -595,23 +595,23 @@ func TestMultiTurnProjection(t *testing.T) {
 
 	t.Log("\n" + benchmarks.FormatMultiTurnComparison([]*benchmarks.MultiTurnReport{
 		githubReport,
-		agentfileReport,
+		abbyfileReport,
 	}))
 
 	t.Log("\n" + benchmarks.FormatMultiTurnComparison([]*benchmarks.MultiTurnReport{
 		enterpriseReport,
-		agentfileReport,
+		abbyfileReport,
 	}))
 
 	// Verify: over 20 turns, the savings are massive.
 	for _, p := range githubReport.Projections {
 		if p.Turns == 20 {
 			githubCumulative := p.CumulativeTotal
-			agentfileCumulative := agentfileReport.PerTurn * 20
-			saved := githubCumulative - agentfileCumulative
-			t.Logf("Over 20 turns: GitHub MCP = %dT, Agentfile = %dT, saved = %dT (%.0fx reduction)",
-				githubCumulative, agentfileCumulative, saved,
-				float64(githubCumulative)/float64(agentfileCumulative))
+			abbyfileCumulative := abbyfileReport.PerTurn * 20
+			saved := githubCumulative - abbyfileCumulative
+			t.Logf("Over 20 turns: GitHub MCP = %dT, Abbyfile = %dT, saved = %dT (%.0fx reduction)",
+				githubCumulative, abbyfileCumulative, saved,
+				float64(githubCumulative)/float64(abbyfileCumulative))
 		}
 	}
 }
@@ -621,7 +621,7 @@ func TestMultiTurnProjection(t *testing.T) {
 func TestClaudeCodeBaseline(t *testing.T) {
 	baseline := benchmarks.EstimateClaudeCodeBaseline()
 
-	// Measure real Agentfile builtin tools for marginal cost.
+	// Measure real Abbyfile builtin tools for marginal cost.
 	allDefs := builtins.All()
 	toolMeasure := benchmarks.MeasureTools(allDefs)
 	promptTokens := benchmarks.EstimateTokens("You are a senior Go developer...") // representative prompt
@@ -709,7 +709,7 @@ func TestArticleMethodology(t *testing.T) {
 // --- Test: GeneratePlatformTools ---
 
 // ==========================================================================
-// Skills vs Sub-agents vs Agentfile benchmarks
+// Skills vs Sub-agents vs Abbyfile benchmarks
 // ==========================================================================
 
 // --- Test: Skills Comparison ---
@@ -747,7 +747,7 @@ func TestSkillsComparison(t *testing.T) {
 	m := benchmarks.MeasureTools(toolDefs)
 	promptTokens := benchmarks.EstimateTokens(agentDef.PromptBody)
 
-	agentfileCost := benchmarks.AgentfileCost{
+	abbyfileCost := benchmarks.AbbyfileCost{
 		Name:            agentDef.Name,
 		ToolTokens:      m.SchemaTokens,
 		PromptTokens:    promptTokens,
@@ -759,21 +759,21 @@ func TestSkillsComparison(t *testing.T) {
 	}
 
 	skillCost := benchmarks.EstimateSkillCost("equivalent-skill", benchmarks.DefaultSkillTiers())
-	cmp := benchmarks.CompareSkillsVsAgentfile(skillCost, &agentfileCost)
+	cmp := benchmarks.CompareSkillsVsAbbyfile(skillCost, &abbyfileCost)
 
 	t.Log("\n" + benchmarks.FormatSkillsComparison(cmp))
 
-	// Verify: Agentfile token cost is in the same order of magnitude as loaded skill (within 3x).
+	// Verify: Abbyfile token cost is in the same order of magnitude as loaded skill (within 3x).
 	if cmp.TokenRatio > 3.0 {
-		t.Errorf("Agentfile costs %.1fx a loaded skill — expected within 3x", cmp.TokenRatio)
+		t.Errorf("Abbyfile costs %.1fx a loaded skill — expected within 3x", cmp.TokenRatio)
 	}
-	t.Logf("Agentfile costs %.1fx a loaded skill (same order of magnitude)", cmp.TokenRatio)
+	t.Logf("Abbyfile costs %.1fx a loaded skill (same order of magnitude)", cmp.TokenRatio)
 
-	// Verify: Agentfile has capabilities skills lack.
+	// Verify: Abbyfile has capabilities skills lack.
 	if len(cmp.FeatureDelta) < 3 {
 		t.Errorf("expected at least 3 feature advantages, got %d", len(cmp.FeatureDelta))
 	}
-	t.Logf("Agentfile adds %d capabilities over skills: %v", len(cmp.FeatureDelta), cmp.FeatureDelta)
+	t.Logf("Abbyfile adds %d capabilities over skills: %v", len(cmp.FeatureDelta), cmp.FeatureDelta)
 }
 
 // --- Test: Sub-Agent Cost Model ---
@@ -788,15 +788,15 @@ func TestSubAgentCostModel(t *testing.T) {
 
 	// Project over standard invocation counts.
 	counts := benchmarks.DefaultInvocationCounts()
-	agentfilePerTurn := focusedTools.SchemaTokens + promptTokens
+	abbyfilePerTurn := focusedTools.SchemaTokens + promptTokens
 
-	cmp := benchmarks.CompareSubAgentVsAgentfile(inv, agentfilePerTurn, counts)
+	cmp := benchmarks.CompareSubAgentVsAbbyfile(inv, abbyfilePerTurn, counts)
 	t.Log("\n" + benchmarks.FormatSubAgentComparison(cmp))
 
-	// Verify: sub-agent cumulative exceeds Agentfile by >3x at 5+ invocations.
+	// Verify: sub-agent cumulative exceeds Abbyfile by >3x at 5+ invocations.
 	for _, p := range cmp.Projections {
 		if p.Invocations >= 5 && p.Ratio < 3.0 {
-			t.Errorf("at %d invocations, sub-agent should cost >3x Agentfile, got %.1fx",
+			t.Errorf("at %d invocations, sub-agent should cost >3x Abbyfile, got %.1fx",
 				p.Invocations, p.Ratio)
 		}
 	}
@@ -816,8 +816,8 @@ func TestSubAgentCostModel(t *testing.T) {
 		}
 	}
 
-	t.Logf("Sub-agent costs %.1fx Agentfile per invocation (%dT vs %dT)",
-		cmp.Projections[0].Ratio, inv.PerCallTokens, agentfilePerTurn)
+	t.Logf("Sub-agent costs %.1fx Abbyfile per invocation (%dT vs %dT)",
+		cmp.Projections[0].Ratio, inv.PerCallTokens, abbyfilePerTurn)
 }
 
 // --- Test: Three-Way Comparison ---
@@ -857,26 +857,26 @@ func TestThreeWayComparison(t *testing.T) {
 	t.Log("\n" + benchmarks.FormatThreeWayComparison(cmp))
 	t.Log("\n" + benchmarks.FormatThreeWaySummary())
 
-	// Verify: Agentfile per-turn cost < sub-agent per-call cost.
-	if cmp.Agentfile.PerTurnCost >= cmp.SubAgent.PerTurnCost {
-		t.Errorf("Agentfile per-turn (%d) should be less than sub-agent per-call (%d)",
-			cmp.Agentfile.PerTurnCost, cmp.SubAgent.PerTurnCost)
+	// Verify: Abbyfile per-turn cost < sub-agent per-call cost.
+	if cmp.Abbyfile.PerTurnCost >= cmp.SubAgent.PerTurnCost {
+		t.Errorf("Abbyfile per-turn (%d) should be less than sub-agent per-call (%d)",
+			cmp.Abbyfile.PerTurnCost, cmp.SubAgent.PerTurnCost)
 	}
 
-	// Verify: Agentfile has more capabilities than skills.
-	if len(cmp.Agentfile.Capabilities) <= len(cmp.Skill.Capabilities) {
-		t.Errorf("Agentfile should have more capabilities (%d) than skills (%d)",
-			len(cmp.Agentfile.Capabilities), len(cmp.Skill.Capabilities))
+	// Verify: Abbyfile has more capabilities than skills.
+	if len(cmp.Abbyfile.Capabilities) <= len(cmp.Skill.Capabilities) {
+		t.Errorf("Abbyfile should have more capabilities (%d) than skills (%d)",
+			len(cmp.Abbyfile.Capabilities), len(cmp.Skill.Capabilities))
 	}
 
-	// Verify: Agentfile per-turn cost is in same order of magnitude as loaded skill.
-	ratio := float64(cmp.Agentfile.PerTurnCost) / float64(cmp.Skill.PerTurnCost)
+	// Verify: Abbyfile per-turn cost is in same order of magnitude as loaded skill.
+	ratio := float64(cmp.Abbyfile.PerTurnCost) / float64(cmp.Skill.PerTurnCost)
 	if ratio > 3.0 {
-		t.Errorf("Agentfile per-turn (%d) should be within 3x of skill loaded (%d), got %.1fx",
-			cmp.Agentfile.PerTurnCost, cmp.Skill.PerTurnCost, ratio)
+		t.Errorf("Abbyfile per-turn (%d) should be within 3x of skill loaded (%d), got %.1fx",
+			cmp.Abbyfile.PerTurnCost, cmp.Skill.PerTurnCost, ratio)
 	}
-	t.Logf("Cost ratio: Agentfile/Skill=%.1fx, SubAgent/Agentfile=%.1fx",
-		ratio, float64(cmp.SubAgent.PerTurnCost)/float64(cmp.Agentfile.PerTurnCost))
+	t.Logf("Cost ratio: Abbyfile/Skill=%.1fx, SubAgent/Abbyfile=%.1fx",
+		ratio, float64(cmp.SubAgent.PerTurnCost)/float64(cmp.Abbyfile.PerTurnCost))
 }
 
 func TestGeneratePlatformTools(t *testing.T) {

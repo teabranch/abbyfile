@@ -5,7 +5,7 @@ package builtins
 import (
 	"fmt"
 
-	"github.com/teabranch/agentfile/pkg/tools"
+	"github.com/teabranch/abbyfile/pkg/tools"
 )
 
 // Claude Code tool names that agents can declare in their .md frontmatter.

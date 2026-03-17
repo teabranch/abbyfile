@@ -36,7 +36,7 @@ func TestLoader_Load_Override(t *testing.T) {
 	t.Setenv("HOME", tmpHome)
 
 	agentName := "test-override-agent"
-	overrideDir := filepath.Join(tmpHome, ".agentfile", agentName)
+	overrideDir := filepath.Join(tmpHome, ".abbyfile", agentName)
 	if err := os.MkdirAll(overrideDir, 0o755); err != nil {
 		t.Fatal(err)
 	}

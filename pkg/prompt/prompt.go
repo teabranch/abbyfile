@@ -11,7 +11,7 @@ import (
 )
 
 // Loader loads system prompts from an embedded filesystem, with optional
-// override from a local file at ~/.agentfile/<agent-name>/override.md.
+// override from a local file at ~/.abbyfile/<agent-name>/override.md.
 type Loader struct {
 	agentName string
 	embedFS   embed.FS
@@ -58,5 +58,5 @@ func (l *Loader) OverridePath() string {
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".agentfile", l.agentName, "override.md")
+	return filepath.Join(home, ".abbyfile", l.agentName, "override.md")
 }

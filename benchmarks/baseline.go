@@ -19,7 +19,7 @@ import (
 type ClaudeCodeBaseline struct {
 	// Per-tool token estimates (from observable Claude Code tool definitions).
 	// Claude Code's built-in tools have much longer descriptions than the
-	// equivalent Agentfile/MCP tool schemas.
+	// equivalent Abbyfile/MCP tool schemas.
 	BuiltinTools map[string]int
 
 	// System prompt: instructions, rules, environment context, formatting
@@ -38,7 +38,7 @@ func EstimateClaudeCodeBaseline() *ClaudeCodeBaseline {
 	// Token estimates based on observable Claude Code v1.x tool definitions.
 	// Each tool's full description (with usage rules, examples, constraints)
 	// is included in every API request. Claude Code's descriptions are much
-	// longer than the minimal schemas Agentfile agents register via MCP.
+	// longer than the minimal schemas Abbyfile agents register via MCP.
 	//
 	// Method: measured tool descriptions from Claude Code session transcripts,
 	// estimated at ~4 bytes/token for the description text.
@@ -89,7 +89,7 @@ func EstimateClaudeCodeBaseline() *ClaudeCodeBaseline {
 	}
 }
 
-// MarginalCost represents the additional context cost of loading an Agentfile agent.
+// MarginalCost represents the additional context cost of loading an Abbyfile agent.
 type MarginalCost struct {
 	AgentName       string
 	AgentTokens     int     // tokens the agent adds
@@ -101,7 +101,7 @@ type MarginalCost struct {
 	BudgetDelta     float64 // percentage points added
 }
 
-// ComputeMarginalCost calculates how much context an Agentfile agent adds
+// ComputeMarginalCost calculates how much context an Abbyfile agent adds
 // on top of Claude Code's existing overhead.
 func ComputeMarginalCost(agentName string, agentTokens int, baseline *ClaudeCodeBaseline) *MarginalCost {
 	combined := baseline.TotalBaseTokens + agentTokens
@@ -131,7 +131,7 @@ func FormatBaselineAnalysis(baseline *ClaudeCodeBaseline, marginals []*MarginalC
 		float64(baseline.TotalBaseTokens)/float64(ContextWindow)*100)
 
 	if len(marginals) > 0 {
-		b.WriteString("  Marginal cost of adding Agentfile agents:\n")
+		b.WriteString("  Marginal cost of adding Abbyfile agents:\n")
 		for _, m := range marginals {
 			fmt.Fprintf(&b, "    %-20s +%d tokens (+%.1f%% over baseline, %.1f%% -> %.1f%% of 128K)\n",
 				m.AgentName, m.AgentTokens, m.MarginalPercent, m.BudgetBefore, m.BudgetAfter)

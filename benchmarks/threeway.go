@@ -14,21 +14,21 @@ type ApproachSummary struct {
 	Limitations  []string `json:"limitations"`   // what it lacks
 }
 
-// ThreeWayComparison holds the full skills vs sub-agents vs Agentfile analysis.
+// ThreeWayComparison holds the full skills vs sub-agents vs Abbyfile analysis.
 type ThreeWayComparison struct {
-	Skill     ApproachSummary `json:"skill"`
-	SubAgent  ApproachSummary `json:"sub_agent"`
-	Agentfile ApproachSummary `json:"agentfile"`
+	Skill    ApproachSummary `json:"skill"`
+	SubAgent ApproachSummary `json:"sub_agent"`
+	Abbyfile ApproachSummary `json:"abbyfile"`
 }
 
-// CompareThreeWay builds a three-way comparison using measured Agentfile costs
+// CompareThreeWay builds a three-way comparison using measured Abbyfile costs
 // and estimated costs for skills and sub-agents.
 //
 // Cost model per turn:
 //   - Skills: loaded tokens (text in context, no tool schemas)
 //   - Sub-agents: baseline (~9.2K) + tools + prompt per invocation (separate API call)
-//   - Agentfile: tools + prompt marginal on existing context (same API call)
-func CompareThreeWay(agentfileToolTokens, agentfilePromptTokens int) *ThreeWayComparison {
+//   - Abbyfile: tools + prompt marginal on existing context (same API call)
+func CompareThreeWay(abbyfileToolTokens, abbyfilePromptTokens int) *ThreeWayComparison {
 	baseline := EstimateClaudeCodeBaseline()
 	skillTiers := DefaultSkillTiers()
 
@@ -41,8 +41,8 @@ func CompareThreeWay(agentfileToolTokens, agentfilePromptTokens int) *ThreeWayCo
 		}
 	}
 
-	agentfilePerTurn := agentfileToolTokens + agentfilePromptTokens
-	subAgentPerCall := baseline.TotalBaseTokens + agentfileToolTokens + agentfilePromptTokens
+	abbyfilePerTurn := abbyfileToolTokens + abbyfilePromptTokens
+	subAgentPerCall := baseline.TotalBaseTokens + abbyfileToolTokens + abbyfilePromptTokens
 
 	return &ThreeWayComparison{
 		Skill: ApproachSummary{
@@ -77,10 +77,10 @@ func CompareThreeWay(agentfileToolTokens, agentfilePromptTokens int) *ThreeWayCo
 				"Results opaque to parent context",
 			},
 		},
-		Agentfile: ApproachSummary{
-			Name:        "Agentfile",
-			TokenCost:   fmt.Sprintf("~%dT marginal (tools + prompt)", agentfilePerTurn),
-			PerTurnCost: agentfilePerTurn,
+		Abbyfile: ApproachSummary{
+			Name:        "Abbyfile",
+			TokenCost:   fmt.Sprintf("~%dT marginal (tools + prompt)", abbyfilePerTurn),
+			PerTurnCost: abbyfilePerTurn,
 			Capabilities: []string{
 				"Executable tools via MCP",
 				"Persistent memory across conversations",
@@ -100,30 +100,30 @@ func CompareThreeWay(agentfileToolTokens, agentfilePromptTokens int) *ThreeWayCo
 // FormatThreeWayComparison outputs the full three-way analysis as text.
 func FormatThreeWayComparison(cmp *ThreeWayComparison) string {
 	var b strings.Builder
-	b.WriteString("Three-way comparison: Skills vs Sub-agents vs Agentfile\n\n")
+	b.WriteString("Three-way comparison: Skills vs Sub-agents vs Abbyfile\n\n")
 
 	// Cost comparison table.
 	b.WriteString("  Per-turn/per-call cost model:\n")
 	fmt.Fprintf(&b, "    %-15s  %s\n", "Agent Skills:", cmp.Skill.TokenCost)
 	fmt.Fprintf(&b, "    %-15s  %s\n", "Sub-agents:", cmp.SubAgent.TokenCost)
-	fmt.Fprintf(&b, "    %-15s  %s\n", "Agentfile:", cmp.Agentfile.TokenCost)
+	fmt.Fprintf(&b, "    %-15s  %s\n", "Abbyfile:", cmp.Abbyfile.TokenCost)
 
 	// Feature matrix.
 	b.WriteString("\n  Feature matrix:\n")
 	fmt.Fprintf(&b, "    %-30s  %-14s  %-14s  %-14s\n",
-		"Feature", "Skills", "Sub-agents", "Agentfile")
+		"Feature", "Skills", "Sub-agents", "Abbyfile")
 	fmt.Fprintf(&b, "    %-30s  %-14s  %-14s  %-14s\n",
 		strings.Repeat("-", 30), strings.Repeat("-", 14), strings.Repeat("-", 14), strings.Repeat("-", 14))
 
 	features := []struct {
-		name                       string
-		skill, subagent, agentfile string
+		name                      string
+		skill, subagent, abbyfile string
 	}{
-		{"Context cost", fmt.Sprintf("~%dT loaded", cmp.Skill.PerTurnCost), fmt.Sprintf("~%dT/call", cmp.SubAgent.PerTurnCost), fmt.Sprintf("~%dT marginal", cmp.Agentfile.PerTurnCost)},
+		{"Context cost", fmt.Sprintf("~%dT loaded", cmp.Skill.PerTurnCost), fmt.Sprintf("~%dT/call", cmp.SubAgent.PerTurnCost), fmt.Sprintf("~%dT marginal", cmp.Abbyfile.PerTurnCost)},
 		{"Executable tools", "no", "yes (inherited)", "yes (MCP)"},
 		{"Persistent memory", "no", "no", "yes"},
 		{"Versioning", "no", "no", "semver"},
-		{"Distribution", "folder copy", "no", "agentfile install"},
+		{"Distribution", "folder copy", "no", "abby install"},
 		{"Context isolation", "no", "yes", "no"},
 		{"Cost model", "text in context", "baseline/call", "marginal/turn"},
 		{"Validation/testing", "no", "no", "yes"},
@@ -131,7 +131,7 @@ func FormatThreeWayComparison(cmp *ThreeWayComparison) string {
 
 	for _, f := range features {
 		fmt.Fprintf(&b, "    %-30s  %-14s  %-14s  %-14s\n",
-			f.name, f.skill, f.subagent, f.agentfile)
+			f.name, f.skill, f.subagent, f.abbyfile)
 	}
 
 	return b.String()
@@ -147,11 +147,11 @@ func FormatThreeWaySummary() string {
   Sub-agents provide context isolation but re-pay Claude Code's ~9.2K
   baseline on every invocation — expensive for repeated tool use.
 
-  Agentfile is the sweet spot: executable tools, persistent memory, and
+  Abbyfile is the sweet spot: executable tools, persistent memory, and
   versioned distribution at marginal context cost (~1-2K tokens) on the
   existing context window. No baseline re-payment, no separate API calls.
 
-  These are not mutually exclusive. An Agentfile agent can coexist with
-  skills in the same project, and sub-agents can invoke Agentfile agents'
+  These are not mutually exclusive. An Abbyfile agent can coexist with
+  skills in the same project, and sub-agents can invoke Abbyfile agents'
   MCP tools.`
 }

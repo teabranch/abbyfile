@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/teabranch/agentfile/pkg/prompt"
-	"github.com/teabranch/agentfile/pkg/tools"
+	"github.com/teabranch/abbyfile/pkg/prompt"
+	"github.com/teabranch/abbyfile/pkg/tools"
 )
 
 func TestValidateCommand_AllPass(t *testing.T) {

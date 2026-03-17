@@ -18,8 +18,8 @@ import (
 func TestConfigPath(t *testing.T) {
 	out := runAgentStdout(t, "config", "path")
 	trimmed := strings.TrimSpace(out)
-	if !strings.HasSuffix(trimmed, filepath.Join(".agentfile", "test-agent", "config.yaml")) {
-		t.Errorf("config path = %q, want to end with .agentfile/test-agent/config.yaml", trimmed)
+	if !strings.HasSuffix(trimmed, filepath.Join(".abbyfile", "test-agent", "config.yaml")) {
+		t.Errorf("config path = %q, want to end with .abbyfile/test-agent/config.yaml", trimmed)
 	}
 }
 
@@ -155,7 +155,7 @@ func TestConfigReset(t *testing.T) {
 	}
 
 	// Verify config file still has tool_timeout.
-	configPath := filepath.Join(tmpHome, ".agentfile", "test-agent", "config.yaml")
+	configPath := filepath.Join(tmpHome, ".abbyfile", "test-agent", "config.yaml")
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatalf("reading config file: %v", err)
@@ -188,7 +188,7 @@ func TestConfigResetDeletesEmptyFile(t *testing.T) {
 		t.Fatalf("config reset: %v\n%s", err, out)
 	}
 
-	configPath := filepath.Join(tmpHome, ".agentfile", "test-agent", "config.yaml")
+	configPath := filepath.Join(tmpHome, ".abbyfile", "test-agent", "config.yaml")
 	if _, err := os.Stat(configPath); err == nil {
 		t.Error("config file should be deleted when all fields are reset")
 	}

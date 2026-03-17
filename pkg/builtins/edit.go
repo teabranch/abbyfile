@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/teabranch/agentfile/pkg/tools"
+	"github.com/teabranch/abbyfile/pkg/tools"
 )
 
 // EditFileTool returns a tool definition for find-and-replace editing.

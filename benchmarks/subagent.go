@@ -26,19 +26,19 @@ type SubAgentProjection struct {
 	CumulativeTokens int `json:"cumulative_tokens"`
 }
 
-// SubAgentComparison holds side-by-side sub-agent vs Agentfile projections.
+// SubAgentComparison holds side-by-side sub-agent vs Abbyfile projections.
 type SubAgentComparison struct {
-	SubAgent         SubAgentInvocation       `json:"sub_agent"`
-	AgentfilePerTurn int                      `json:"agentfile_per_turn"` // marginal cost per turn
-	Projections      []SubAgentProjectionPair `json:"projections"`
+	SubAgent        SubAgentInvocation       `json:"sub_agent"`
+	AbbyfilePerTurn int                      `json:"abbyfile_per_turn"` // marginal cost per turn
+	Projections     []SubAgentProjectionPair `json:"projections"`
 }
 
 // SubAgentProjectionPair holds one data point in the comparison.
 type SubAgentProjectionPair struct {
-	Invocations         int     `json:"invocations"`
-	SubAgentCumulative  int     `json:"sub_agent_cumulative"`
-	AgentfileCumulative int     `json:"agentfile_cumulative"`
-	Ratio               float64 `json:"ratio"` // sub-agent / agentfile
+	Invocations        int     `json:"invocations"`
+	SubAgentCumulative int     `json:"sub_agent_cumulative"`
+	AbbyfileCumulative int     `json:"abbyfile_cumulative"`
+	Ratio              float64 `json:"ratio"` // sub-agent / abbyfile
 }
 
 // EstimateSubAgentInvocation calculates the per-call cost of a sub-agent.
@@ -74,21 +74,21 @@ func DefaultInvocationCounts() []int {
 	return []int{1, 3, 5, 10, 20}
 }
 
-// CompareSubAgentVsAgentfile compares sub-agent cumulative cost against
-// Agentfile's marginal per-turn cost over multiple invocations.
+// CompareSubAgentVsAbbyfile compares sub-agent cumulative cost against
+// Abbyfile's marginal per-turn cost over multiple invocations.
 //
 // Key insight: sub-agents re-pay the full Claude Code baseline on each
-// invocation (separate context window). Agentfile agents add marginal
+// invocation (separate context window). Abbyfile agents add marginal
 // tokens to the existing context (same API call, no baseline re-payment).
-func CompareSubAgentVsAgentfile(inv *SubAgentInvocation, agentfilePerTurn int, counts []int) *SubAgentComparison {
+func CompareSubAgentVsAbbyfile(inv *SubAgentInvocation, abbyfilePerTurn int, counts []int) *SubAgentComparison {
 	cmp := &SubAgentComparison{
-		SubAgent:         *inv,
-		AgentfilePerTurn: agentfilePerTurn,
+		SubAgent:        *inv,
+		AbbyfilePerTurn: abbyfilePerTurn,
 	}
 
 	for _, n := range counts {
 		subCum := inv.PerCallTokens * n
-		agfCum := agentfilePerTurn * n
+		agfCum := abbyfilePerTurn * n
 
 		ratio := 0.0
 		if agfCum > 0 {
@@ -96,10 +96,10 @@ func CompareSubAgentVsAgentfile(inv *SubAgentInvocation, agentfilePerTurn int, c
 		}
 
 		cmp.Projections = append(cmp.Projections, SubAgentProjectionPair{
-			Invocations:         n,
-			SubAgentCumulative:  subCum,
-			AgentfileCumulative: agfCum,
-			Ratio:               ratio,
+			Invocations:        n,
+			SubAgentCumulative: subCum,
+			AbbyfileCumulative: agfCum,
+			Ratio:              ratio,
 		})
 	}
 
@@ -120,11 +120,11 @@ func FormatSubAgentBreakdown(inv *SubAgentInvocation) string {
 	return b.String()
 }
 
-// FormatSubAgentComparison outputs the sub-agent vs Agentfile projection table.
+// FormatSubAgentComparison outputs the sub-agent vs Abbyfile projection table.
 func FormatSubAgentComparison(cmp *SubAgentComparison) string {
 	var b strings.Builder
-	b.WriteString("Sub-agent vs Agentfile cumulative cost projection:\n")
-	b.WriteString("(Sub-agents re-pay baseline per call; Agentfile adds marginal tokens)\n\n")
+	b.WriteString("Sub-agent vs Abbyfile cumulative cost projection:\n")
+	b.WriteString("(Sub-agents re-pay baseline per call; Abbyfile adds marginal tokens)\n\n")
 
 	// Header.
 	fmt.Fprintf(&b, "  %-12s", "Invocations")
@@ -145,10 +145,10 @@ func FormatSubAgentComparison(cmp *SubAgentComparison) string {
 	}
 	b.WriteString("\n")
 
-	// Agentfile row.
-	fmt.Fprintf(&b, "  %-12s", "Agentfile")
+	// Abbyfile row.
+	fmt.Fprintf(&b, "  %-12s", "Abbyfile")
 	for _, p := range cmp.Projections {
-		fmt.Fprintf(&b, "  %9dT", p.AgentfileCumulative)
+		fmt.Fprintf(&b, "  %9dT", p.AbbyfileCumulative)
 	}
 	b.WriteString("\n")
 

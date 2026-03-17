@@ -1,4 +1,4 @@
-// Package definition parses Agentfile manifests and agent .md files
+// Package definition parses Abbyfile manifests and agent .md files
 // into structured definitions used by the builder.
 package definition
 
@@ -13,8 +13,8 @@ import (
 // validAgentName matches safe agent names (alphanumeric, hyphens, underscores).
 var validAgentName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
 
-// Agentfile is the top-level manifest declaring which agents to build.
-type Agentfile struct {
+// Abbyfile is the top-level manifest declaring which agents to build.
+type Abbyfile struct {
 	Version string              `yaml:"version"`
 	Agents  map[string]AgentRef `yaml:"agents"`
 	Publish *PublishConfig      `yaml:"publish,omitempty"`
@@ -35,29 +35,29 @@ type PublishTarget struct {
 type AgentRef struct {
 	Path         string   `yaml:"path"`
 	Version      string   `yaml:"version"`
-	Dependencies []string `yaml:"dependencies,omitempty"` // other agent names in this Agentfile
+	Dependencies []string `yaml:"dependencies,omitempty"` // other agent names in this Abbyfile
 }
 
-// ParseAgentfile reads and validates an Agentfile YAML manifest.
-func ParseAgentfile(path string) (*Agentfile, error) {
+// ParseAbbyfile reads and validates an Abbyfile YAML manifest.
+func ParseAbbyfile(path string) (*Abbyfile, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("reading agentfile: %w", err)
+		return nil, fmt.Errorf("reading abbyfile: %w", err)
 	}
 
-	var af Agentfile
+	var af Abbyfile
 	if err := yaml.Unmarshal(data, &af); err != nil {
-		return nil, fmt.Errorf("parsing agentfile: %w", err)
+		return nil, fmt.Errorf("parsing abbyfile: %w", err)
 	}
 
 	if af.Version == "" {
-		return nil, fmt.Errorf("agentfile: version is required")
+		return nil, fmt.Errorf("abbyfile: version is required")
 	}
 	if af.Version != "1" {
-		return nil, fmt.Errorf("agentfile: unsupported version %q (only \"1\" is supported)", af.Version)
+		return nil, fmt.Errorf("abbyfile: unsupported version %q (only \"1\" is supported)", af.Version)
 	}
 	if len(af.Agents) == 0 {
-		return nil, fmt.Errorf("agentfile: at least one agent is required")
+		return nil, fmt.Errorf("abbyfile: at least one agent is required")
 	}
 	for name, ref := range af.Agents {
 		if !validAgentName.MatchString(name) {

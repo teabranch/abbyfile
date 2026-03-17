@@ -3,7 +3,7 @@ package benchmarks
 import (
 	"fmt"
 
-	"github.com/teabranch/agentfile/pkg/tools"
+	"github.com/teabranch/abbyfile/pkg/tools"
 )
 
 // toolTemplate defines realistic property patterns matching builtin tool complexity.

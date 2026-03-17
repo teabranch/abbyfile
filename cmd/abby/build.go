@@ -6,10 +6,10 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
-	"github.com/teabranch/agentfile/pkg/builder"
-	"github.com/teabranch/agentfile/pkg/definition"
-	"github.com/teabranch/agentfile/pkg/plugin"
-	"github.com/teabranch/agentfile/pkg/runtimecfg"
+	"github.com/teabranch/abbyfile/pkg/builder"
+	"github.com/teabranch/abbyfile/pkg/definition"
+	"github.com/teabranch/abbyfile/pkg/plugin"
+	"github.com/teabranch/abbyfile/pkg/runtimecfg"
 )
 
 // loadSkillFiles reads skill file contents from disk, resolving paths
@@ -38,28 +38,28 @@ func loadSkillFiles(def *definition.AgentDef, agentMDDir string) ([]plugin.Skill
 
 func newBuildCommand() *cobra.Command {
 	var (
-		agentfilePath string
-		outputDir     string
-		agentName     string
-		pluginFlag    bool
-		parallelism   int
-		runtimeFlag   string
+		abbyfilePath string
+		outputDir    string
+		agentName    string
+		pluginFlag   bool
+		parallelism  int
+		runtimeFlag  string
 	)
 
 	cmd := &cobra.Command{
 		Use:   "build",
-		Short: "Build agent binaries from an Agentfile",
-		Long: `Parses the Agentfile, reads each agent's .md file, generates Go source,
+		Short: "Build agent binaries from an Abbyfile",
+		Long: `Parses the Abbyfile, reads each agent's .md file, generates Go source,
 and compiles standalone binaries into the output directory.
 
 Also generates/updates MCP config for detected runtimes (Claude Code, Codex, Gemini).
 Use --runtime to target a specific runtime or "all" for all supported runtimes.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runBuild(agentfilePath, outputDir, agentName, pluginFlag, parallelism, runtimeFlag)
+			return runBuild(abbyfilePath, outputDir, agentName, pluginFlag, parallelism, runtimeFlag)
 		},
 	}
 
-	cmd.Flags().StringVarP(&agentfilePath, "file", "f", "", "Path to Agentfile")
+	cmd.Flags().StringVarP(&abbyfilePath, "file", "f", "", "Path to Abbyfile")
 	cmd.Flags().StringVarP(&outputDir, "output", "o", "./build", "Output directory for binaries")
 	cmd.Flags().StringVar(&agentName, "agent", "", "Build a single agent by name")
 	cmd.Flags().BoolVar(&pluginFlag, "plugin", false, "Also generate a Claude Code plugin directory")
@@ -69,18 +69,18 @@ Use --runtime to target a specific runtime or "all" for all supported runtimes.`
 	return cmd
 }
 
-func runBuild(agentfilePath, outputDir, agentName string, pluginOutput bool, parallelism int, runtimeFlag string) error {
-	if agentfilePath == "" {
-		agentfilePath = resolveAgentfile()
+func runBuild(abbyfilePath, outputDir, agentName string, pluginOutput bool, parallelism int, runtimeFlag string) error {
+	if abbyfilePath == "" {
+		abbyfilePath = resolveAbbyfile()
 	}
 
-	af, err := definition.ParseAgentfile(agentfilePath)
+	af, err := definition.ParseAbbyfile(abbyfilePath)
 	if err != nil {
 		return err
 	}
 
 	// Resolve base dir for relative .md paths.
-	baseDir := filepath.Dir(agentfilePath)
+	baseDir := filepath.Dir(abbyfilePath)
 	if !filepath.IsAbs(baseDir) {
 		cwd, _ := os.Getwd()
 		baseDir = filepath.Join(cwd, baseDir)
@@ -111,14 +111,14 @@ func runBuild(agentfilePath, outputDir, agentName string, pluginOutput bool, par
 		if err != nil {
 			return fmt.Errorf("parsing agent %q: %w", name, err)
 		}
-		// Use the Agentfile key as the binary name, version from Agentfile.
+		// Use the Abbyfile key as the binary name, version from Abbyfile.
 		def.Name = name
 		def.Version = ref.Version
 		defs[name] = def
 	}
 
 	if agentName != "" && len(defs) == 0 {
-		return fmt.Errorf("agent %q not found in Agentfile", agentName)
+		return fmt.Errorf("agent %q not found in Abbyfile", agentName)
 	}
 
 	if err := builder.BuildAll(defs, cfg); err != nil {

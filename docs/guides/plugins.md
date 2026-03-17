@@ -1,14 +1,14 @@
 # Plugins Guide
 
-Agentfile can optionally generate a [Claude Code plugin](https://docs.anthropic.com/en/docs/claude-code/plugins) directory alongside the compiled binary. The plugin wraps the binary as its MCP server and adds features like skills that the binary alone can't carry.
+Abbyfile can optionally generate a [Claude Code plugin](https://docs.anthropic.com/en/docs/claude-code/plugins) directory alongside the compiled binary. The plugin wraps the binary as its MCP server and adds features like skills that the binary alone can't carry.
 
 ## Overview
 
 The binary is always the core artifact. The plugin is an optional output format that adds richer Claude Code integration.
 
 ```
-agentfile build              → build/my-agent + .mcp.json          (default)
-agentfile build --plugin     → build/my-agent + .mcp.json          (same as above)
+abby build              → build/my-agent + .mcp.json          (default)
+abby build --plugin     → build/my-agent + .mcp.json          (same as above)
                                build/my-agent.claude-plugin/       (new)
 ```
 
@@ -50,12 +50,12 @@ Each skill requires:
 | `description` | Short description for Claude Code |
 | `path` | Path to the skill's markdown file, relative to the agent `.md` file |
 
-The skill `.md` file is plain markdown — no frontmatter needed. Agentfile adds the SKILL.md frontmatter (name + description) during plugin generation.
+The skill `.md` file is plain markdown — no frontmatter needed. Abbyfile adds the SKILL.md frontmatter (name + description) during plugin generation.
 
 ## Building a Plugin
 
 ```bash
-agentfile build --plugin
+abby build --plugin
 ```
 
 This builds the binary (as normal) **and** generates the plugin directory in the output folder.
@@ -105,6 +105,6 @@ Review the pull request for:
 **Build and test:**
 
 ```bash
-agentfile build --plugin
+abby build --plugin
 claude --plugin-dir ./build/go-pro.claude-plugin/
 ```

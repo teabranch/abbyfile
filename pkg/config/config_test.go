@@ -207,7 +207,7 @@ func TestLoadViaAgentName(t *testing.T) {
 	t.Setenv("HOME", dir)
 
 	// Create config at expected path.
-	agentDir := filepath.Join(dir, ".agentfile", "test-agent")
+	agentDir := filepath.Join(dir, ".abbyfile", "test-agent")
 	if err := os.MkdirAll(agentDir, 0o700); err != nil {
 		t.Fatal(err)
 	}

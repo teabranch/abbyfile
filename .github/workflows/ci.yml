@@ -47,13 +47,13 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Build agentfile CLI
+      - name: Build abby CLI
         run: make build
 
       - name: Create test agent
         run: |
           mkdir -p .claude/agents
-          cat > agentfile-e2e.yaml <<'YAML'
+          cat > abbyfile-e2e.yaml <<'YAML'
           version: "1"
           agents:
             e2e-test:
@@ -75,17 +75,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
-        run: ./build/agentfile publish -f agentfile-e2e.yaml
+        run: ./build/abby publish -f abbyfile-e2e.yaml
 
       - name: Install from GitHub Release
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          ./build/agentfile install "github.com/${{ github.repository }}/e2e-test@0.0.${{ github.run_number }}"
+          ./build/abby install "github.com/${{ github.repository }}/e2e-test@0.0.${{ github.run_number }}"
 
       - name: Verify installed binary
         run: |
-          BINARY=".agentfile/bin/e2e-test"
+          BINARY=".abbyfile/bin/e2e-test"
           echo "--- describe ---"
           "$BINARY" --describe
           echo "--- version ---"
@@ -115,7 +115,7 @@ jobs:
       - name: Extract version and check tag
         id: check
         run: |
-          VERSION=$(grep -oP 'const cliVersion = "\K[^"]+' cmd/agentfile/main.go)
+          VERSION=$(grep -oP 'const cliVersion = "\K[^"]+' cmd/abby/main.go)
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           if git rev-parse "v${VERSION}" >/dev/null 2>&1; then
             echo "Tag v${VERSION} already exists — skipping release"
@@ -143,9 +143,9 @@ jobs:
           for target in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64; do
             os="${target%/*}"
             arch="${target#*/}"
-            echo "Building agentfile-${os}-${arch}..."
+            echo "Building abby-${os}-${arch}..."
             CGO_ENABLED=0 GOOS="${os}" GOARCH="${arch}" \
-              go build -ldflags "-s -w" -o "dist/agentfile-${os}-${arch}" ./cmd/agentfile
+              go build -ldflags "-s -w" -o "dist/abby-${os}-${arch}" ./cmd/abby
           done
 
       - name: Tag and release
@@ -156,6 +156,6 @@ jobs:
           git tag "${VERSION}"
           git push origin "${VERSION}"
           gh release create "${VERSION}" \
-            --title "agentfile ${VERSION}" \
+            --title "abby ${VERSION}" \
             --generate-notes \
             dist/*

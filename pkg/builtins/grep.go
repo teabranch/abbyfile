@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/teabranch/agentfile/pkg/tools"
+	"github.com/teabranch/abbyfile/pkg/tools"
 )
 
 // GrepSearchTool returns a tool definition for regex content search.

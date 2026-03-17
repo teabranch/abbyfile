@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/teabranch/agentfile/pkg/github"
-	"github.com/teabranch/agentfile/pkg/registry"
-	"github.com/teabranch/agentfile/pkg/runtimecfg"
+	"github.com/teabranch/abbyfile/pkg/github"
+	"github.com/teabranch/abbyfile/pkg/registry"
+	"github.com/teabranch/abbyfile/pkg/runtimecfg"
 )
 
 func newUpdateCommand() *cobra.Command {
@@ -59,7 +59,7 @@ func runUpdate(name string) error {
 
 		if entry.Source == "local" {
 			if name != "" {
-				fmt.Printf("%s: installed from local build, skipping (use 'agentfile build && agentfile install %s' to update)\n", entry.Name, entry.Name)
+				fmt.Printf("%s: installed from local build, skipping (use 'abbyfile build && abbyfile install %s' to update)\n", entry.Name, entry.Name)
 			}
 			continue
 		}

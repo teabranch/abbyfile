@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/teabranch/agentfile/pkg/tools"
+	"github.com/teabranch/abbyfile/pkg/tools"
 )
 
 // ReadFileTool returns a tool definition for reading file contents.

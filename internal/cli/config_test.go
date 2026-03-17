@@ -41,7 +41,7 @@ func TestConfigGetAllWithOverride(t *testing.T) {
 	t.Setenv("HOME", dir)
 
 	// Write a config override.
-	agentDir := filepath.Join(dir, ".agentfile", "test-agent")
+	agentDir := filepath.Join(dir, ".abbyfile", "test-agent")
 	if err := os.MkdirAll(agentDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +156,7 @@ func TestConfigSet(t *testing.T) {
 	}
 
 	// Verify the file was written.
-	data, err := os.ReadFile(filepath.Join(dir, ".agentfile", "test-agent", "config.yaml"))
+	data, err := os.ReadFile(filepath.Join(dir, ".abbyfile", "test-agent", "config.yaml"))
 	if err != nil {
 		t.Fatalf("reading config: %v", err)
 	}
@@ -170,7 +170,7 @@ func TestConfigReset(t *testing.T) {
 	t.Setenv("HOME", dir)
 
 	// Write a config with model override.
-	agentDir := filepath.Join(dir, ".agentfile", "test-agent")
+	agentDir := filepath.Join(dir, ".abbyfile", "test-agent")
 	if err := os.MkdirAll(agentDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +211,7 @@ func TestConfigResetDeletesFileWhenEmpty(t *testing.T) {
 	t.Setenv("HOME", dir)
 
 	// Write a config with only model.
-	agentDir := filepath.Join(dir, ".agentfile", "test-agent")
+	agentDir := filepath.Join(dir, ".abbyfile", "test-agent")
 	if err := os.MkdirAll(agentDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +251,7 @@ func TestConfigPath(t *testing.T) {
 	}
 
 	out := strings.TrimSpace(buf.String())
-	expected := filepath.Join(dir, ".agentfile", "test-agent", "config.yaml")
+	expected := filepath.Join(dir, ".abbyfile", "test-agent", "config.yaml")
 	if out != expected {
 		t.Errorf("path = %q, want %q", out, expected)
 	}

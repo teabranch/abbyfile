@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/teabranch/agentfile/pkg/tools"
+	"github.com/teabranch/abbyfile/pkg/tools"
 )
 
 // RunCommandTool returns a tool definition for shell command execution.

@@ -1,4 +1,4 @@
-// Package agentfile is a framework for packaging AI agent logic as executable
+// Package abbyfile is a framework for packaging AI agent logic as executable
 // Go CLI binaries. Each agent binary contains its own system prompt, tool
 // references, and memory management — packaged as versioned software.
 //
@@ -13,24 +13,24 @@
 //
 // # Declarative Build
 //
-// Agents are defined declaratively in an Agentfile (YAML) and .md files:
+// Agents are defined declaratively in an Abbyfile (YAML) and .md files:
 //
-//	# Agentfile
+//	# Abbyfile
 //	version: "1"
 //	agents:
 //	  my-agent:
 //	    path: .claude/agents/my-agent.md
 //	    version: 1.0.0
 //
-// Build with the agentfile CLI:
+// Build with the abby CLI:
 //
-//	agentfile build    # → build/my-agent (standalone binary)
-//	agentfile install my-agent  # → .agentfile/bin/ + MCP config (auto-detected runtimes)
+//	abby build    # → build/my-agent (standalone binary)
+//	abby install my-agent  # → .abbyfile/bin/ + MCP config (auto-detected runtimes)
 //
 // # Runtime Library
 //
 // Generated binaries import the runtime packages directly:
 //
-//	import "github.com/teabranch/agentfile/pkg/agent"
-//	import "github.com/teabranch/agentfile/pkg/builtins"
-package agentfile
+//	import "github.com/teabranch/abbyfile/pkg/agent"
+//	import "github.com/teabranch/abbyfile/pkg/builtins"
+package abbyfile

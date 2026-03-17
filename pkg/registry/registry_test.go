@@ -60,7 +60,7 @@ func TestSaveAndLoad(t *testing.T) {
 		Name:    "agent-a",
 		Source:  "github.com/owner/repo/agent-a",
 		Version: "1.2.3",
-		Path:    "/home/user/.agentfile/bin/agent-a",
+		Path:    "/home/user/.abbyfile/bin/agent-a",
 		Scope:   "local",
 	})
 	r.Set(Entry{

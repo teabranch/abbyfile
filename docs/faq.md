@@ -6,7 +6,7 @@ No. The binary does not call any LLM API. Claude Code is the LLM runtime. The bi
 
 ## Why not just use CLAUDE.md?
 
-CLAUDE.md works well for repo-specific instructions in a single project. Agentfile solves different problems:
+CLAUDE.md works well for repo-specific instructions in a single project. Abbyfile solves different problems:
 
 - **Versioning** -- agent logic has semver, can be pinned and rolled back
 - **Testing** -- tools, memory, and prompts are unit-testable Go code
@@ -15,21 +15,21 @@ CLAUDE.md works well for repo-specific instructions in a single project. Agentfi
 - **Validation** -- `validate` subcommand checks that tools exist, memory is writable, prompts load
 - **Machine-readable** -- `--describe` returns a JSON manifest
 
-They are not mutually exclusive. A project can have both a CLAUDE.md and Agentfile agents registered via MCP config.
+They are not mutually exclusive. A project can have both a CLAUDE.md and Abbyfile agents registered via MCP config.
 
-## When should I use skills vs sub-agents vs Agentfile agents?
+## When should I use skills vs sub-agents vs Abbyfile agents?
 
 Quick decision guide:
 
 - **Need just instructions?** Use Agent Skills — markdown files with progressive disclosure, zero infrastructure
 - **Need context isolation?** Use Sub-agents — separate context windows for exploratory or one-shot tasks
-- **Need tools + memory + versioning?** Use Agentfile — executable MCP tools, persistent memory, and one-command distribution at marginal context cost
+- **Need tools + memory + versioning?** Use Abbyfile — executable MCP tools, persistent memory, and one-command distribution at marginal context cost
 
-These approaches compose well together. An Agentfile agent can coexist with skills in the same project, and sub-agents can invoke Agentfile agents' MCP tools. See the **[benchmark comparison](docs/guides/benchmarks.md#skills-vs-sub-agents-vs-agentfile)** for measured cost data.
+These approaches compose well together. An Abbyfile agent can coexist with skills in the same project, and sub-agents can invoke Abbyfile agents' MCP tools. See the **[benchmark comparison](docs/guides/benchmarks.md#skills-vs-sub-agents-vs-abbyfile)** for measured cost data.
 
 ## Can I use this without Claude Code?
 
-Yes. Agentfile supports Claude Code, Codex, and Gemini CLI out of the box. The `serve-mcp` subcommand starts a standard MCP-over-stdio server, so any MCP client can connect to it. Use `--runtime` on `build`/`install` to target your preferred runtime.
+Yes. Abbyfile supports Claude Code, Codex, and Gemini CLI out of the box. The `serve-mcp` subcommand starts a standard MCP-over-stdio server, so any MCP client can connect to it. Use `--runtime` on `build`/`install` to target your preferred runtime.
 
 You can also use the CLI directly:
 
@@ -41,21 +41,21 @@ You can also use the CLI directly:
 
 ## How do I share agents?
 
-The recommended way is `agentfile publish` + `agentfile install`:
+The recommended way is `abby publish` + `abby install`:
 
 ```bash
 # Publisher: cross-compile and create a GitHub Release
-agentfile publish --agent my-agent
+abby publish --agent my-agent
 
 # Consumer: one-command install
-agentfile install github.com/your-org/repo/my-agent
+abby install github.com/your-org/repo/my-agent
 ```
 
 This cross-compiles for macOS and Linux (amd64 + arm64), creates a GitHub Release via the `gh` CLI, and lets anyone install with a single command.
 
 Other options:
 
-- **Source** -- share the `Agentfile` and agent `.md` files and let users run `agentfile build`
+- **Source** -- share the `Abbyfile` and agent `.md` files and let users run `abby build`
 - **`go install`** -- `go install github.com/you/your-agent@latest` if you structure the repo as a Go module
 - **Manual binary release** -- build with `GOOS=linux GOARCH=amd64 go build` and distribute however you like
 
@@ -72,7 +72,7 @@ Use the `config` subcommand:
 ./my-agent config reset model             # revert to compiled default
 ```
 
-Overrides are stored at `~/.agentfile/<name>/config.yaml`. You can also set overrides at install time: `agentfile install --model opus github.com/owner/repo/agent`.
+Overrides are stored at `~/.abbyfile/<name>/config.yaml`. You can also set overrides at install time: `abby install --model opus github.com/owner/repo/agent`.
 
 ## What about secrets and configuration?
 
@@ -96,11 +96,11 @@ The binary reads env vars at runtime. Nothing sensitive is compiled in.
 
 ## How is memory stored?
 
-Plain text files at `~/.agentfile/<agent-name>/memory/`. Each key is a `.md` file. The content is whatever string the agent writes -- there is no enforced format. You can inspect and edit memory files directly:
+Plain text files at `~/.abbyfile/<agent-name>/memory/`. Each key is a `.md` file. The content is whatever string the agent writes -- there is no enforced format. You can inspect and edit memory files directly:
 
 ```bash
-ls ~/.agentfile/my-agent/memory/
-cat ~/.agentfile/my-agent/memory/notes.md
+ls ~/.abbyfile/my-agent/memory/
+cat ~/.abbyfile/my-agent/memory/notes.md
 ```
 
 ## Can two agents share memory?
@@ -125,9 +125,9 @@ The MCP bridge returns the error to the client with `IsError: true`.
 
 ## How do I update the system prompt?
 
-For development: write `~/.agentfile/<name>/override.md`. Takes effect immediately without rebuilding.
+For development: write `~/.abbyfile/<name>/override.md`. Takes effect immediately without rebuilding.
 
-For production: edit the agent's `.md` file body, bump the version in the `Agentfile`, run `agentfile build`.
+For production: edit the agent's `.md` file body, bump the version in the `Abbyfile`, run `abby build`.
 
 ## Can I have multiple prompts or dynamic prompts?
 
@@ -141,21 +141,21 @@ Go 1.24 or later. The `go.mod` specifies `go 1.24.0`.
 
 ## How do I add the agent to an existing project?
 
-1. Create an `Agentfile` (YAML) and an agent `.md` file with dual frontmatter
-2. Build: `agentfile build`
+1. Create an `Abbyfile` (YAML) and an agent `.md` file with dual frontmatter
+2. Build: `abby build`
 3. MCP config is auto-generated for detected runtimes (use `--runtime` to target a specific one)
 
-## What is the `agentfile build` command?
+## What is the `abby build` command?
 
-Reads your `Agentfile`, parses each agent's `.md` file, generates Go source, and compiles standalone binaries:
+Reads your `Abbyfile`, parses each agent's `.md` file, generates Go source, and compiles standalone binaries:
 
 ```bash
-agentfile build              # build all agents
-agentfile build --agent foo  # build a single agent
-agentfile build --plugin     # also generate Claude Code plugin directories
+abby build              # build all agents
+abby build --agent foo  # build a single agent
+abby build --plugin     # also generate Claude Code plugin directories
 ```
 
-Flags: `-f` (Agentfile path), `-o` (output dir), `--agent` (single agent), `--plugin` (generate plugin dir), `--runtime` (target runtime: auto, all, claude-code, codex, gemini).
+Flags: `-f` (Abbyfile path), `-o` (output dir), `--agent` (single agent), `--plugin` (generate plugin dir), `--runtime` (target runtime: auto, all, claude-code, codex, gemini).
 
 ## What is a plugin?
 
@@ -194,16 +194,16 @@ Agent logs go to stderr. Redirect them:
 
 The MCP protocol itself runs over stdin/stdout. The separation means logs never corrupt the protocol stream.
 
-## What MCP SDK does Agentfile use?
+## What MCP SDK does Abbyfile use?
 
 The official Go MCP SDK: `github.com/modelcontextprotocol/go-sdk`. Version `v1.4.0` as of the current `go.mod`.
 
 ## How do I publish an agent?
 
-Use `agentfile publish`. It cross-compiles for 4 platforms and creates a GitHub Release via the `gh` CLI:
+Use `abby publish`. It cross-compiles for 4 platforms and creates a GitHub Release via the `gh` CLI:
 
 ```bash
-agentfile publish --agent my-agent
+abby publish --agent my-agent
 ```
 
 Requires the `gh` CLI to be installed and authenticated. Use `--dry-run` to test cross-compilation without creating a release. See the [Distribution Guide](./guides/distribution.md).
@@ -211,8 +211,8 @@ Requires the `gh` CLI to be installed and authenticated. Use `--dry-run` to test
 ## How do I install an agent from GitHub?
 
 ```bash
-agentfile install github.com/owner/repo/agent-name
-agentfile install github.com/owner/repo/agent-name@1.0.0
+abby install github.com/owner/repo/agent-name
+abby install github.com/owner/repo/agent-name@1.0.0
 ```
 
 This downloads the binary for your platform, verifies it with `--describe`, installs it, and wires up MCP. Set `GITHUB_TOKEN` for private repos.
@@ -220,20 +220,20 @@ This downloads the binary for your platform, verifies it with `--describe`, inst
 ## How do I update installed agents?
 
 ```bash
-agentfile update              # update all remote agents
-agentfile update my-agent     # update a specific agent
+abby update              # update all remote agents
+abby update my-agent     # update a specific agent
 ```
 
 Only agents installed from a remote source can be auto-updated. For locally-built agents, rebuild and reinstall.
 
 ## Where is the registry file?
 
-`~/.agentfile/registry.json`. It tracks all installed agents (local and remote) with their source, version, path, and scope. You can inspect it directly, but it's managed by `agentfile install`, `agentfile uninstall`, and `agentfile update`.
+`~/.abbyfile/registry.json`. It tracks all installed agents (local and remote) with their source, version, path, and scope. You can inspect it directly, but it's managed by `abby install`, `abby uninstall`, and `abby update`.
 
 ## How do I uninstall an agent?
 
 ```bash
-agentfile uninstall my-agent
+abby uninstall my-agent
 ```
 
 This removes the binary, unwires it from all detected runtime configs, and removes it from the registry.

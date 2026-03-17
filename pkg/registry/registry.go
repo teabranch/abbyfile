@@ -26,13 +26,13 @@ type Registry struct {
 	path   string           // file path for persistence
 }
 
-// DefaultPath returns the default registry file path (~/.agentfile/registry.json).
+// DefaultPath returns the default registry file path (~/.abbyfile/registry.json).
 func DefaultPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("getting home dir: %w", err)
 	}
-	return filepath.Join(home, ".agentfile", "registry.json"), nil
+	return filepath.Join(home, ".abbyfile", "registry.json"), nil
 }
 
 // Load reads a registry from disk. Returns an empty registry if the file

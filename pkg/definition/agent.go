@@ -29,7 +29,7 @@ type SkillDef struct {
 }
 
 // AgentDef is the parsed definition of a single agent, combining
-// data from the Agentfile reference and the agent's .md file.
+// data from the Abbyfile reference and the agent's .md file.
 type AgentDef struct {
 	Name        string
 	Description string
@@ -37,7 +37,7 @@ type AgentDef struct {
 	CustomTools []CustomToolDef
 	Skills      []SkillDef
 	Memory      bool
-	Version     string // set from Agentfile, not the .md
+	Version     string // set from Abbyfile, not the .md
 	PromptBody  string // markdown after frontmatter
 }
 
@@ -60,16 +60,16 @@ type frontmatter2 struct {
 }
 
 // singleFrontmatter is the alternative single-block frontmatter format.
-// All agent metadata lives under an `agentfile:` key alongside name/description.
+// All agent metadata lives under an `abbyfile:` key alongside name/description.
 type singleFrontmatter struct {
-	Name        string          `yaml:"name"`
-	Description string          `yaml:"description"`
-	Model       string          `yaml:"model"`
-	Agentfile   *agentfileBlock `yaml:"agentfile"`
+	Name        string         `yaml:"name"`
+	Description string         `yaml:"description"`
+	Model       string         `yaml:"model"`
+	Abbyfile    *abbyfileBlock `yaml:"abbyfile"`
 }
 
-// agentfileBlock holds tool, memory, and skill configuration in single-frontmatter format.
-type agentfileBlock struct {
+// abbyfileBlock holds tool, memory, and skill configuration in single-frontmatter format.
+type abbyfileBlock struct {
 	Tools       []string        `yaml:"tools"`
 	Memory      string          `yaml:"memory"`
 	CustomTools []CustomToolDef `yaml:"custom_tools"`
@@ -92,12 +92,12 @@ type agentfileBlock struct {
 //
 //	Prompt body here...
 //
-// Single format (2 delimiters, with agentfile: key):
+// Single format (2 delimiters, with abbyfile: key):
 //
 //	---
 //	name: my-agent
 //	description: "Full description"
-//	agentfile:
+//	abbyfile:
 //	  tools: [Read, Write, Bash]
 //	  memory: true
 //	---
@@ -195,8 +195,8 @@ func parseSingleFormat(fmStr, body, path string) (*AgentDef, error) {
 	if !validName.MatchString(sfm.Name) {
 		return nil, fmt.Errorf("agent name %q contains invalid characters (only alphanumeric, hyphens, underscores allowed)", sfm.Name)
 	}
-	if sfm.Agentfile == nil {
-		return nil, fmt.Errorf("parsing frontmatter in %s: single-frontmatter format requires an 'agentfile:' key", path)
+	if sfm.Abbyfile == nil {
+		return nil, fmt.Errorf("parsing frontmatter in %s: single-frontmatter format requires an 'abbyfile:' key", path)
 	}
 
 	def := &AgentDef{
@@ -205,19 +205,19 @@ func parseSingleFormat(fmStr, body, path string) (*AgentDef, error) {
 		PromptBody:  body,
 	}
 
-	if sfm.Agentfile != nil {
-		def.Tools = sfm.Agentfile.Tools
-		def.Memory = sfm.Agentfile.Memory != ""
+	if sfm.Abbyfile != nil {
+		def.Tools = sfm.Abbyfile.Tools
+		def.Memory = sfm.Abbyfile.Memory != ""
 
-		if err := validateCustomTools(sfm.Agentfile.CustomTools); err != nil {
+		if err := validateCustomTools(sfm.Abbyfile.CustomTools); err != nil {
 			return nil, err
 		}
-		def.CustomTools = sfm.Agentfile.CustomTools
+		def.CustomTools = sfm.Abbyfile.CustomTools
 
-		if err := validateSkills(sfm.Agentfile.Skills); err != nil {
+		if err := validateSkills(sfm.Abbyfile.Skills); err != nil {
 			return nil, err
 		}
-		def.Skills = sfm.Agentfile.Skills
+		def.Skills = sfm.Abbyfile.Skills
 	}
 
 	return def, nil

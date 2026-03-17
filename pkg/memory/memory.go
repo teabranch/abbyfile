@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/teabranch/agentfile/pkg/tools"
+	"github.com/teabranch/abbyfile/pkg/tools"
 )
 
 // Manager provides concurrency-safe access to a FileStore and exposes

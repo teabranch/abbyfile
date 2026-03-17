@@ -56,11 +56,11 @@ func (r *BenchmarkReport) JSON() (string, error) {
 func (r *BenchmarkReport) Text() string {
 	var b strings.Builder
 
-	b.WriteString("=== Agentfile MCP Token Cost Analysis ===\n\n")
+	b.WriteString("=== Abbyfile MCP Token Cost Analysis ===\n\n")
 
 	// Project agents.
 	if len(r.ProjectAgents) > 0 {
-		b.WriteString("Per-agent measurements (auto-discovered from Agentfile):\n")
+		b.WriteString("Per-agent measurements (auto-discovered from Abbyfile):\n")
 		combinedTokens := 0
 		for _, a := range r.ProjectAgents {
 			fmt.Fprintf(&b, "  %-20s (%2d tools): ~%5d schema + ~%5d prompt = ~%5d total (%.1f%% of 128K)\n",
@@ -112,7 +112,7 @@ func (r *BenchmarkReport) Text() string {
 		for _, p := range r.ScalingCurve {
 			if p.ToolCount == 10 {
 				ratio := float64(ArticleReference.GitHubMCP93Tools) / float64(p.SchemaTokens)
-				fmt.Fprintf(&b, "  Agentfile (10 tools):    ~%d tokens (%.1f%% of 128K) -> %.0fx smaller\n",
+				fmt.Fprintf(&b, "  Abbyfile (10 tools):    ~%d tokens (%.1f%% of 128K) -> %.0fx smaller\n",
 					p.SchemaTokens, p.BudgetPct, ratio)
 				break
 			}

@@ -5,10 +5,10 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/teabranch/agentfile/pkg/mcp"
-	"github.com/teabranch/agentfile/pkg/memory"
-	"github.com/teabranch/agentfile/pkg/prompt"
-	"github.com/teabranch/agentfile/pkg/tools"
+	"github.com/teabranch/abbyfile/pkg/mcp"
+	"github.com/teabranch/abbyfile/pkg/memory"
+	"github.com/teabranch/abbyfile/pkg/prompt"
+	"github.com/teabranch/abbyfile/pkg/tools"
 )
 
 // NewServeMCPCommand creates the `serve-mcp` subcommand that starts an

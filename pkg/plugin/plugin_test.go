@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/teabranch/agentfile/pkg/definition"
+	"github.com/teabranch/abbyfile/pkg/definition"
 )
 
 func TestGenerate_DirectoryStructure(t *testing.T) {
@@ -104,8 +104,8 @@ func TestGenerate_PluginJSON(t *testing.T) {
 	if pj.Description != "Test description" {
 		t.Errorf("description = %q, want %q", pj.Description, "Test description")
 	}
-	if !pj.Agentfile {
-		t.Error("agentfile = false, want true")
+	if !pj.Abbyfile {
+		t.Error("abbyfile = false, want true")
 	}
 }
 

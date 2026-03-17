@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/teabranch/agentfile/benchmarks"
-	"github.com/teabranch/agentfile/pkg/builtins"
-	"github.com/teabranch/agentfile/pkg/definition"
+	"github.com/teabranch/abbyfile/benchmarks"
+	"github.com/teabranch/abbyfile/pkg/builtins"
+	"github.com/teabranch/abbyfile/pkg/definition"
 )
 
 // skipIfNoAPIKey skips the test if ANTHROPIC_API_KEY is not set.
@@ -69,9 +69,9 @@ func loadAllCommunityAgents(t *testing.T) []*definition.AgentDef {
 	return agents
 }
 
-// TestLiveAgentfileTokenCount measures a community agent's exact token count
+// TestLiveAbbyfileTokenCount measures a community agent's exact token count
 // via the Anthropic count_tokens API and compares with heuristic and BPE estimates.
-func TestLiveAgentfileTokenCount(t *testing.T) {
+func TestLiveAbbyfileTokenCount(t *testing.T) {
 	client := skipIfNoAPIKey(t)
 	agentDef := loadFirstCommunityAgent(t)
 
@@ -182,7 +182,7 @@ func TestLiveSubAgentTokenCount(t *testing.T) {
 }
 
 // TestLiveThreeWayValidation measures all three configurations (skill, sub-agent,
-// Agentfile) with the live API and verifies the ranking holds.
+// Abbyfile) with the live API and verifies the ranking holds.
 func TestLiveThreeWayValidation(t *testing.T) {
 	client := skipIfNoAPIKey(t)
 	agentDef := loadFirstCommunityAgent(t)
@@ -218,14 +218,14 @@ func TestLiveThreeWayValidation(t *testing.T) {
 		t.Fatalf("sub-agent count_tokens failed: %v", err)
 	}
 
-	// 3. Agentfile: just agent tools + system prompt (marginal cost).
-	agentfileTokens, err := client.CountTokens(ctx, benchmarks.CountTokensRequest{
+	// 3. Abbyfile: just agent tools + system prompt (marginal cost).
+	abbyfileTokens, err := client.CountTokens(ctx, benchmarks.CountTokensRequest{
 		Messages: []benchmarks.AnthropicMsg{{Role: "user", Content: "x"}},
 		System:   agentDef.PromptBody,
 		Tools:    agentTools,
 	})
 	if err != nil {
-		t.Fatalf("agentfile count_tokens failed: %v", err)
+		t.Fatalf("abby count_tokens failed: %v", err)
 	}
 
 	// Get estimated values for comparison.
@@ -239,18 +239,18 @@ func TestLiveThreeWayValidation(t *testing.T) {
 	t.Logf("  %-14s  %8s  %8s  %s", "--------------", "--------", "---------", "----------")
 	t.Logf("  %-14s  %8d  %8d  %.2f", "Skill", skillTokens, cmp.Skill.PerTurnCost, float64(skillTokens)/float64(cmp.Skill.PerTurnCost))
 	t.Logf("  %-14s  %8d  %8d  %.2f", "Sub-agent", subAgentTokens, cmp.SubAgent.PerTurnCost, float64(subAgentTokens)/float64(cmp.SubAgent.PerTurnCost))
-	t.Logf("  %-14s  %8d  %8d  %.2f", "Agentfile", agentfileTokens, cmp.Agentfile.PerTurnCost, float64(agentfileTokens)/float64(cmp.Agentfile.PerTurnCost))
+	t.Logf("  %-14s  %8d  %8d  %.2f", "Abbyfile", abbyfileTokens, cmp.Abbyfile.PerTurnCost, float64(abbyfileTokens)/float64(cmp.Abbyfile.PerTurnCost))
 
-	// Verify ranking: Agentfile < Skill loaded < Sub-agent.
-	// Note: Agentfile includes tool schemas so it may be larger than a pure skill (prompt only).
-	// The key ranking is: Agentfile << Sub-agent.
-	if agentfileTokens >= subAgentTokens {
-		t.Errorf("ranking violated: Agentfile (%d) should be less than Sub-agent (%d)",
-			agentfileTokens, subAgentTokens)
+	// Verify ranking: Abbyfile < Skill loaded < Sub-agent.
+	// Note: Abbyfile includes tool schemas so it may be larger than a pure skill (prompt only).
+	// The key ranking is: Abbyfile << Sub-agent.
+	if abbyfileTokens >= subAgentTokens {
+		t.Errorf("ranking violated: Abbyfile (%d) should be less than Sub-agent (%d)",
+			abbyfileTokens, subAgentTokens)
 	}
 	t.Logf("")
-	t.Logf("  Ranking confirmed: Agentfile (%d) < Sub-agent (%d)", agentfileTokens, subAgentTokens)
-	t.Logf("  Sub-agent overhead: %.1fx Agentfile", float64(subAgentTokens)/float64(agentfileTokens))
+	t.Logf("  Ranking confirmed: Abbyfile (%d) < Sub-agent (%d)", abbyfileTokens, subAgentTokens)
+	t.Logf("  Sub-agent overhead: %.1fx Abbyfile", float64(subAgentTokens)/float64(abbyfileTokens))
 }
 
 // TestLiveCalibration measures all 5 community agents with the live API

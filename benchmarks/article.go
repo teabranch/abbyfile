@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/teabranch/agentfile/pkg/tools"
+	"github.com/teabranch/abbyfile/pkg/tools"
 )
 
 // platformToolTemplates model the schema complexity of GitHub MCP server tools.
@@ -138,7 +138,7 @@ func CompareToolComplexity(toolCount int, counter TokenCounter) *ToolComplexityC
 	}
 }
 
-// FormatArticleComparison outputs the full article-vs-agentfile analysis.
+// FormatArticleComparison outputs the full article-vs-abbyfile analysis.
 func FormatArticleComparison(counter TokenCounter) string {
 	if counter == nil {
 		counter = BytesEstimator{}
@@ -148,7 +148,7 @@ func FormatArticleComparison(counter TokenCounter) string {
 	b.WriteString(fmt.Sprintf("Article methodology comparison (tokenizer: %s):\n\n", counter.Name()))
 
 	// Measure focused tools at key sizes.
-	b.WriteString("  Focused-agent tools (Agentfile-style, 2-3 params):\n")
+	b.WriteString("  Focused-agent tools (Abbyfile-style, 2-3 params):\n")
 	for _, n := range []int{6, 10, 15, 93} {
 		m := MeasureToolsWith(GenerateTools(n), counter)
 		perTool := float64(m.SchemaBytes) / float64(n)

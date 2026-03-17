@@ -1,4 +1,4 @@
-// Package agent is the core runtime for agentfile binaries. It wires together
+// Package agent is the core runtime for abbyfile binaries. It wires together
 // prompt loading, tool registration, memory management, and the CLI interface.
 //
 // The binary does NOT call the Claude API. Claude Code is the LLM runtime —
@@ -13,14 +13,14 @@ import (
 	"os"
 	"time"
 
-	"github.com/teabranch/agentfile/internal/cli"
-	"github.com/teabranch/agentfile/pkg/config"
-	"github.com/teabranch/agentfile/pkg/memory"
-	"github.com/teabranch/agentfile/pkg/prompt"
-	"github.com/teabranch/agentfile/pkg/tools"
+	"github.com/teabranch/abbyfile/internal/cli"
+	"github.com/teabranch/abbyfile/pkg/config"
+	"github.com/teabranch/abbyfile/pkg/memory"
+	"github.com/teabranch/abbyfile/pkg/prompt"
+	"github.com/teabranch/abbyfile/pkg/tools"
 )
 
-// Agent is the main runtime for an agentfile binary.
+// Agent is the main runtime for an abbyfile binary.
 type Agent struct {
 	name        string
 	version     string

@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/teabranch/agentfile/pkg/memory"
-	"github.com/teabranch/agentfile/pkg/tools"
+	"github.com/teabranch/abbyfile/pkg/memory"
+	"github.com/teabranch/abbyfile/pkg/tools"
 )
 
 // Option configures an Agent.

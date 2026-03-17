@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/teabranch/agentfile/pkg/fsutil"
+	"github.com/teabranch/abbyfile/pkg/fsutil"
 )
 
 // ErrExpired is returned when a memory key has exceeded its TTL.
@@ -39,7 +39,7 @@ type Limits struct {
 	TTL           time.Duration `json:"ttl,omitempty"`
 }
 
-// FileStore implements file-based key-value storage under ~/.agentfile/<agent>/memory/.
+// FileStore implements file-based key-value storage under ~/.abbyfile/<agent>/memory/.
 type FileStore struct {
 	dir    string
 	limits Limits
@@ -51,7 +51,7 @@ func NewFileStore(agentName string, limits Limits) (*FileStore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("getting home directory: %w", err)
 	}
-	dir := filepath.Join(home, ".agentfile", agentName, "memory")
+	dir := filepath.Join(home, ".abbyfile", agentName, "memory")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("creating memory directory: %w", err)
 	}

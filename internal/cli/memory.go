@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/teabranch/agentfile/pkg/memory"
+	"github.com/teabranch/abbyfile/pkg/memory"
 )
 
 // NewMemoryCommand creates the `memory` subcommand group.

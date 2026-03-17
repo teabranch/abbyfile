@@ -1,4 +1,4 @@
-module github.com/teabranch/agentfile
+module github.com/teabranch/abbyfile
 
 go 1.26.0
 

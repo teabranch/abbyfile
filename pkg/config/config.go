@@ -1,9 +1,9 @@
-// Package config handles runtime settings overrides for agentfile binaries.
-// Each agent can have an optional config.yaml at ~/.agentfile/<name>/config.yaml
+// Package config handles runtime settings overrides for abbyfile binaries.
+// Each agent can have an optional config.yaml at ~/.abbyfile/<name>/config.yaml
 // that overrides compiled-in defaults without rebuilding.
 package config
 
-// Config represents runtime overrides from ~/.agentfile/<name>/config.yaml.
+// Config represents runtime overrides from ~/.abbyfile/<name>/config.yaml.
 // Nil pointer fields mean "not specified" — the compiled default is kept.
 type Config struct {
 	Model         *string                `yaml:"model,omitempty"`

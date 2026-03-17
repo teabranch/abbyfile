@@ -25,26 +25,26 @@ type SkillCost struct {
 	HasDistribution bool `json:"has_distribution"`
 }
 
-// AgentfileCost models the context cost and capability set of an Agentfile agent.
-type AgentfileCost struct {
+// AbbyfileCost models the context cost and capability set of an Abbyfile agent.
+type AbbyfileCost struct {
 	Name         string `json:"name"`
 	ToolTokens   int    `json:"tool_tokens"`
 	PromptTokens int    `json:"prompt_tokens"`
 	TotalTokens  int    `json:"total_tokens"`
-	// What Agentfile provides.
+	// What Abbyfile provides.
 	HasTools        bool `json:"has_tools"`
 	HasMemory       bool `json:"has_memory"`
 	HasVersioning   bool `json:"has_versioning"`
 	HasDistribution bool `json:"has_distribution"`
 }
 
-// SkillsComparison holds a side-by-side analysis of skills vs Agentfile.
+// SkillsComparison holds a side-by-side analysis of skills vs Abbyfile.
 type SkillsComparison struct {
-	Skill        SkillCost     `json:"skill"`
-	Agentfile    AgentfileCost `json:"agentfile"`
-	TokenDelta   int           `json:"token_delta"`   // agentfile - skill loaded tier
-	TokenRatio   float64       `json:"token_ratio"`   // agentfile / skill loaded tier
-	FeatureDelta []string      `json:"feature_delta"` // capabilities Agentfile adds
+	Skill        SkillCost    `json:"skill"`
+	Abbyfile     AbbyfileCost `json:"abbyfile"`
+	TokenDelta   int          `json:"token_delta"`   // abbyfile - skill loaded tier
+	TokenRatio   float64      `json:"token_ratio"`   // abbyfile / skill loaded tier
+	FeatureDelta []string     `json:"feature_delta"` // capabilities Abbyfile adds
 }
 
 // DefaultSkillTiers returns the three standard progressive disclosure tiers
@@ -93,9 +93,9 @@ func EstimateSkillCost(name string, tiers []SkillTier) *SkillCost {
 	}
 }
 
-// CompareSkillsVsAgentfile compares an Agent Skill against an Agentfile agent,
+// CompareSkillsVsAbbyfile compares an Agent Skill against an Abbyfile agent,
 // using the "loaded" tier (full prompt in context) as the comparison point.
-func CompareSkillsVsAgentfile(skill *SkillCost, agentfile *AgentfileCost) *SkillsComparison {
+func CompareSkillsVsAbbyfile(skill *SkillCost, abbyfile *AbbyfileCost) *SkillsComparison {
 	// Find loaded tier for comparison.
 	loadedTokens := 0
 	for _, t := range skill.Tiers {
@@ -107,64 +107,64 @@ func CompareSkillsVsAgentfile(skill *SkillCost, agentfile *AgentfileCost) *Skill
 
 	ratio := 0.0
 	if loadedTokens > 0 {
-		ratio = float64(agentfile.TotalTokens) / float64(loadedTokens)
+		ratio = float64(abbyfile.TotalTokens) / float64(loadedTokens)
 	}
 
 	var featureDelta []string
-	if agentfile.HasTools && !skill.HasTools {
+	if abbyfile.HasTools && !skill.HasTools {
 		featureDelta = append(featureDelta, "executable tools (MCP)")
 	}
-	if agentfile.HasMemory && !skill.HasMemory {
+	if abbyfile.HasMemory && !skill.HasMemory {
 		featureDelta = append(featureDelta, "persistent memory")
 	}
-	if agentfile.HasVersioning && !skill.HasVersioning {
+	if abbyfile.HasVersioning && !skill.HasVersioning {
 		featureDelta = append(featureDelta, "semantic versioning")
 	}
-	if agentfile.HasDistribution && !skill.HasDistribution {
+	if abbyfile.HasDistribution && !skill.HasDistribution {
 		featureDelta = append(featureDelta, "one-command distribution")
 	}
 
 	return &SkillsComparison{
 		Skill:        *skill,
-		Agentfile:    *agentfile,
-		TokenDelta:   agentfile.TotalTokens - loadedTokens,
+		Abbyfile:     *abbyfile,
+		TokenDelta:   abbyfile.TotalTokens - loadedTokens,
 		TokenRatio:   ratio,
 		FeatureDelta: featureDelta,
 	}
 }
 
-// FormatSkillsComparison outputs the skills vs Agentfile analysis as text.
+// FormatSkillsComparison outputs the skills vs Abbyfile analysis as text.
 func FormatSkillsComparison(cmp *SkillsComparison) string {
 	var b strings.Builder
-	b.WriteString("Agent Skills vs Agentfile comparison:\n\n")
+	b.WriteString("Agent Skills vs Abbyfile comparison:\n\n")
 
 	b.WriteString("  Agent Skills progressive disclosure tiers:\n")
 	for _, t := range cmp.Skill.Tiers {
 		fmt.Fprintf(&b, "    %-12s ~%dT  (%s)\n", t.Name+":", t.Tokens, t.Label)
 	}
 
-	fmt.Fprintf(&b, "\n  Agentfile agent (%s):\n", cmp.Agentfile.Name)
-	fmt.Fprintf(&b, "    Tool schemas:  ~%dT\n", cmp.Agentfile.ToolTokens)
-	fmt.Fprintf(&b, "    System prompt: ~%dT\n", cmp.Agentfile.PromptTokens)
-	fmt.Fprintf(&b, "    Total:         ~%dT\n", cmp.Agentfile.TotalTokens)
+	fmt.Fprintf(&b, "\n  Abbyfile agent (%s):\n", cmp.Abbyfile.Name)
+	fmt.Fprintf(&b, "    Tool schemas:  ~%dT\n", cmp.Abbyfile.ToolTokens)
+	fmt.Fprintf(&b, "    System prompt: ~%dT\n", cmp.Abbyfile.PromptTokens)
+	fmt.Fprintf(&b, "    Total:         ~%dT\n", cmp.Abbyfile.TotalTokens)
 
 	b.WriteString("\n  Token comparison (vs loaded skill tier):\n")
 	fmt.Fprintf(&b, "    Skill loaded:    ~%dT\n", cmp.Skill.Tiers[1].Tokens)
-	fmt.Fprintf(&b, "    Agentfile total: ~%dT\n", cmp.Agentfile.TotalTokens)
+	fmt.Fprintf(&b, "    Abbyfile total: ~%dT\n", cmp.Abbyfile.TotalTokens)
 	fmt.Fprintf(&b, "    Delta:           %+dT (%.1fx)\n", cmp.TokenDelta, cmp.TokenRatio)
 
-	b.WriteString("\n  Capabilities Agentfile adds over Skills:\n")
+	b.WriteString("\n  Capabilities Abbyfile adds over Skills:\n")
 	for _, f := range cmp.FeatureDelta {
 		fmt.Fprintf(&b, "    + %s\n", f)
 	}
 
 	b.WriteString("\n  Capabilities comparison:\n")
-	fmt.Fprintf(&b, "    %-25s  Skills  Agentfile\n", "Feature")
+	fmt.Fprintf(&b, "    %-25s  Skills  Abbyfile\n", "Feature")
 	fmt.Fprintf(&b, "    %-25s  ------  ---------\n", strings.Repeat("-", 25))
-	fmt.Fprintf(&b, "    %-25s  %-6s  %-9s\n", "Executable tools (MCP)", boolMark(cmp.Skill.HasTools), boolMark(cmp.Agentfile.HasTools))
-	fmt.Fprintf(&b, "    %-25s  %-6s  %-9s\n", "Persistent memory", boolMark(cmp.Skill.HasMemory), boolMark(cmp.Agentfile.HasMemory))
-	fmt.Fprintf(&b, "    %-25s  %-6s  %-9s\n", "Semantic versioning", boolMark(cmp.Skill.HasVersioning), boolMark(cmp.Agentfile.HasVersioning))
-	fmt.Fprintf(&b, "    %-25s  %-6s  %-9s\n", "One-command distribution", boolMark(cmp.Skill.HasDistribution), boolMark(cmp.Agentfile.HasDistribution))
+	fmt.Fprintf(&b, "    %-25s  %-6s  %-9s\n", "Executable tools (MCP)", boolMark(cmp.Skill.HasTools), boolMark(cmp.Abbyfile.HasTools))
+	fmt.Fprintf(&b, "    %-25s  %-6s  %-9s\n", "Persistent memory", boolMark(cmp.Skill.HasMemory), boolMark(cmp.Abbyfile.HasMemory))
+	fmt.Fprintf(&b, "    %-25s  %-6s  %-9s\n", "Semantic versioning", boolMark(cmp.Skill.HasVersioning), boolMark(cmp.Abbyfile.HasVersioning))
+	fmt.Fprintf(&b, "    %-25s  %-6s  %-9s\n", "One-command distribution", boolMark(cmp.Skill.HasDistribution), boolMark(cmp.Abbyfile.HasDistribution))
 
 	return b.String()
 }

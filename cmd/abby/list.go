@@ -8,7 +8,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
-	"github.com/teabranch/agentfile/pkg/registry"
+	"github.com/teabranch/abbyfile/pkg/registry"
 )
 
 func newListCommand() *cobra.Command {

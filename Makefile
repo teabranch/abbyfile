@@ -1,4 +1,4 @@
-.PHONY: all fmt fmtcheck vet test build build-agentfile agents install clean integration bench bench-integration bench-report bench-all
+.PHONY: all fmt fmtcheck vet test build build-abby agents install clean integration bench bench-integration bench-report bench-all
 
 all: fmtcheck vet test build
 
@@ -14,19 +14,19 @@ vet:
 test:
 	go test -race ./...
 
-build: build-agentfile
+build: build-abby
 
-build-agentfile:
+build-abby:
 	@mkdir -p build
-	go build -o build/agentfile ./cmd/agentfile
+	go build -o build/abby ./cmd/abby
 
-agents: build-agentfile
-	./build/agentfile build
+agents: build-abby
+	./build/abby build
 
-install: build-agentfile
+install: build-abby
 	@mkdir -p $(or $(PREFIX),/usr/local)/bin
-	cp build/agentfile $(or $(PREFIX),/usr/local)/bin/agentfile
-	@echo "Installed agentfile → $(or $(PREFIX),/usr/local)/bin/agentfile"
+	cp build/abby $(or $(PREFIX),/usr/local)/bin/abby
+	@echo "Installed abby → $(or $(PREFIX),/usr/local)/bin/abby"
 
 integration:
 	go test -tags integration -race -count=1 -timeout 120s ./internal/integration/
@@ -43,5 +43,5 @@ bench-report:
 bench-all: bench bench-integration bench-report
 
 clean:
-	rm -rf build/ .agentfile/ .mcp.json .codex/config.toml .gemini/settings.json
+	rm -rf build/ .abbyfile/ .mcp.json .codex/config.toml .gemini/settings.json
 	go clean ./...

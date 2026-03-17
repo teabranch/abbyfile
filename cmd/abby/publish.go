@@ -8,9 +8,9 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/teabranch/agentfile/pkg/builder"
-	"github.com/teabranch/agentfile/pkg/definition"
-	"github.com/teabranch/agentfile/pkg/fsutil"
+	"github.com/teabranch/abbyfile/pkg/builder"
+	"github.com/teabranch/abbyfile/pkg/definition"
+	"github.com/teabranch/abbyfile/pkg/fsutil"
 )
 
 // crossTarget is a GOOS/GOARCH pair for cross-compilation.
@@ -28,9 +28,9 @@ var defaultTargets = []crossTarget{
 
 func newPublishCommand() *cobra.Command {
 	var (
-		agentfilePath string
-		agentName     string
-		dryRun        bool
+		abbyfilePath string
+		agentName    string
+		dryRun       bool
 	)
 
 	cmd := &cobra.Command{
@@ -42,20 +42,20 @@ using the gh CLI. The release tag follows the format <agent>/v<version>.
 Requires the gh CLI to be installed and authenticated.
 Use --dry-run to cross-compile without creating a release.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runPublish(agentfilePath, agentName, dryRun)
+			return runPublish(abbyfilePath, agentName, dryRun)
 		},
 	}
 
-	cmd.Flags().StringVarP(&agentfilePath, "file", "f", "", "Path to Agentfile")
+	cmd.Flags().StringVarP(&abbyfilePath, "file", "f", "", "Path to Abbyfile")
 	cmd.Flags().StringVar(&agentName, "agent", "", "Publish a single agent by name")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Cross-compile only, skip GitHub Release creation")
 
 	return cmd
 }
 
-func runPublish(agentfilePath, agentName string, dryRun bool) error {
-	if agentfilePath == "" {
-		agentfilePath = resolveAgentfile()
+func runPublish(abbyfilePath, agentName string, dryRun bool) error {
+	if abbyfilePath == "" {
+		abbyfilePath = resolveAbbyfile()
 	}
 
 	// Verify gh CLI is available (unless dry-run).
@@ -65,12 +65,12 @@ func runPublish(agentfilePath, agentName string, dryRun bool) error {
 		}
 	}
 
-	af, err := definition.ParseAgentfile(agentfilePath)
+	af, err := definition.ParseAbbyfile(abbyfilePath)
 	if err != nil {
 		return err
 	}
 
-	baseDir := filepath.Dir(agentfilePath)
+	baseDir := filepath.Dir(abbyfilePath)
 	if !filepath.IsAbs(baseDir) {
 		cwd, _ := os.Getwd()
 		baseDir = filepath.Join(cwd, baseDir)
@@ -101,7 +101,7 @@ func runPublish(agentfilePath, agentName string, dryRun bool) error {
 		def.Name = name
 		def.Version = ref.Version
 
-		// Determine cross-compilation targets: prefer Agentfile publish config, fall back to defaults.
+		// Determine cross-compilation targets: prefer Abbyfile publish config, fall back to defaults.
 		targets := defaultTargets
 		if af.Publish != nil && len(af.Publish.Targets) > 0 {
 			targets = nil
@@ -176,7 +176,7 @@ func runPublish(agentfilePath, agentName string, dryRun bool) error {
 			}
 		}
 		if !found {
-			return fmt.Errorf("agent %q not found in Agentfile", agentName)
+			return fmt.Errorf("agent %q not found in Abbyfile", agentName)
 		}
 	}
 

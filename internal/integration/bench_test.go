@@ -13,8 +13,8 @@ import (
 	"time"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/teabranch/agentfile/benchmarks"
-	"github.com/teabranch/agentfile/pkg/definition"
+	"github.com/teabranch/abbyfile/benchmarks"
+	"github.com/teabranch/abbyfile/pkg/definition"
 )
 
 // --- Startup latency benchmarks ---
@@ -226,18 +226,18 @@ func TestMeasureRealHandshake(t *testing.T) {
 func TestMeasureAllAgents(t *testing.T) {
 	projectRoot := findProjectRoot()
 
-	// Find Agentfile.
-	agentfilePath := filepath.Join(projectRoot, "Agentfile")
-	if _, err := os.Stat(agentfilePath); os.IsNotExist(err) {
-		agentfilePath = filepath.Join(projectRoot, "agentfile.yaml")
+	// Find Abbyfile.
+	abbyfilePath := filepath.Join(projectRoot, "Abbyfile")
+	if _, err := os.Stat(abbyfilePath); os.IsNotExist(err) {
+		abbyfilePath = filepath.Join(projectRoot, "abbyfile.yaml")
 	}
-	if _, err := os.Stat(agentfilePath); os.IsNotExist(err) {
-		t.Skip("no Agentfile found at project root")
+	if _, err := os.Stat(abbyfilePath); os.IsNotExist(err) {
+		t.Skip("no Abbyfile found at project root")
 	}
 
-	af, err := definition.ParseAgentfile(agentfilePath)
+	af, err := definition.ParseAbbyfile(abbyfilePath)
 	if err != nil {
-		t.Fatalf("parsing Agentfile: %v", err)
+		t.Fatalf("parsing Abbyfile: %v", err)
 	}
 
 	// Build each agent and measure.
@@ -263,8 +263,8 @@ func TestMeasureAllAgents(t *testing.T) {
 		}
 
 		// Build the agent binary.
-		buildCmd := exec.Command(agentfileBin, "build",
-			"-f", agentfilePath,
+		buildCmd := exec.Command(abbyBin, "build",
+			"-f", abbyfilePath,
 			"-o", buildDir,
 			"--agent", name,
 		)
@@ -334,8 +334,8 @@ func TestMeasureAllAgents(t *testing.T) {
 	}
 
 	// Output results.
-	t.Log("\n=== Agentfile MCP Token Cost Analysis (Real Binaries) ===\n")
-	t.Log("Per-agent measurements (auto-discovered from Agentfile):")
+	t.Log("\n=== Abbyfile MCP Token Cost Analysis (Real Binaries) ===\n")
+	t.Log("Per-agent measurements (auto-discovered from Abbyfile):")
 	for _, a := range agents {
 		t.Logf("  %-20s (%2d tools): ~%5d schema + ~%5d prompt = ~%5d total (%.1f%% of 128K)",
 			a.Name, a.ToolCount, a.SchemaTokens, a.PromptTokens, a.TotalTokens, a.BudgetPct)
@@ -351,7 +351,7 @@ func TestMeasureAllAgents(t *testing.T) {
 		benchmarks.ArticleReference.GitHubMCP93Tools, benchmarks.ArticleReference.GitHubBudgetPercent)
 	if combinedTokens > 0 {
 		ratio := float64(benchmarks.ArticleReference.GitHubMCP93Tools) / float64(combinedTokens)
-		t.Logf("  All Agentfile agents:  ~%d tokens (%.1f%% of 128K) -> %.0fx smaller",
+		t.Logf("  All Abbyfile agents:  ~%d tokens (%.1f%% of 128K) -> %.0fx smaller",
 			combinedTokens, combinedPct, ratio)
 	}
 }

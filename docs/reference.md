@@ -1,6 +1,6 @@
 # Reference
 
-Complete reference for the Agentfile framework: options, subcommands, flags, and types.
+Complete reference for the Abbyfile framework: options, subcommands, flags, and types.
 
 ## `agent.Option` Functions
 
@@ -8,7 +8,7 @@ All options are in `pkg/agent/options.go`.
 
 ### `WithName(name string) Option`
 
-**Required.** Sets the agent name. Used for the CLI binary name, memory directory (`~/.agentfile/<name>/`), override path, and MCP server identity.
+**Required.** Sets the agent name. Used for the CLI binary name, memory directory (`~/.abbyfile/<name>/`), override path, and MCP server identity.
 
 ### `WithVersion(version string) Option`
 
@@ -20,7 +20,7 @@ Sets a short description. Shows in `--describe` JSON, MCP server metadata, and t
 
 ### `WithPromptFS(fs embed.FS, path string) Option`
 
-**Required.** Sets the embedded filesystem and the path within it for the system prompt. This is set automatically by `agentfile build` — you do not need to call it directly.
+**Required.** Sets the embedded filesystem and the path within it for the system prompt. This is set automatically by `abby build` — you do not need to call it directly.
 
 ### `WithTools(defs ...*tools.Definition) Option`
 
@@ -39,7 +39,7 @@ Sets the timeout for tool execution. Default: `30 * time.Second`. Applies to bot
 
 ### `WithMemory(enabled bool) Option`
 
-Enables or disables persistent memory. Default: `false`. When enabled, creates a `FileStore` at `~/.agentfile/<name>/memory/` and registers four memory tools (`memory_read`, `memory_write`, `memory_list`, `memory_delete`).
+Enables or disables persistent memory. Default: `false`. When enabled, creates a `FileStore` at `~/.abbyfile/<name>/memory/` and registers four memory tools (`memory_read`, `memory_write`, `memory_list`, `memory_delete`).
 
 ### `WithMemoryLimits(limits memory.Limits) Option`
 
@@ -55,7 +55,7 @@ Enables lazy tool loading via the `search_tools` meta-tool. When enabled, the MC
 
 ### `WithConfigPath(path string) Option`
 
-Overrides the default config.yaml location (`~/.agentfile/<name>/config.yaml`). Primarily useful for testing.
+Overrides the default config.yaml location (`~/.abbyfile/<name>/config.yaml`). Primarily useful for testing.
 
 ### `WithLogger(logger *slog.Logger) Option`
 
@@ -117,7 +117,7 @@ Commands:
 
 ### `config`
 
-Inspect and modify runtime configuration overrides stored at `~/.agentfile/<name>/config.yaml`.
+Inspect and modify runtime configuration overrides stored at `~/.abbyfile/<name>/config.yaml`.
 
 ```
 Usage:
@@ -138,7 +138,7 @@ Examples:
 ./my-agent config set model opus        # set override
 ./my-agent config set tool_timeout 120s # set timeout override
 ./my-agent config reset model           # revert to compiled default
-./my-agent config path                  # ~/.agentfile/my-agent/config.yaml
+./my-agent config path                  # ~/.abbyfile/my-agent/config.yaml
 ```
 
 Output format for `get`:
@@ -185,7 +185,7 @@ Output format:
 [PASS] Prompt: loaded (245 bytes)
 [PASS] Tool "date": command "date" found at /bin/date
 [PASS] Tool "read_file": builtin handler registered
-[PASS] Memory: directory /Users/you/.agentfile/my-agent/memory is writable
+[PASS] Memory: directory /Users/you/.abbyfile/my-agent/memory is writable
 [INFO] Override: not active (using embedded prompt)
 [PASS] Version: 0.1.0
 ----------------------------------------
@@ -379,7 +379,7 @@ Zero values mean unlimited. Pass the zero value `memory.Limits{}` for no limits.
 func NewFileStore(agentName string, limits Limits) (*FileStore, error)
 ```
 
-Creates a file store at `~/.agentfile/<agentName>/memory/`. Creates the directory if it does not exist.
+Creates a file store at `~/.abbyfile/<agentName>/memory/`. Creates the directory if it does not exist.
 
 ```go
 func NewFileStoreAt(dir string, limits Limits) (*FileStore, error)
@@ -429,12 +429,12 @@ func (m *Manager) FormatKeysAsContext() string
 func NewLoader(agentName string, fs embed.FS, path string) *Loader
 ```
 
-Created automatically by generated binaries. The `embed.FS` is populated by `agentfile build`.
+Created automatically by generated binaries. The `embed.FS` is populated by `abby build`.
 
 ```go
 func (l *Loader) Load() (string, error)       // load prompt (override or embedded)
 func (l *Loader) IsOverridden() bool           // true if override file exists
-func (l *Loader) OverridePath() string         // ~/.agentfile/<name>/override.md
+func (l *Loader) OverridePath() string         // ~/.abbyfile/<name>/override.md
 ```
 
 ---
@@ -467,21 +467,21 @@ func (b *Bridge) ServeTransport(ctx context.Context, transport gomcp.Transport) 
 
 ---
 
-## `agentfile build`
+## `abby build`
 
 ```
 Usage:
-  agentfile build [flags]
+  abby build [flags]
 
 Flags:
-  -f, --file string      Path to Agentfile (default: auto-detect Agentfile or agentfile.yaml)
+  -f, --file string      Path to Abbyfile (default: auto-detect Abbyfile or abbyfile.yaml)
   -o, --output string    Output directory for binaries (default: "./build")
       --agent string     Build a single agent by name
       --plugin           Also generate a Claude Code plugin directory
       --runtime string   Target runtime: auto, all, claude-code, codex, gemini (default: "auto")
 ```
 
-Parses the Agentfile, generates Go source from each agent's `.md` file, and compiles standalone binaries. Also generates/updates MCP config for the target runtime(s).
+Parses the Abbyfile, generates Go source from each agent's `.md` file, and compiles standalone binaries. Also generates/updates MCP config for the target runtime(s).
 
 The `--runtime` flag controls which runtimes receive MCP config:
 - `auto` (default) — detects installed runtimes by checking for their global config directories, falls back to Claude Code
@@ -496,15 +496,15 @@ The `--runtime` flag controls which runtimes receive MCP config:
 
 When `--plugin` is passed, each agent also gets a `<name>.claude-plugin/` directory in the output folder containing the binary, an MCP config, and any declared skills. See [Plugins guide](guides/plugins.md).
 
-## `agentfile install`
+## `abby install`
 
 ```
 Usage:
-  agentfile install <agent-name | github.com/owner/repo[/agent][@version]> [flags]
+  abby install <agent-name | github.com/owner/repo[/agent][@version]> [flags]
 
 Flags:
   -g, --global          Install globally to /usr/local/bin
-      --model string    Override the agent's model in ~/.agentfile/<name>/config.yaml
+      --model string    Override the agent's model in ~/.abbyfile/<name>/config.yaml
       --runtime string  Target runtime: auto, all, claude-code, codex, gemini (default: "auto")
 ```
 
@@ -513,29 +513,29 @@ Installs an agent binary and wires it into the MCP config for detected (or speci
 **Local install** (from `./build/`):
 
 ```bash
-agentfile install my-agent
-agentfile install -g my-agent
+abby install my-agent
+abby install -g my-agent
 ```
 
 **Remote install** (from GitHub Releases):
 
 ```bash
-agentfile install github.com/owner/repo/agent
-agentfile install github.com/owner/repo/agent@1.0.0
+abby install github.com/owner/repo/agent
+abby install github.com/owner/repo/agent@1.0.0
 ```
 
 Remote install downloads the binary for the current platform (`<agent>-<GOOS>-<GOARCH>`), verifies it with `--describe`, installs it, wires MCP, and tracks it in the registry. Set `GITHUB_TOKEN` for private repos.
 
-Both local and remote installs are tracked in `~/.agentfile/registry.json`.
+Both local and remote installs are tracked in `~/.abbyfile/registry.json`.
 
-## `agentfile publish`
+## `abby publish`
 
 ```
 Usage:
-  agentfile publish [flags]
+  abby publish [flags]
 
 Flags:
-  -f, --file string     Path to Agentfile (default: auto-detect Agentfile or agentfile.yaml)
+  -f, --file string     Path to Abbyfile (default: auto-detect Abbyfile or abbyfile.yaml)
       --agent string    Publish a single agent by name
       --dry-run         Cross-compile only, skip GitHub Release creation
 ```
@@ -546,31 +546,31 @@ Release tag format: `<agent>/v<version>`. Binary asset naming: `<agent>-<os>-<ar
 
 Requires the `gh` CLI to be installed and authenticated.
 
-## `agentfile list`
+## `abby list`
 
 ```
 Usage:
-  agentfile list
+  abby list
 ```
 
-Shows all installed agents from the registry (`~/.agentfile/registry.json`). Displays name, version, source, scope, and path in a table.
+Shows all installed agents from the registry (`~/.abbyfile/registry.json`). Displays name, version, source, scope, and path in a table.
 
-## `agentfile update`
+## `abby update`
 
 ```
 Usage:
-  agentfile update [agent-name]
+  abby update [agent-name]
 ```
 
 Checks GitHub Releases for newer versions of installed agents and downloads updates. Only agents installed from a remote source can be updated.
 
 If no agent name is given, checks all remote-installed agents.
 
-## `agentfile uninstall`
+## `abby uninstall`
 
 ```
 Usage:
-  agentfile uninstall <agent-name> [flags]
+  abby uninstall <agent-name> [flags]
 
 Flags:
       --runtime string  Target runtime: auto, all, claude-code, codex, gemini (default: "auto")
@@ -596,7 +596,7 @@ type Entry struct {
 ## `registry.Registry`
 
 ```go
-func DefaultPath() (string, error)         // ~/.agentfile/registry.json
+func DefaultPath() (string, error)         // ~/.abbyfile/registry.json
 func Load(path string) (*Registry, error)  // load from disk (empty if not exists)
 func (r *Registry) Save() error            // atomic save (write temp + rename)
 func (r *Registry) Set(e Entry)            // add or update entry
@@ -643,7 +643,7 @@ func (c *Client) DownloadAsset(ctx context.Context, asset Asset, w io.Writer) er
 ```go
 type BuildConfig struct {
     OutputDir  string // directory for compiled binaries
-    ModuleDir  string // local agentfile module path (for replace directive)
+    ModuleDir  string // local abbyfile module path (for replace directive)
     TargetOS   string // GOOS for cross-compilation (empty = native)
     TargetArch string // GOARCH for cross-compilation (empty = native)
 }
@@ -694,7 +694,7 @@ func Generate(def *definition.AgentDef, skills []SkillFile, cfg GenerateConfig) 
 
 Creates a `<outputDir>/<name>.claude-plugin/` directory containing:
 
-- `.claude-plugin/plugin.json` — name, version, description, `"agentfile": true`
+- `.claude-plugin/plugin.json` — name, version, description, `"abbyfile": true`
 - `.mcp.json` — `{ "mcpServers": { "<name>": { "command": "./<name>", "args": ["serve-mcp"] } } }`
 - `<name>` — copy of the compiled binary (executable)
 - `skills/<skill-name>/SKILL.md` — for each skill, with frontmatter (name, description) + content

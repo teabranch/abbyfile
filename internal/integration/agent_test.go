@@ -16,29 +16,29 @@ import (
 )
 
 var (
-	binaryPath   string
-	agentfileBin string
+	binaryPath string
+	abbyBin    string
 )
 
 func TestMain(m *testing.M) {
 	projectRoot := findProjectRoot()
 
 	// Create a temp dir for the entire integration test.
-	tmp, err := os.MkdirTemp("", "agentfile-integration-*")
+	tmp, err := os.MkdirTemp("", "abbyfile-integration-*")
 	if err != nil {
 		panic("creating temp dir: " + err.Error())
 	}
 	defer os.RemoveAll(tmp)
 
-	// Build the agentfile CLI into temp dir (avoids macOS case-insensitive
-	// conflict with Agentfile YAML at project root).
-	agentfileBin = filepath.Join(tmp, "agentfile-cli")
-	cmd := exec.Command("go", "build", "-o", agentfileBin, "./cmd/agentfile")
+	// Build the abby CLI into temp dir (avoids macOS case-insensitive
+	// conflict with Abbyfile YAML at project root).
+	abbyBin = filepath.Join(tmp, "abby-cli")
+	cmd := exec.Command("go", "build", "-o", abbyBin, "./cmd/abby")
 	cmd.Dir = projectRoot
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		panic("building agentfile CLI: " + err.Error())
+		panic("building abby CLI: " + err.Error())
 	}
 
 	// Write a minimal agent .md with dual frontmatter.
@@ -63,29 +63,29 @@ custom_tools:
       required: [message]
 ---
 
-You are a test agent built with the Agentfile framework.
+You are a test agent built with the Abbyfile framework.
 `
 	agentDir := filepath.Join(tmp, "agents")
 	os.MkdirAll(agentDir, 0o755)
 	os.WriteFile(filepath.Join(agentDir, "test-agent.md"), []byte(agentMD), 0o644)
 
-	// Write an Agentfile.
-	agentfile := `version: "1"
+	// Write an Abbyfile.
+	abbyfileYAML := `version: "1"
 agents:
   test-agent:
     path: agents/test-agent.md
     version: 0.1.0
 `
-	os.WriteFile(filepath.Join(tmp, "Agentfile"), []byte(agentfile), 0o644)
+	os.WriteFile(filepath.Join(tmp, "Abbyfile"), []byte(abbyfileYAML), 0o644)
 
-	// Build the test agent via agentfile build.
+	// Build the test agent via abby build.
 	buildDir := filepath.Join(tmp, "build")
-	cmd = exec.Command(agentfileBin, "build", "-f", filepath.Join(tmp, "Agentfile"), "-o", buildDir)
+	cmd = exec.Command(abbyBin, "build", "-f", filepath.Join(tmp, "Abbyfile"), "-o", buildDir)
 	cmd.Dir = projectRoot // CWD must be project root so DetectModuleDir() finds the local module
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		panic("agentfile build: " + err.Error())
+		panic("abby build: " + err.Error())
 	}
 
 	binaryPath = filepath.Join(buildDir, "test-agent")
@@ -134,8 +134,8 @@ func TestVersion(t *testing.T) {
 
 func TestCustomInstructions(t *testing.T) {
 	out := runAgentStdout(t, "--custom-instructions")
-	if !strings.Contains(out, "Agentfile framework") {
-		t.Errorf("--custom-instructions output = %q, want to contain 'Agentfile framework'", out)
+	if !strings.Contains(out, "Abbyfile framework") {
+		t.Errorf("--custom-instructions output = %q, want to contain 'Abbyfile framework'", out)
 	}
 }
 

@@ -1,6 +1,6 @@
 # Development
 
-Guide for contributing to the Agentfile framework itself.
+Guide for contributing to the Abbyfile framework itself.
 
 ## Prerequisites
 
@@ -11,10 +11,10 @@ Guide for contributing to the Agentfile framework itself.
 
 ```bash
 make all          # fmtcheck → vet → test → build
-make build        # build the agentfile CLI → build/agentfile
-make agents       # build agent binaries from Agentfile
+make build        # build the abby CLI → build/abby
+make agents       # build agent binaries from Abbyfile
 make integration  # end-to-end tests against built binary
-make install      # install agentfile CLI to /usr/local/bin
+make install      # install abby CLI to /usr/local/bin
 make clean        # remove build artifacts
 ```
 
@@ -28,18 +28,18 @@ make test
 make integration
 
 # Manual end-to-end
-make build && ./build/agentfile build
+make build && ./build/abby build
 ./build/go-pro validate
 ./build/go-pro --describe
 ```
 
 ## Releasing a New Version
 
-The agentfile CLI uses **auto-release**: bump the version constant, push to main, and CI handles the rest.
+The abby CLI uses **auto-release**: bump the version constant, push to main, and CI handles the rest.
 
 ### Steps
 
-1. **Bump the version** in `cmd/agentfile/main.go`:
+1. **Bump the version** in `cmd/abby/main.go`:
 
 ```go
 const cliVersion = "0.3.0"  // ← change this
@@ -48,7 +48,7 @@ const cliVersion = "0.3.0"  // ← change this
 2. **Commit and push to main:**
 
 ```bash
-git add cmd/agentfile/main.go
+git add cmd/abby/main.go
 git commit -m "Bump version to 0.3.0 for release"
 git push
 ```
@@ -70,7 +70,7 @@ test → e2e-install → check-version → release
 
 ### How It Works
 
-The version source of truth is `const cliVersion` in `cmd/agentfile/main.go:12`. CI extracts it with grep, checks `git rev-parse "v${VERSION}"`, and sets `should_release=true/false`. The release job only runs when the tag doesn't exist yet.
+The version source of truth is `const cliVersion` in `cmd/abby/main.go:12`. CI extracts it with grep, checks `git rev-parse "v${VERSION}"`, and sets `should_release=true/false`. The release job only runs when the tag doesn't exist yet.
 
 ### Common Issues
 
@@ -97,50 +97,50 @@ Semantic versioning: `MAJOR.MINOR.PATCH`
 ## Project Structure
 
 ```
-Agentfile           Manifest declaring agents to build (also accepts agentfile.yaml)
+Abbyfile           Manifest declaring agents to build (also accepts abbyfile.yaml)
 .claude/agents/     Agent .md files (prompt + frontmatter)
-build/              Compiled binaries (agentfile CLI + agents)
+build/              Compiled binaries (abby CLI + agents)
 
 pkg/agent/          Core runtime: New(), Execute(), functional options
 pkg/builtins/       Shared tool implementations (read, write, edit, bash, glob, grep)
-pkg/definition/     Agentfile YAML + agent .md parser
+pkg/definition/     Abbyfile YAML + agent .md parser
 pkg/builder/        Code generation + go build compilation
 pkg/tools/          Tool registry, executor, validation
 pkg/memory/         File-based KV store, limits, concurrency-safe manager
 pkg/prompt/         Embed.FS loader with override support
 pkg/mcp/            MCP-over-stdio bridge
 pkg/plugin/         Claude Code plugin directory generation (--plugin)
-pkg/registry/       Installed agents tracking (~/.agentfile/registry.json)
+pkg/registry/       Installed agents tracking (~/.abbyfile/registry.json)
 pkg/github/         GitHub Releases client for remote install/update
 internal/cli/       Cobra commands: root, run-tool, memory, serve-mcp, validate
-cmd/agentfile/      CLI: build, install, publish, list, update, uninstall
+cmd/abby/      CLI: build, install, publish, list, update, uninstall
 ```
 
 ## CLI Reference
 
 ```bash
 # Build
-agentfile build                   # build all agents (auto-finds Agentfile or agentfile.yaml)
-agentfile build --agent my-agent  # build a single agent
-agentfile build -o ./dist         # custom output directory
-agentfile build --plugin          # also generate Claude Code plugin directories
+abby build                   # build all agents (auto-finds Abbyfile or abbyfile.yaml)
+abby build --agent my-agent  # build a single agent
+abby build -o ./dist         # custom output directory
+abby build --plugin          # also generate Claude Code plugin directories
 
 # Install
-agentfile install my-agent                            # install locally from ./build/
-agentfile install -g my-agent                         # install globally (/usr/local/bin/)
-agentfile install github.com/owner/repo/agent         # install from GitHub Releases
-agentfile install github.com/owner/repo/agent@1.0.0   # specific version
+abby install my-agent                            # install locally from ./build/
+abby install -g my-agent                         # install globally (/usr/local/bin/)
+abby install github.com/owner/repo/agent         # install from GitHub Releases
+abby install github.com/owner/repo/agent@1.0.0   # specific version
 
 # Publish
-agentfile publish                 # cross-compile + create GitHub Release
-agentfile publish --agent my-agent
-agentfile publish --dry-run       # cross-compile only, no release
+abby publish                 # cross-compile + create GitHub Release
+abby publish --agent my-agent
+abby publish --dry-run       # cross-compile only, no release
 
 # Manage
-agentfile list                    # show installed agents
-agentfile update                  # update all remote agents
-agentfile update my-agent         # update a specific agent
-agentfile uninstall my-agent      # remove binary + MCP entry + registry
+abby list                    # show installed agents
+abby update                  # update all remote agents
+abby update my-agent         # update a specific agent
+abby uninstall my-agent      # remove binary + MCP entry + registry
 ```
 
 ## Built-in Tools

@@ -1,5 +1,5 @@
 // Package tools provides tool registration, discovery, and subprocess execution
-// for agentfile agents.
+// for abbyfile agents.
 package tools
 
 import (

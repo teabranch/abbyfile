@@ -1,4 +1,4 @@
-// Package cli provides the Cobra command structure for agentfile binaries.
+// Package cli provides the Cobra command structure for abbyfile binaries.
 package cli
 
 import (
@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/teabranch/agentfile/pkg/memory"
-	"github.com/teabranch/agentfile/pkg/prompt"
-	"github.com/teabranch/agentfile/pkg/tools"
+	"github.com/teabranch/abbyfile/pkg/memory"
+	"github.com/teabranch/abbyfile/pkg/prompt"
+	"github.com/teabranch/abbyfile/pkg/tools"
 )
 
 // AgentManifest is the JSON description of an agent, used for discovery.

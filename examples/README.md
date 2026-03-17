@@ -1,4 +1,4 @@
-# Agentfile Examples
+# Abbyfile Examples
 
 Example agent configurations demonstrating common patterns.
 
@@ -6,11 +6,11 @@ Example agent configurations demonstrating common patterns.
 
 ### [`basic/`](basic/)
 
-A minimal single-agent setup. Start here to understand the Agentfile format.
+A minimal single-agent setup. Start here to understand the Abbyfile format.
 
 ```
 basic/
-  Agentfile                # declares one agent
+  Abbyfile                # declares one agent
   agents/my-agent.md       # system prompt + tool config
 ```
 
@@ -18,7 +18,7 @@ Build and use:
 
 ```bash
 cd basic
-agentfile build            # -> ./build/my-agent + MCP config
+abby build            # -> ./build/my-agent + MCP config
 ./build/my-agent --version
 ./build/my-agent --describe
 ./build/my-agent validate
@@ -30,7 +30,7 @@ A multi-agent repository with two focused agents: a Go developer and a code revi
 
 ```
 multi-agent/
-  Agentfile                # declares two agents
+  Abbyfile                # declares two agents
   agents/golang-pro.md     # Go development specialist (6 tools)
   agents/code-reviewer.md  # code review specialist (3 tools)
 ```
@@ -39,7 +39,7 @@ Build and use:
 
 ```bash
 cd multi-agent
-agentfile build            # -> ./build/golang-pro, ./build/code-reviewer + MCP config
+abby build            # -> ./build/golang-pro, ./build/code-reviewer + MCP config
 ```
 
 Both agents are auto-discovered by your runtime via the generated MCP config.
@@ -50,7 +50,7 @@ Demonstrates the runtime config override feature. The agent declares a model hin
 
 ```
 model-override/
-  Agentfile                     # declares one agent with a model hint
+  Abbyfile                     # declares one agent with a model hint
   agents/smart-reviewer.md      # code reviewer recommending opus
 ```
 
@@ -58,7 +58,7 @@ Build and use:
 
 ```bash
 cd model-override
-agentfile build                 # -> ./build/smart-reviewer + MCP config
+abby build                 # -> ./build/smart-reviewer + MCP config
 ./build/smart-reviewer --describe             # shows model in manifest
 ./build/smart-reviewer config get             # shows compiled defaults
 ./build/smart-reviewer config set model sonnet  # override at runtime
@@ -68,8 +68,8 @@ agentfile build                 # -> ./build/smart-reviewer + MCP config
 
 ## Creating Your Own
 
-1. Create an `Agentfile` at your project root
-2. Add agent `.md` files with dual frontmatter (see [format guide](../docs/guides/agentfile-format.md))
-3. Run `agentfile build`
+1. Create an `Abbyfile` at your project root
+2. Add agent `.md` files with dual frontmatter (see [format guide](../docs/guides/abbyfile-format.md))
+3. Run `abby build`
 
 See the [Quickstart](../docs/quickstart.md) for a step-by-step walkthrough.

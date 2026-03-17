@@ -36,11 +36,11 @@ go.work.sum
 .codex/config.toml
 .gemini/settings.json
 
-# Build output (agentfile CLI + agent binaries)
+# Build output (abby CLI + agent binaries)
 build/
 
 # Local agent installs
-.agentfile/
+.abbyfile/
 
 # Claude Code local config
 .claude/
@@ -49,8 +49,8 @@ build/
 plans/**
 CLAUDE.md
 
-# Root Agentfile (use examples/ for reference configurations)
-/Agentfile
+# Root Abbyfile (use examples/ for reference configurations)
+/Abbyfile
 
 .git
 .git/**

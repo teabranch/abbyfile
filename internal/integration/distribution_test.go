@@ -20,7 +20,7 @@ func TestList(t *testing.T) {
 	defer cancel()
 
 	// List should show "No agents installed." when registry is empty.
-	cmd := exec.CommandContext(ctx, agentfileBin, "list")
+	cmd := exec.CommandContext(ctx, abbyBin, "list")
 	cmd.Env = append(os.Environ(), "HOME="+tmpHome)
 	out, err := cmd.Output()
 	if err != nil {
@@ -52,7 +52,7 @@ func TestInstallLocalWithRegistry(t *testing.T) {
 	}
 
 	// Run install from the tmpDir (it looks for build/<name>).
-	cmd := exec.CommandContext(ctx, agentfileBin, "install", "test-agent")
+	cmd := exec.CommandContext(ctx, abbyBin, "install", "test-agent")
 	cmd.Dir = tmpDir
 	cmd.Env = append(os.Environ(), "HOME="+tmpHome)
 	out, err := cmd.CombinedOutput()
@@ -64,7 +64,7 @@ func TestInstallLocalWithRegistry(t *testing.T) {
 	}
 
 	// List should now show the agent.
-	cmd = exec.CommandContext(ctx, agentfileBin, "list")
+	cmd = exec.CommandContext(ctx, abbyBin, "list")
 	cmd.Dir = tmpDir
 	cmd.Env = append(os.Environ(), "HOME="+tmpHome)
 	out, err = cmd.Output()
@@ -82,7 +82,7 @@ func TestInstallLocalWithRegistry(t *testing.T) {
 	}
 
 	// Verify registry file was created.
-	regPath := filepath.Join(tmpHome, ".agentfile", "registry.json")
+	regPath := filepath.Join(tmpHome, ".abbyfile", "registry.json")
 	regData, err := os.ReadFile(regPath)
 	if err != nil {
 		t.Fatalf("reading registry: %v", err)
@@ -125,7 +125,7 @@ func TestUninstall(t *testing.T) {
 		t.Fatalf("copying test binary: %v", err)
 	}
 
-	cmd := exec.CommandContext(ctx, agentfileBin, "install", "test-agent")
+	cmd := exec.CommandContext(ctx, abbyBin, "install", "test-agent")
 	cmd.Dir = tmpDir
 	cmd.Env = append(os.Environ(), "HOME="+tmpHome)
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -133,7 +133,7 @@ func TestUninstall(t *testing.T) {
 	}
 
 	// Uninstall.
-	cmd = exec.CommandContext(ctx, agentfileBin, "uninstall", "test-agent")
+	cmd = exec.CommandContext(ctx, abbyBin, "uninstall", "test-agent")
 	cmd.Dir = tmpDir
 	cmd.Env = append(os.Environ(), "HOME="+tmpHome)
 	out, err := cmd.CombinedOutput()
@@ -145,13 +145,13 @@ func TestUninstall(t *testing.T) {
 	}
 
 	// Binary should be gone.
-	binPath := filepath.Join(tmpDir, ".agentfile", "bin", "test-agent")
+	binPath := filepath.Join(tmpDir, ".abbyfile", "bin", "test-agent")
 	if _, err := os.Stat(binPath); !os.IsNotExist(err) {
 		t.Error("binary should be removed after uninstall")
 	}
 
 	// List should be empty.
-	cmd = exec.CommandContext(ctx, agentfileBin, "list")
+	cmd = exec.CommandContext(ctx, abbyBin, "list")
 	cmd.Dir = tmpDir
 	cmd.Env = append(os.Environ(), "HOME="+tmpHome)
 	out, err = cmd.Output()
@@ -189,16 +189,16 @@ You are a test agent.
 `
 	os.WriteFile(filepath.Join(agentDir, "pub-test.md"), []byte(agentMD), 0o644)
 
-	agentfile := `version: "1"
+	abbyfileYAML := `version: "1"
 agents:
   pub-test:
     path: agents/pub-test.md
     version: 0.1.0
 `
-	os.WriteFile(filepath.Join(tmpDir, "Agentfile"), []byte(agentfile), 0o644)
+	os.WriteFile(filepath.Join(tmpDir, "Abbyfile"), []byte(abbyfileYAML), 0o644)
 
-	cmd := exec.CommandContext(ctx, agentfileBin, "publish", "--dry-run",
-		"-f", filepath.Join(tmpDir, "Agentfile"),
+	cmd := exec.CommandContext(ctx, abbyBin, "publish", "--dry-run",
+		"-f", filepath.Join(tmpDir, "Abbyfile"),
 	)
 	cmd.Dir = projectRoot
 	out, err := cmd.CombinedOutput()

@@ -6,8 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/teabranch/agentfile/pkg/definition"
-	"github.com/teabranch/agentfile/pkg/fsutil"
+	"github.com/teabranch/abbyfile/pkg/definition"
+	"github.com/teabranch/abbyfile/pkg/fsutil"
 )
 
 // GenerateConfig configures plugin directory generation.
@@ -28,7 +28,7 @@ type pluginJSON struct {
 	Name        string `json:"name"`
 	Version     string `json:"version"`
 	Description string `json:"description"`
-	Agentfile   bool   `json:"agentfile"`
+	Abbyfile    bool   `json:"abbyfile"`
 }
 
 // mcpJSON is the .mcp.json schema inside the plugin dir.
@@ -55,7 +55,7 @@ func Generate(def *definition.AgentDef, skills []SkillFile, cfg GenerateConfig) 
 		Name:        def.Name,
 		Version:     def.Version,
 		Description: def.Description,
-		Agentfile:   true,
+		Abbyfile:    true,
 	}
 	if err := writeJSON(filepath.Join(pluginDir, ".claude-plugin", "plugin.json"), pj); err != nil {
 		return fmt.Errorf("writing plugin.json: %w", err)

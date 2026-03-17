@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/teabranch/agentfile/pkg/fsutil"
+	"github.com/teabranch/abbyfile/pkg/fsutil"
 )
 
 // VerifyChecksum computes the SHA256 hash of the file at path and compares it

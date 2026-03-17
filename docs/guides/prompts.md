@@ -1,6 +1,6 @@
 # Prompts Guide
 
-The system prompt defines how the agent behaves -- its role, capabilities, and guidelines. In Agentfile, prompts are written as the body of an agent `.md` file, embedded into the binary at compile time by `agentfile build`, and can be overridden locally for development.
+The system prompt defines how the agent behaves -- its role, capabilities, and guidelines. In Abbyfile, prompts are written as the body of an agent `.md` file, embedded into the binary at compile time by `abby build`, and can be overridden locally for development.
 
 ## Writing Prompts in Agent `.md` Files
 
@@ -30,7 +30,7 @@ You also have persistent memory. Use it to:
 - Keep a running log of important facts about the project
 ```
 
-When you run `agentfile build`, the prompt body is extracted and embedded into the compiled binary. No Go code required.
+When you run `abby build`, the prompt body is extracted and embedded into the compiled binary. No Go code required.
 
 ## How Prompts Surface
 
@@ -48,14 +48,14 @@ All four channels return the same text (or its override).
 During development, you often want to iterate on the prompt without rebuilding the binary. Place an override file at:
 
 ```
-~/.agentfile/<agent-name>/override.md
+~/.abbyfile/<agent-name>/override.md
 ```
 
 For example, for an agent named `my-agent`:
 
 ```bash
-mkdir -p ~/.agentfile/my-agent
-cat > ~/.agentfile/my-agent/override.md << 'EOF'
+mkdir -p ~/.abbyfile/my-agent
+cat > ~/.abbyfile/my-agent/override.md << 'EOF'
 You are my-agent in development mode.
 Be extra verbose. Explain your reasoning step by step.
 EOF
@@ -67,13 +67,13 @@ Check override status:
 
 ```bash
 ./my-agent validate
-# [INFO] Override: active at /Users/you/.agentfile/my-agent/override.md
+# [INFO] Override: active at /Users/you/.abbyfile/my-agent/override.md
 ```
 
 Remove the override to go back to the embedded prompt:
 
 ```bash
-rm ~/.agentfile/my-agent/override.md
+rm ~/.abbyfile/my-agent/override.md
 ./my-agent validate
 # [INFO] Override: not active (using embedded prompt)
 ```
@@ -83,7 +83,7 @@ rm ~/.agentfile/my-agent/override.md
 The `prompt.Loader` follows this logic:
 
 ```
-1. Check if ~/.agentfile/<name>/override.md exists
+1. Check if ~/.abbyfile/<name>/override.md exists
 2. If yes: read and return override content
 3. If no: read and return the compiled-in prompt
 ```
@@ -92,10 +92,10 @@ Both paths trim whitespace from the result.
 
 ## Append-Only Philosophy
 
-System prompts in Agentfile are treated as append-only within a version:
+System prompts in Abbyfile are treated as append-only within a version:
 
 - The embedded prompt is immutable once compiled
-- New behavior is added by appending to the agent `.md` file body, bumping the version, and running `agentfile build`
+- New behavior is added by appending to the agent `.md` file body, bumping the version, and running `abby build`
 - Destructive changes (removing instructions, changing behavior) go through a version bump
 
 This ensures that a given version of an agent binary always produces the same behavior. The override mechanism exists solely for development iteration.
