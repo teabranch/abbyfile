@@ -51,9 +51,12 @@ abby publish
 
 # 3. Install — one command, any machine, done
 abby install github.com/acme/my-agent
+
+# Or install all agents from a repo at once
+abby install --all github.com/acme/agent-suite
 ```
 
-That last command downloads the right binary for your platform, wires it into your MCP-compatible runtime (Claude Code, Codex, Gemini CLI — auto-detected), and tracks it for future updates. No cloning, no building from source, no editing config files.
+That last command downloads the right binaries for your platform, wires them into your MCP-compatible runtime (Claude Code, Codex, Gemini CLI — auto-detected), and tracks them for future updates. No cloning, no building from source, no editing config files.
 
 **Claude Code is the brain. The binary is the body** — it provides the instructions, the hands (tools), and the memory. Claude Code loads the agent's prompt, discovers its tools via MCP, and handles all reasoning.
 

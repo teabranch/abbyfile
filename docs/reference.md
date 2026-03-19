@@ -500,15 +500,16 @@ When `--plugin` is passed, each agent also gets a `<name>.claude-plugin/` direct
 
 ```
 Usage:
-  abby install <agent-name | github.com/owner/repo[/agent][@version]> [flags]
+  abby install [flags] <ref>...
 
 Flags:
+      --all             Install all agents from a repo (remote) or ./build/ (local)
   -g, --global          Install globally to /usr/local/bin
       --model string    Override the agent's model in ~/.abbyfile/<name>/config.yaml
       --runtime string  Target runtime: auto, all, claude-code, codex, gemini (default: "auto")
 ```
 
-Installs an agent binary and wires it into the MCP config for detected (or specified) runtimes. Supports two modes:
+Installs agent binaries and wires them into the MCP config for detected (or specified) runtimes.
 
 **Local install** (from `./build/`):
 
@@ -523,6 +524,21 @@ abby install -g my-agent
 abby install github.com/owner/repo/agent
 abby install github.com/owner/repo/agent@1.0.0
 ```
+
+**Bulk install** (multiple agents at once):
+
+```bash
+abby install --all github.com/owner/repo           # all agents from a repo
+abby install --all                                  # all agents from ./build/
+abby install github.com/o/r/a1 github.com/o/r/a2   # specific agents
+abby install github.com/org1/r1/a1 github.com/org2/r2/a2  # cross-repo
+```
+
+Remote `--all` discovers agents by scanning release tags (`<agent>/v<version>` format) and installs the latest version of each. Multiple positional arguments can reference agents from different repos.
+
+Bulk installs use best-effort error handling: failures are reported but don't stop remaining installs. A summary is printed at the end.
+
+The `--model` flag cannot be combined with `--all` or multiple agents (it is agent-specific).
 
 Remote install downloads the binary for the current platform (`<agent>-<GOOS>-<GOARCH>`), verifies it with `--describe`, installs it, wires MCP, and tracks it in the registry. Set `GITHUB_TOKEN` for private repos.
 

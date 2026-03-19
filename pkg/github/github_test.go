@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -297,6 +298,102 @@ func TestVersionFromTag(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("VersionFromTag(%q) = %q, want %q", tt.tag, got, tt.want)
 		}
+	}
+}
+
+func TestListAgentsMultiAgent(t *testing.T) {
+	releases := []Release{
+		{TagName: "agent-a/v1.0.0"},
+		{TagName: "agent-b/v2.0.0"},
+		{TagName: "agent-a/v0.9.0"},
+	}
+	releasesJSON, _ := json.Marshal(releases)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/owner/repo/releases" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Write(releasesJSON)
+	}))
+	defer srv.Close()
+
+	c := &Client{HTTPClient: srv.Client(), BaseURL: srv.URL}
+	agents, err := c.ListAgents(context.Background(), "owner", "repo")
+	if err != nil {
+		t.Fatalf("ListAgents: %v", err)
+	}
+	if len(agents) != 2 {
+		t.Fatalf("expected 2 agents, got %d: %v", len(agents), agents)
+	}
+	if agents[0] != "agent-a" || agents[1] != "agent-b" {
+		t.Errorf("agents = %v, want [agent-a, agent-b]", agents)
+	}
+}
+
+func TestListAgentsSingleAgent(t *testing.T) {
+	releases := []Release{
+		{TagName: "v1.0.0"},
+		{TagName: "v0.9.0"},
+	}
+	releasesJSON, _ := json.Marshal(releases)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(releasesJSON)
+	}))
+	defer srv.Close()
+
+	c := &Client{HTTPClient: srv.Client(), BaseURL: srv.URL}
+	agents, err := c.ListAgents(context.Background(), "owner", "myrepo")
+	if err != nil {
+		t.Fatalf("ListAgents: %v", err)
+	}
+	if len(agents) != 1 || agents[0] != "myrepo" {
+		t.Errorf("agents = %v, want [myrepo]", agents)
+	}
+}
+
+func TestListAgentsEmpty(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("[]"))
+	}))
+	defer srv.Close()
+
+	c := &Client{HTTPClient: srv.Client(), BaseURL: srv.URL}
+	_, err := c.ListAgents(context.Background(), "owner", "repo")
+	if err == nil {
+		t.Error("expected error for empty releases")
+	}
+}
+
+func TestListAgentsPagination(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("page") == "2" {
+			releases := []Release{{TagName: "agent-b/v1.0.0"}}
+			data, _ := json.Marshal(releases)
+			w.Write(data)
+			return
+		}
+		releases := []Release{{TagName: "agent-a/v1.0.0"}}
+		data, _ := json.Marshal(releases)
+		// Link header pointing to page 2.
+		w.Header().Set("Link", fmt.Sprintf(`<%s/repos/owner/repo/releases?page=2>; rel="next"`, r.Host))
+		// Fix: use full URL with scheme.
+		w.Header().Set("Link", fmt.Sprintf(`<http://%s/repos/owner/repo/releases?page=2>; rel="next"`, r.Host))
+		w.Write(data)
+	}))
+	defer srv.Close()
+
+	c := &Client{HTTPClient: srv.Client(), BaseURL: srv.URL}
+	agents, err := c.ListAgents(context.Background(), "owner", "repo")
+	if err != nil {
+		t.Fatalf("ListAgents: %v", err)
+	}
+	if len(agents) != 2 {
+		t.Fatalf("expected 2 agents, got %d: %v", len(agents), agents)
+	}
+	if agents[0] != "agent-a" || agents[1] != "agent-b" {
+		t.Errorf("agents = %v, want [agent-a, agent-b]", agents)
 	}
 }
 

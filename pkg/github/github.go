@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"sort"
 	"strings"
 )
 
@@ -199,6 +200,53 @@ func FindAsset(release *Release, agentName string) (*Asset, error) {
 	}
 	return nil, fmt.Errorf("no asset %q found in release %s (available: %s)",
 		want, release.TagName, assetNames(release))
+}
+
+// ListAgents discovers all agent names published in a repository by scanning
+// release tags. Multi-agent repos use tags like "<agent>/v<version>"; single-agent
+// repos use plain "v<version>" tags (agent name defaults to repo name).
+func (c *Client) ListAgents(ctx context.Context, owner, repo string) ([]string, error) {
+	url := fmt.Sprintf("%s/repos/%s/%s/releases", c.BaseURL, owner, repo)
+
+	seen := make(map[string]bool)
+	hasPlainVersion := false
+
+	for url != "" {
+		data, nextURL, err := c.getWithPagination(ctx, url)
+		if err != nil {
+			return nil, err
+		}
+
+		var releases []Release
+		if err := json.Unmarshal(data, &releases); err != nil {
+			return nil, fmt.Errorf("parsing releases: %w", err)
+		}
+
+		for _, r := range releases {
+			if idx := strings.LastIndex(r.TagName, "/v"); idx > 0 {
+				seen[r.TagName[:idx]] = true
+			} else if strings.HasPrefix(r.TagName, "v") {
+				hasPlainVersion = true
+			}
+		}
+
+		url = nextURL
+	}
+
+	if len(seen) == 0 && !hasPlainVersion {
+		return nil, fmt.Errorf("no releases found in %s/%s", owner, repo)
+	}
+
+	if len(seen) == 0 && hasPlainVersion {
+		return []string{repo}, nil
+	}
+
+	agents := make([]string, 0, len(seen))
+	for name := range seen {
+		agents = append(agents, name)
+	}
+	sort.Strings(agents)
+	return agents, nil
 }
 
 // VersionFromTag extracts the version from a tag like "agent/v1.2.3".

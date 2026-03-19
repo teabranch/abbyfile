@@ -166,6 +166,62 @@ func TestUninstall(t *testing.T) {
 	}
 }
 
+// TestInstallAllLocal verifies --all installs all agents from ./build/.
+func TestInstallAllLocal(t *testing.T) {
+	tmpHome := t.TempDir()
+	tmpDir := t.TempDir()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Create a fake build/ directory with two agent binaries.
+	buildDir := filepath.Join(tmpDir, "build")
+	os.MkdirAll(buildDir, 0o755)
+	for _, name := range []string{"agent-alpha", "agent-beta"} {
+		cpCmd := exec.Command("cp", binaryPath, filepath.Join(buildDir, name))
+		if err := cpCmd.Run(); err != nil {
+			t.Fatalf("copying test binary for %s: %v", name, err)
+		}
+	}
+
+	// Run install --all from the tmpDir.
+	cmd := exec.CommandContext(ctx, abbyBin, "install", "--all")
+	cmd.Dir = tmpDir
+	cmd.Env = append(os.Environ(), "HOME="+tmpHome)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("install --all failed: %v\n%s", err, out)
+	}
+	outStr := string(out)
+	if !strings.Contains(outStr, "Installed agent-alpha") {
+		t.Errorf("expected agent-alpha install confirmation, got %q", outStr)
+	}
+	if !strings.Contains(outStr, "Installed agent-beta") {
+		t.Errorf("expected agent-beta install confirmation, got %q", outStr)
+	}
+	if !strings.Contains(outStr, "Installed 2/2") {
+		t.Errorf("expected '2/2' summary, got %q", outStr)
+	}
+
+	// List should show both agents.
+	cmd = exec.CommandContext(ctx, abbyBin, "list")
+	cmd.Dir = tmpDir
+	cmd.Env = append(os.Environ(), "HOME="+tmpHome)
+	out, err = cmd.Output()
+	if err != nil {
+		if ee, ok := err.(*exec.ExitError); ok {
+			t.Fatalf("list failed: %v\nstderr: %s", err, string(ee.Stderr))
+		}
+		t.Fatalf("list failed: %v", err)
+	}
+	listStr := string(out)
+	if !strings.Contains(listStr, "agent-alpha") {
+		t.Errorf("expected agent-alpha in list, got %q", listStr)
+	}
+	if !strings.Contains(listStr, "agent-beta") {
+		t.Errorf("expected agent-beta in list, got %q", listStr)
+	}
+}
+
 // TestPublishDryRun verifies publish --dry-run cross-compiles without creating a release.
 func TestPublishDryRun(t *testing.T) {
 	projectRoot := findProjectRoot()
