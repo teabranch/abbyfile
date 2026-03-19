@@ -4,7 +4,8 @@
 
 <h1 align="center">Abbyfile</h1>
 
-<p align="center"><strong>A packaging format for AI agents.</strong></p>
+<p align="center"><strong>Agents Binaries Built-by YAML</strong></p>
+<p align="center">A packaging format for AI agents — build once, run on any MCP-compatible runtime.</p>
 
 <p align="center">
   <a href="https://github.com/teabranch/abbyfile/actions/workflows/ci.yml"><img src="https://github.com/teabranch/abbyfile/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -13,19 +14,19 @@
   <img src="https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go&logoColor=white" alt="Go 1.22+">
 </p>
 
---- Build, version, and distribute focused agents as standalone binaries — with MCP auto-discovery built in.
+--- Build, version, and distribute focused agents as standalone binaries — with MCP auto-discovery for Claude Code, Codex, and Gemini CLI.
 
-Abbyfile turns agent definitions — a system prompt, tools, and memory — into versioned, distributable CLI binaries. Authors publish to GitHub Releases. Consumers install with one command. Claude Code auto-discovers the rest.
+Abbyfile turns agent definitions — a system prompt, tools, and memory — into versioned, distributable CLI binaries. Authors publish to GitHub Releases. Consumers install with one command. Any MCP-compatible runtime auto-discovers the rest.
 
 No Go code. No manual config. Just `abby build`.
 
 ## Why We Built This
 
-CLAUDE.md files are great for single-repo instructions, but they don't version, don't distribute, and can't carry tools or memory. Agent Skills add progressive disclosure but still lack executable tools and persistent state. Sub-agents provide context isolation but re-pay Claude Code's ~9.2K baseline on every invocation. MCP servers solve the tool problem but weren't designed with context efficiency in mind — broad platform-wrapper servers can consume a significant portion of your context window on every turn.
+CLAUDE.md files are great for single-repo instructions, but they don't version, don't distribute, and can't carry tools or memory. Agent Skills add progressive disclosure but still lack executable tools and persistent state. Sub-agents provide context isolation but re-pay the runtime's baseline on every invocation. MCP servers solve the tool problem but weren't designed with context efficiency in mind — broad platform-wrapper servers can consume a significant portion of your context window on every turn.
 
-We wanted agents that follow the Unix philosophy: small, focused, composable. Each agent does one thing well with 6-15 purpose-built tools, keeping context overhead minimal while remaining easy to build, test, and share as real software.
+We wanted agents that follow the Unix philosophy: small, focused, composable. Each agent does one thing well with 6-15 purpose-built tools, keeping context overhead minimal while remaining easy to build, test, and share as real software — and run on any MCP-compatible runtime.
 
-The result is a packaging format that gives agents the same lifecycle as any other software artifact: build, test, version, publish, install, update — at marginal context cost on the existing window, with no baseline re-payment.
+The result is a packaging format that gives agents the same lifecycle as any other software artifact: build, test, version, publish, install, update — at marginal context cost on the existing window, with no baseline re-payment. Build once, install anywhere.
 
 We've benchmarked the context cost against skills, sub-agents, and broad MCP servers extensively. See **[our benchmark methodology and results](docs/guides/benchmarks.md)** for the full analysis.
 
@@ -58,10 +59,10 @@ abby install --all github.com/acme/agent-suite
 
 That last command downloads the right binaries for your platform, wires them into your MCP-compatible runtime (Claude Code, Codex, Gemini CLI — auto-detected), and tracks them for future updates. No cloning, no building from source, no editing config files.
 
-**Claude Code is the brain. The binary is the body** — it provides the instructions, the hands (tools), and the memory. Claude Code loads the agent's prompt, discovers its tools via MCP, and handles all reasoning.
+**The runtime is the brain. The binary is the body** — it provides the instructions, the hands (tools), and the memory. The runtime loads the agent's prompt, discovers its tools via MCP, and handles all reasoning. Abbyfile auto-generates the right MCP config for whichever runtimes you have installed.
 
 ```
-Claude Code (LLM Runtime)
+LLM Runtime (Claude Code / Codex / Gemini CLI)
   |
   |  MCP-over-stdio
   v
@@ -73,6 +74,8 @@ Agent Binary
   +-- --describe             -> JSON manifest
   +-- validate               -> check wiring
 ```
+
+**Supported runtimes:** Claude Code (`.mcp.json`), Codex (`.codex/config.toml`), Gemini CLI (`.gemini/settings.json`). Use `--runtime auto` (default) to auto-detect, or target a specific runtime with `--runtime codex`.
 
 ## Quick Start
 
@@ -106,9 +109,7 @@ You are a helpful coding assistant. Use your tools to read and modify files.
 
 ```bash
 abby build
-# -> ./build/my-agent binary + MCP config for detected runtimes
-
-# Your runtime auto-discovers the agent — start using it immediately
+# -> ./build/my-agent binary + MCP config for detected runtimes (Claude Code, Codex, Gemini CLI)
 ```
 
 ### 3. Share it
@@ -125,6 +126,7 @@ abby install github.com/you/my-agent
 
 | | CLAUDE.md | Agent Skills | Sub-agents | Abbyfile |
 |---|---|---|---|---|
+| **Multi-runtime** | No | No | No | Claude Code, Codex, Gemini CLI |
 | **Context cost** | File size | ~3KT loaded | ~10.6KT/call (baseline re-paid) | ~1.5KT marginal |
 | **Custom tools** | Described in prose | No | Inherited from parent | Registered, validated, executable via MCP |
 | **Persistent memory** | None | None | None | Key-value store per agent |
@@ -179,7 +181,7 @@ make build && make install
 | **[Prompts](docs/guides/prompts.md)** | Embedding and overriding prompts |
 | **[Distribution](docs/guides/distribution.md)** | Publish, install, update, uninstall |
 | **[Plugins](docs/guides/plugins.md)** | Claude Code plugin output with skills |
-| **[MCP Integration](docs/guides/mcp.md)** | Claude Code integration via MCP |
+| **[MCP Integration](docs/guides/mcp.md)** | Multi-runtime integration via MCP |
 | **[Testing](docs/guides/testing.md)** | Unit, integration, and MCP testing |
 | **[Benchmarks](docs/guides/benchmarks.md)** | Token cost methodology and results |
 | **[Reference](docs/reference.md)** | All options, subcommands, flags, types |
