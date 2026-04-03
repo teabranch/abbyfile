@@ -1,3 +1,9 @@
+---
+title: Abbyfile Format
+parent: Guides
+nav_order: 1
+---
+
 # Abbyfile Format Guide
 
 This guide explains the two files that define agents: the `Abbyfile` manifest and agent `.md` files.

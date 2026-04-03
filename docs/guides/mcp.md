@@ -1,3 +1,9 @@
+---
+title: MCP Integration
+parent: Guides
+nav_order: 7
+---
+
 # MCP Integration Guide
 
 Abbyfile agents integrate with MCP-compatible runtimes (Claude Code, Codex, Gemini CLI) through the Model Context Protocol (MCP). The `serve-mcp` subcommand starts an MCP-over-stdio server that exposes the agent's tools, prompts, and memory.

@@ -1,3 +1,8 @@
+---
+title: Development
+nav_order: 6
+---
+
 # Development
 
 Guide for contributing to the Abbyfile framework itself.

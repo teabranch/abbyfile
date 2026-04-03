@@ -1,3 +1,9 @@
+---
+title: Memory
+parent: Guides
+nav_order: 3
+---
+
 # Memory Guide
 
 Abbyfile provides per-agent persistent memory as a file-based key-value store. Each agent's memory lives at `~/.abbyfile/<name>/memory/` and persists across conversations.

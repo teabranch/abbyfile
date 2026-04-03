@@ -1,3 +1,9 @@
+---
+title: Tools
+parent: Guides
+nav_order: 2
+---
+
 # Tools Guide
 
 Tools are the actions an agent can perform. Abbyfile supports two kinds: **CLI tools** that wrap external commands, and **builtin tools** that run Go functions in-process.

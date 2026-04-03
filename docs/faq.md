@@ -1,3 +1,8 @@
+---
+title: FAQ
+nav_order: 5
+---
+
 # FAQ
 
 ## Does the binary call the Claude API?

@@ -1,3 +1,9 @@
+---
+title: Benchmarks
+parent: Guides
+nav_order: 9
+---
+
 # MCP Token Cost Benchmarks
 
 ## Background

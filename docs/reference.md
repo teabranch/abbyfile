@@ -1,3 +1,8 @@
+---
+title: Reference
+nav_order: 4
+---
+
 # Reference
 
 Complete reference for the Abbyfile framework: options, subcommands, flags, and types.
