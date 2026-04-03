@@ -1,3 +1,9 @@
+---
+title: Testing
+parent: Guides
+nav_order: 8
+---
+
 # Testing Guide
 
 Abbyfile has three levels of testing: unit tests for individual packages, integration tests against built binaries, and MCP bridge tests for the protocol layer.

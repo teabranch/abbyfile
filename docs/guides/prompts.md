@@ -1,3 +1,9 @@
+---
+title: Prompts
+parent: Guides
+nav_order: 4
+---
+
 # Prompts Guide
 
 The system prompt defines how the agent behaves -- its role, capabilities, and guidelines. In Abbyfile, prompts are written as the body of an agent `.md` file, embedded into the binary at compile time by `abby build`, and can be overridden locally for development.

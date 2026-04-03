@@ -1,3 +1,9 @@
+---
+title: Distribution
+parent: Guides
+nav_order: 5
+---
+
 # Distribution Guide
 
 Abbyfile agents compile to standalone binaries. The distribution layer handles the full lifecycle: publish to GitHub Releases, install from remote, update, list, and uninstall.

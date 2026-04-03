@@ -1,3 +1,9 @@
+---
+title: Plugins
+parent: Guides
+nav_order: 6
+---
+
 # Plugins Guide
 
 Abbyfile can optionally generate a [Claude Code plugin](https://docs.anthropic.com/en/docs/claude-code/plugins) directory alongside the compiled binary. The plugin wraps the binary as its MCP server and adds features like skills that the binary alone can't carry.

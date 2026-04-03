@@ -1,0 +1,5 @@
+[pr_reviewer]
+extra_instructions = """
+- Do not flag GitHub Actions pinned to version tags (e.g. @v4) as a security issue. \
+  We prefer readable version tags over SHA pinning for first-party actions (actions/*).
+"""

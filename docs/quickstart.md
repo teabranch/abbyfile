@@ -1,3 +1,8 @@
+---
+title: Quickstart
+nav_order: 1
+---
+
 # Quickstart: Build an Agent in 5 Minutes
 
 ## The Problem

@@ -1,0 +1,62 @@
+title: Abbyfile
+description: >-
+  A packaging format for AI agents — build once, run on any MCP-compatible runtime.
+baseurl: ""
+url: "https://abbyfile.teabranch.dev"
+
+theme: just-the-docs
+color_scheme: cream
+
+search_enabled: true
+search:
+  button: true
+
+aux_links:
+  "GitHub":
+    - "https://github.com/teabranch/abbyfile"
+aux_links_new_tab: true
+
+footer_content: >-
+  Abbyfile — Licensed under
+  <a href="https://github.com/teabranch/abbyfile/blob/main/LICENSE">MIT</a>.
+
+plugins:
+  - jekyll-seo-tag
+  - jekyll-relative-links
+
+relative_links:
+  enabled: true
+  collections: false
+
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: "default"
+
+exclude:
+  - README.md
+  - CLAUDE.md
+  - LICENSE
+  - Gemfile
+  - Gemfile.lock
+  - .gitignore
+  - .github/
+  - .claude/
+  - Agentfile
+  - benchmarks/
+  - cmd/
+  - doc.go
+  - examples/
+  - go.mod
+  - go.sum
+  - install.sh
+  - internal/
+  - Makefile
+  - pkg/
+  - build/
+  - .abbyfile/
+  - node_modules/
+  - vendor/
+  - .superpowers/
+  - plans/
