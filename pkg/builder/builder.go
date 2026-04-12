@@ -158,6 +158,16 @@ func BuildAll(defs map[string]*definition.AgentDef, cfg BuildConfig) error {
 // moduleVersion is the published abbyfile module version (e.g. "v0.8.0").
 // moduleDir, if non-empty, adds a replace directive for local development/CI.
 func GenerateSource(dir string, def *definition.AgentDef, moduleVersion, moduleDir string) error {
+	// Resolve moduleDir to absolute path so the replace directive works
+	// from the temp build directory where go mod tidy runs.
+	if moduleDir != "" {
+		abs, err := filepath.Abs(moduleDir)
+		if err != nil {
+			return fmt.Errorf("resolving module dir: %w", err)
+		}
+		moduleDir = abs
+	}
+
 	var customTools []customToolData
 	for _, ct := range def.CustomTools {
 		ctd := customToolData{
