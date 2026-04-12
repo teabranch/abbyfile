@@ -76,8 +76,6 @@ func runPublish(abbyfilePath, agentName string, dryRun bool) error {
 		baseDir = filepath.Join(cwd, baseDir)
 	}
 
-	moduleDir := builder.DetectModuleDir()
-
 	// Build output goes into a publish-specific directory.
 	publishDir := filepath.Join("build", "publish")
 	if err := os.MkdirAll(publishDir, 0o755); err != nil {
@@ -116,10 +114,10 @@ func runPublish(abbyfilePath, agentName string, dryRun bool) error {
 			fmt.Fprintf(os.Stderr, "Building %s for %s/%s...\n", name, target.OS, target.Arch)
 
 			cfg := builder.BuildConfig{
-				OutputDir:  publishDir,
-				ModuleDir:  moduleDir,
-				TargetOS:   target.OS,
-				TargetArch: target.Arch,
+				OutputDir:     publishDir,
+				ModuleVersion: "v" + cliVersion,
+				TargetOS:      target.OS,
+				TargetArch:    target.Arch,
 			}
 			if err := builder.Build(def, cfg); err != nil {
 				return fmt.Errorf("building %s for %s/%s: %w", name, target.OS, target.Arch, err)

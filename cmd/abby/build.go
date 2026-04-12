@@ -86,13 +86,10 @@ func runBuild(abbyfilePath, outputDir, agentName string, pluginOutput bool, para
 		baseDir = filepath.Join(cwd, baseDir)
 	}
 
-	// Auto-detect replace directive for local development.
-	moduleDir := builder.DetectModuleDir()
-
 	cfg := builder.BuildConfig{
-		OutputDir:   outputDir,
-		ModuleDir:   moduleDir,
-		Parallelism: parallelism,
+		OutputDir:     outputDir,
+		ModuleVersion: "v" + cliVersion,
+		Parallelism:   parallelism,
 	}
 
 	defs := make(map[string]*definition.AgentDef)

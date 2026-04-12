@@ -20,11 +20,11 @@ var templateFS embed.FS
 
 // BuildConfig controls the build process.
 type BuildConfig struct {
-	OutputDir   string // directory for compiled binaries
-	ModuleDir   string // local abbyfile module path (for replace directive)
-	TargetOS    string // GOOS for cross-compilation (empty = native)
-	TargetArch  string // GOARCH for cross-compilation (empty = native)
-	Parallelism int    // max concurrent builds (0 = sequential)
+	OutputDir     string // directory for compiled binaries
+	ModuleVersion string // published module version (e.g. "v0.8.0")
+	TargetOS      string // GOOS for cross-compilation (empty = native)
+	TargetArch    string // GOARCH for cross-compilation (empty = native)
+	Parallelism   int    // max concurrent builds (0 = sequential)
 }
 
 // customToolData holds pre-serialized custom tool info for code generation.
@@ -39,13 +39,13 @@ type customToolData struct {
 
 // templateData is the data passed to Go code generation templates.
 type templateData struct {
-	Name        string
-	Version     string
-	Description string
-	Tools       []string
-	CustomTools []customToolData
-	Memory      bool
-	Replace     string // local module path, empty if using published module
+	Name          string
+	Version       string
+	Description   string
+	Tools         []string
+	CustomTools   []customToolData
+	Memory        bool
+	ModuleVersion string // published module version (e.g. "v0.8.0")
 }
 
 // Build generates source code from an AgentDef and compiles it into a binary.
@@ -56,7 +56,7 @@ func Build(def *definition.AgentDef, cfg BuildConfig) error {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	if err := GenerateSource(tmpDir, def, cfg.ModuleDir); err != nil {
+	if err := GenerateSource(tmpDir, def, cfg.ModuleVersion); err != nil {
 		return fmt.Errorf("generating source: %w", err)
 	}
 
@@ -153,7 +153,8 @@ func BuildAll(defs map[string]*definition.AgentDef, cfg BuildConfig) error {
 }
 
 // GenerateSource writes generated Go files into dir from an AgentDef.
-func GenerateSource(dir string, def *definition.AgentDef, moduleDir string) error {
+// moduleVersion is the published abbyfile module version (e.g. "v0.8.0").
+func GenerateSource(dir string, def *definition.AgentDef, moduleVersion string) error {
 	var customTools []customToolData
 	for _, ct := range def.CustomTools {
 		ctd := customToolData{
@@ -174,13 +175,13 @@ func GenerateSource(dir string, def *definition.AgentDef, moduleDir string) erro
 	}
 
 	data := templateData{
-		Name:        def.Name,
-		Version:     def.Version,
-		Description: def.Description,
-		Tools:       def.Tools,
-		CustomTools: customTools,
-		Memory:      def.Memory,
-		Replace:     moduleDir,
+		Name:          def.Name,
+		Version:       def.Version,
+		Description:   def.Description,
+		Tools:         def.Tools,
+		CustomTools:   customTools,
+		Memory:        def.Memory,
+		ModuleVersion: moduleVersion,
 	}
 
 	tmpl, err := template.ParseFS(templateFS, "templates/*.tmpl")
@@ -213,29 +214,6 @@ func GenerateSource(dir string, def *definition.AgentDef, moduleDir string) erro
 	}
 
 	return nil
-}
-
-// DetectModuleDir checks if we're running inside the abbyfile framework repo.
-// If yes, returns the repo root for use as a replace directive. Otherwise returns "".
-func DetectModuleDir() string {
-	dir, err := os.Getwd()
-	if err != nil {
-		return ""
-	}
-	for {
-		modPath := filepath.Join(dir, "go.mod")
-		data, err := os.ReadFile(modPath)
-		if err == nil {
-			if strings.Contains(string(data), "module github.com/teabranch/abbyfile") {
-				return dir
-			}
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return ""
-		}
-		dir = parent
-	}
 }
 
 func writeTemplate(tmpl *template.Template, name, outPath string, data any) error {

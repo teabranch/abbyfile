@@ -21,7 +21,7 @@ func TestGenerateSource(t *testing.T) {
 		PromptBody:  "You are a test agent.\n\nDo good things.",
 	}
 
-	if err := GenerateSource(dir, def, "/fake/module/dir"); err != nil {
+	if err := GenerateSource(dir, def, "v1.0.0"); err != nil {
 		t.Fatalf("GenerateSource: %v", err)
 	}
 
@@ -57,7 +57,7 @@ func TestGenerateSource(t *testing.T) {
 		t.Error("embed.go missing embed directive")
 	}
 
-	// Check go.mod was generated.
+	// Check go.mod was generated with published module version.
 	goMod, err := os.ReadFile(filepath.Join(dir, "go.mod"))
 	if err != nil {
 		t.Fatalf("reading go.mod: %v", err)
@@ -66,11 +66,11 @@ func TestGenerateSource(t *testing.T) {
 	if !strings.Contains(goModStr, "abbyfile-gen/test-agent") {
 		t.Error("go.mod missing module name")
 	}
-	if !strings.Contains(goModStr, "replace") {
-		t.Error("go.mod missing replace directive")
+	if !strings.Contains(goModStr, "github.com/teabranch/abbyfile v1.0.0") {
+		t.Error("go.mod missing published module version")
 	}
-	if !strings.Contains(goModStr, "/fake/module/dir") {
-		t.Error("go.mod missing local module path")
+	if strings.Contains(goModStr, "replace") {
+		t.Error("go.mod should not contain replace directive")
 	}
 
 	// Check prompt was written.
@@ -80,26 +80,6 @@ func TestGenerateSource(t *testing.T) {
 	}
 	if string(prompt) != "You are a test agent.\n\nDo good things." {
 		t.Errorf("prompt = %q", string(prompt))
-	}
-}
-
-func TestGenerateSource_NoReplace(t *testing.T) {
-	dir := t.TempDir()
-
-	def := &definition.AgentDef{
-		Name:       "minimal",
-		Version:    "0.1.0",
-		Tools:      []string{"Read"},
-		PromptBody: "Minimal.",
-	}
-
-	if err := GenerateSource(dir, def, ""); err != nil {
-		t.Fatalf("GenerateSource: %v", err)
-	}
-
-	goMod, _ := os.ReadFile(filepath.Join(dir, "go.mod"))
-	if strings.Contains(string(goMod), "replace") {
-		t.Error("go.mod should not have replace directive when moduleDir is empty")
 	}
 }
 
@@ -114,7 +94,7 @@ func TestGenerateSource_NoMemory(t *testing.T) {
 		PromptBody: "No memory.",
 	}
 
-	if err := GenerateSource(dir, def, ""); err != nil {
+	if err := GenerateSource(dir, def, "v1.0.0"); err != nil {
 		t.Fatalf("GenerateSource: %v", err)
 	}
 
@@ -157,7 +137,7 @@ func TestGenerateSource_CustomTools(t *testing.T) {
 		},
 	}
 
-	if err := GenerateSource(dir, def, ""); err != nil {
+	if err := GenerateSource(dir, def, "v1.0.0"); err != nil {
 		t.Fatalf("GenerateSource: %v", err)
 	}
 
@@ -219,7 +199,7 @@ func TestGenerateSource_NoCustomTools(t *testing.T) {
 		PromptBody: "No custom tools.",
 	}
 
-	if err := GenerateSource(dir, def, ""); err != nil {
+	if err := GenerateSource(dir, def, "v1.0.0"); err != nil {
 		t.Fatalf("GenerateSource: %v", err)
 	}
 
@@ -232,21 +212,5 @@ func TestGenerateSource_NoCustomTools(t *testing.T) {
 	}
 	if strings.Contains(mainStr, `"github.com/teabranch/abbyfile/pkg/tools"`) {
 		t.Error("main.go should not import tools package without custom tools")
-	}
-}
-
-func TestDetectModuleDir(t *testing.T) {
-	// Running inside the abbyfile repo should detect it.
-	dir := DetectModuleDir()
-	if dir == "" {
-		t.Skip("not running inside abbyfile repo")
-	}
-	// Verify it contains go.mod with the right module.
-	data, err := os.ReadFile(filepath.Join(dir, "go.mod"))
-	if err != nil {
-		t.Fatalf("reading go.mod: %v", err)
-	}
-	if !strings.Contains(string(data), "module github.com/teabranch/abbyfile") {
-		t.Error("detected dir doesn't have the expected module")
 	}
 }
