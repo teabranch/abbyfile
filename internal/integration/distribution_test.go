@@ -255,6 +255,7 @@ agents:
 
 	cmd := exec.CommandContext(ctx, abbyBin, "publish", "--dry-run",
 		"-f", filepath.Join(tmpDir, "Abbyfile"),
+		"--module-dir", projectRoot,
 	)
 	cmd.Dir = projectRoot
 	out, err := cmd.CombinedOutput()

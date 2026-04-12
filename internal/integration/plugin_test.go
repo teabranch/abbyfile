@@ -59,6 +59,7 @@ agents:
 		"-f", filepath.Join(tmp, "Abbyfile"),
 		"-o", buildDir,
 		"--plugin",
+		"--module-dir", projectRoot,
 	)
 	cmd.Dir = projectRoot
 	cmd.Stdout = os.Stdout

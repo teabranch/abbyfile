@@ -267,6 +267,7 @@ func TestMeasureAllAgents(t *testing.T) {
 			"-f", abbyfilePath,
 			"-o", buildDir,
 			"--agent", name,
+			"--module-dir", projectRoot,
 		)
 		buildCmd.Dir = projectRoot
 		if out, err := buildCmd.CombinedOutput(); err != nil {
