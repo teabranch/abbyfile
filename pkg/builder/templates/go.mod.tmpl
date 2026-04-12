@@ -3,3 +3,7 @@ module abbyfile-gen/{{.Name}}
 go 1.24.0
 
 require github.com/teabranch/abbyfile {{.ModuleVersion}}
+{{- if .ModuleDir}}
+
+replace github.com/teabranch/abbyfile => {{.ModuleDir}}
+{{- end}}

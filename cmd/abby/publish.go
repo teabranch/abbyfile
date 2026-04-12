@@ -31,6 +31,7 @@ func newPublishCommand() *cobra.Command {
 		abbyfilePath string
 		agentName    string
 		dryRun       bool
+		moduleDir    string
 	)
 
 	cmd := &cobra.Command{
@@ -42,18 +43,19 @@ using the gh CLI. The release tag follows the format <agent>/v<version>.
 Requires the gh CLI to be installed and authenticated.
 Use --dry-run to cross-compile without creating a release.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runPublish(abbyfilePath, agentName, dryRun)
+			return runPublish(abbyfilePath, agentName, dryRun, moduleDir)
 		},
 	}
 
 	cmd.Flags().StringVarP(&abbyfilePath, "file", "f", "", "Path to Abbyfile")
 	cmd.Flags().StringVar(&agentName, "agent", "", "Publish a single agent by name")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Cross-compile only, skip GitHub Release creation")
+	cmd.Flags().StringVar(&moduleDir, "module-dir", "", "Use local module path instead of published version (dev/CI only)")
 
 	return cmd
 }
 
-func runPublish(abbyfilePath, agentName string, dryRun bool) error {
+func runPublish(abbyfilePath, agentName string, dryRun bool, moduleDir string) error {
 	if abbyfilePath == "" {
 		abbyfilePath = resolveAbbyfile()
 	}
@@ -116,6 +118,7 @@ func runPublish(abbyfilePath, agentName string, dryRun bool) error {
 			cfg := builder.BuildConfig{
 				OutputDir:     publishDir,
 				ModuleVersion: "v" + cliVersion,
+				ModuleDir:     moduleDir,
 				TargetOS:      target.OS,
 				TargetArch:    target.Arch,
 			}

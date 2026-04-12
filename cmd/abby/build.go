@@ -44,6 +44,7 @@ func newBuildCommand() *cobra.Command {
 		pluginFlag   bool
 		parallelism  int
 		runtimeFlag  string
+		moduleDir    string
 	)
 
 	cmd := &cobra.Command{
@@ -55,7 +56,7 @@ and compiles standalone binaries into the output directory.
 Also generates/updates MCP config for detected runtimes (Claude Code, Codex, Gemini).
 Use --runtime to target a specific runtime or "all" for all supported runtimes.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runBuild(abbyfilePath, outputDir, agentName, pluginFlag, parallelism, runtimeFlag)
+			return runBuild(abbyfilePath, outputDir, agentName, pluginFlag, parallelism, runtimeFlag, moduleDir)
 		},
 	}
 
@@ -65,11 +66,12 @@ Use --runtime to target a specific runtime or "all" for all supported runtimes.`
 	cmd.Flags().BoolVar(&pluginFlag, "plugin", false, "Also generate a Claude Code plugin directory")
 	cmd.Flags().IntVar(&parallelism, "parallelism", 0, "Max concurrent agent builds (0 = sequential)")
 	cmd.Flags().StringVar(&runtimeFlag, "runtime", "auto", "Target runtime: auto, all, claude-code, codex, gemini")
+	cmd.Flags().StringVar(&moduleDir, "module-dir", "", "Use local module path instead of published version (dev/CI only)")
 
 	return cmd
 }
 
-func runBuild(abbyfilePath, outputDir, agentName string, pluginOutput bool, parallelism int, runtimeFlag string) error {
+func runBuild(abbyfilePath, outputDir, agentName string, pluginOutput bool, parallelism int, runtimeFlag, moduleDir string) error {
 	if abbyfilePath == "" {
 		abbyfilePath = resolveAbbyfile()
 	}
@@ -89,6 +91,7 @@ func runBuild(abbyfilePath, outputDir, agentName string, pluginOutput bool, para
 	cfg := builder.BuildConfig{
 		OutputDir:     outputDir,
 		ModuleVersion: "v" + cliVersion,
+		ModuleDir:     moduleDir,
 		Parallelism:   parallelism,
 	}
 

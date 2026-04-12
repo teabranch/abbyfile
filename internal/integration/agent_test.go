@@ -80,7 +80,7 @@ agents:
 
 	// Build the test agent via abby build.
 	buildDir := filepath.Join(tmp, "build")
-	cmd = exec.Command(abbyBin, "build", "-f", filepath.Join(tmp, "Abbyfile"), "-o", buildDir)
+	cmd = exec.Command(abbyBin, "build", "-f", filepath.Join(tmp, "Abbyfile"), "-o", buildDir, "--module-dir", projectRoot)
 	cmd.Dir = projectRoot
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

@@ -75,7 +75,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
-        run: ./build/abby publish -f abbyfile-e2e.yaml
+        run: ./build/abby publish -f abbyfile-e2e.yaml --module-dir .
 
       - name: Install from GitHub Release
         env:

@@ -21,7 +21,7 @@ func TestGenerateSource(t *testing.T) {
 		PromptBody:  "You are a test agent.\n\nDo good things.",
 	}
 
-	if err := GenerateSource(dir, def, "v1.0.0"); err != nil {
+	if err := GenerateSource(dir, def, "v1.0.0", ""); err != nil {
 		t.Fatalf("GenerateSource: %v", err)
 	}
 
@@ -94,7 +94,7 @@ func TestGenerateSource_NoMemory(t *testing.T) {
 		PromptBody: "No memory.",
 	}
 
-	if err := GenerateSource(dir, def, "v1.0.0"); err != nil {
+	if err := GenerateSource(dir, def, "v1.0.0", ""); err != nil {
 		t.Fatalf("GenerateSource: %v", err)
 	}
 
@@ -137,7 +137,7 @@ func TestGenerateSource_CustomTools(t *testing.T) {
 		},
 	}
 
-	if err := GenerateSource(dir, def, "v1.0.0"); err != nil {
+	if err := GenerateSource(dir, def, "v1.0.0", ""); err != nil {
 		t.Fatalf("GenerateSource: %v", err)
 	}
 
@@ -199,7 +199,7 @@ func TestGenerateSource_NoCustomTools(t *testing.T) {
 		PromptBody: "No custom tools.",
 	}
 
-	if err := GenerateSource(dir, def, "v1.0.0"); err != nil {
+	if err := GenerateSource(dir, def, "v1.0.0", ""); err != nil {
 		t.Fatalf("GenerateSource: %v", err)
 	}
 
