@@ -61,9 +61,22 @@ fi
 
 chmod +x "$TMP"
 
-# Install
-mkdir -p "$INSTALL_DIR"
-mv "$TMP" "${INSTALL_DIR}/abby"
+# Install — use sudo if needed and available
+install_binary() {
+  mkdir -p "$1" 2>/dev/null && mv "$TMP" "$1/abby" && return 0
+  # mkdir or mv failed (permission denied) — retry with sudo
+  if command -v sudo >/dev/null 2>&1; then
+    echo "  Elevated permissions required for ${1}; using sudo..."
+    sudo mkdir -p "$1" && sudo mv "$TMP" "$1/abby" && sudo chmod +x "$1/abby" && return 0
+  fi
+  return 1
+}
+
+if ! install_binary "$INSTALL_DIR"; then
+  echo "Error: failed to install to ${INSTALL_DIR} (permission denied)" >&2
+  echo "  Try: INSTALL_DIR=~/.local/bin curl -sSL ... | sh" >&2
+  exit 1
+fi
 trap - EXIT
 
 echo "Installed abby to ${INSTALL_DIR}/abby"

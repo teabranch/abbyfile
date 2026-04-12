@@ -158,8 +158,11 @@ Overrides are stored at `~/.abbyfile/<name>/config.yaml`. The model hint is surf
 ## Install
 
 ```bash
-# Pre-built binary (easiest)
+# Pre-built binary (easiest — auto-elevates with sudo if needed)
 curl -sSL https://raw.githubusercontent.com/teabranch/abbyfile/main/install.sh | sh
+
+# Install to a custom directory (no sudo required)
+INSTALL_DIR=~/.local/bin curl -sSL https://raw.githubusercontent.com/teabranch/abbyfile/main/install.sh | sh
 
 # Go users
 go install github.com/teabranch/abbyfile/cmd/abby@latest
