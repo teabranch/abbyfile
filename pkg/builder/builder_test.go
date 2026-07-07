@@ -1,6 +1,8 @@
 package builder
 
 import (
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -225,9 +227,42 @@ func TestGenerateSource_NoBudget_NoWithContextBudget(t *testing.T) {
 	if err := GenerateSource(dir, def, "v0.9.1", ""); err != nil {
 		t.Fatal(err)
 	}
-	data, _ := os.ReadFile(filepath.Join(dir, "main.go"))
+	src := filepath.Join(dir, "main.go")
+	data, _ := os.ReadFile(src)
 	if strings.Contains(string(data), "WithContextBudget") {
 		t.Fatal("main.go should omit WithContextBudget when no budget declared")
+	}
+	if _, err := parser.ParseFile(token.NewFileSet(), src, nil, parser.AllErrors); err != nil {
+		t.Fatalf("generated main.go is not valid Go: %v\n---\n%s", err, data)
+	}
+}
+
+// TestGenerateSource_BudgetProducesParseableGo guards the main.go.tmpl
+// context-budget block (including the per-tool map literal) against
+// syntax breakage — e.g. an unbalanced brace or stray comma — that the
+// string-matching tests above would not catch.
+func TestGenerateSource_BudgetProducesParseableGo(t *testing.T) {
+	dir := t.TempDir()
+	def := &definition.AgentDef{
+		Name: "p", Version: "0.0.1", Description: "d", Tools: []string{"Read"},
+		PromptBody: "body",
+		ContextBudget: &definition.ContextBudgetDef{
+			MaxOutputLines: 500,
+			OnOverflow:     "spill",
+			HeadLines:      50,
+			PerTool: map[string]definition.ContextBudgetDef{
+				"run_command": {OnOverflow: "head-tail"},
+			},
+		},
+	}
+	if err := GenerateSource(dir, def, "v0.9.1", ""); err != nil {
+		t.Fatalf("GenerateSource: %v", err)
+	}
+	src := filepath.Join(dir, "main.go")
+	if _, err := parser.ParseFile(token.NewFileSet(), src, nil, parser.AllErrors); err != nil {
+		// Read the file and include it so a failure is debuggable.
+		data, _ := os.ReadFile(src)
+		t.Fatalf("generated main.go is not valid Go: %v\n---\n%s", err, data)
 	}
 }
 

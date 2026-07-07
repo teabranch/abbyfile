@@ -124,11 +124,14 @@ func buildBudgetData(cb *definition.ContextBudgetDef) *budgetData {
 				OnOverflow:     pt.OnOverflow,
 				HeadLines:      pt.HeadLines,
 				TailLines:      pt.TailLines,
-				SummaryLines:   pt.SummaryLines,
 			}
-			if pt.EagerInstructions != nil {
-				ptData.EagerInstructions = *pt.EagerInstructions
-			}
+			// SummaryLines and EagerInstructions are intentionally not
+			// set here: the per-tool template block (and
+			// tools.ContextBudget.effectiveFor's merge) never renders
+			// or consumes them for per-tool overrides, so populating
+			// them would be dead code. Only the base budget's
+			// SummaryLines/EagerInstructions are used.
+			//
 			// Per-tool scalars left at 0 mean "inherit base" via
 			// effectiveFor's merge (Task 1); only the overflow
 			// strategy needs a non-empty default since an empty
