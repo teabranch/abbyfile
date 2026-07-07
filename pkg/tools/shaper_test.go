@@ -1,6 +1,10 @@
 package tools
 
-import "testing"
+import (
+	"strings"
+	"testing"
+	"unicode/utf8"
+)
 
 func TestShape_UnderCapPassthrough(t *testing.T) {
 	b := ContextBudget{MaxOutputLines: 10, MaxOutputBytes: 1000, OnOverflow: OverflowHeadTail, HeadLines: 3, TailLines: 2}
@@ -34,10 +38,10 @@ func TestShape_HeadTailElidesMiddle(t *testing.T) {
 	if res.OriginalLines != 20 {
 		t.Fatalf("OriginalLines = %d, want 20", res.OriginalLines)
 	}
-	if !contains(res.Output, "elided") {
+	if !strings.Contains(res.Output, "elided") {
 		t.Fatalf("expected elision marker, got: %q", res.Output)
 	}
-	if !contains(res.Output, lines[0]) || !contains(res.Output, lines[19]) {
+	if !strings.Contains(res.Output, lines[0]) || !strings.Contains(res.Output, lines[19]) {
 		t.Fatalf("head/tail lines missing from output: %q", res.Output)
 	}
 }
@@ -81,13 +85,78 @@ func TestEffectiveFor_PerToolMerge(t *testing.T) {
 	}
 }
 
-func contains(s, sub string) bool {
-	return len(s) >= len(sub) && (func() bool {
-		for i := 0; i+len(sub) <= len(s); i++ {
-			if s[i:i+len(sub)] == sub {
-				return true
-			}
+// stubSpillSink is a minimal SpillSink for tests: it always succeeds and
+// returns a deterministic memory:// URI derived from the key.
+type stubSpillSink struct{}
+
+func (stubSpillSink) Put(key, value string) (string, error) {
+	return "memory://test/" + key, nil
+}
+
+func TestShape_SpillFinalOutputRespectsByteCap(t *testing.T) {
+	var lines []string
+	for i := 1; i <= 50; i++ {
+		lines = append(lines, "line")
+	}
+	raw := strings.Join(lines, "\n")
+
+	b := ContextBudget{
+		MaxOutputLines: 5,
+		MaxOutputBytes: 40,
+		OnOverflow:     OverflowSpill,
+		HeadLines:      2,
+		TailLines:      2,
+	}
+	res := b.Shape("t", raw, stubSpillSink{})
+	if !res.Shaped {
+		t.Fatal("expected shaped")
+	}
+	if int64(len(res.Output)) > 40 {
+		t.Fatalf("final Output %d bytes exceeds MaxOutputBytes 40: %q", len(res.Output), res.Output)
+	}
+}
+
+func TestShape_DegradeFinalOutputRespectsByteCap(t *testing.T) {
+	var lines []string
+	for i := 1; i <= 50; i++ {
+		lines = append(lines, "line")
+	}
+	raw := strings.Join(lines, "\n")
+
+	b := ContextBudget{
+		MaxOutputLines: 5,
+		MaxOutputBytes: 40,
+		OnOverflow:     OverflowSpill,
+		HeadLines:      2,
+		TailLines:      2,
+	}
+	res := b.Shape("t", raw, nil)
+	if !res.Shaped {
+		t.Fatal("expected shaped")
+	}
+	if len(res.Output) > 40 {
+		t.Fatalf("final Output %d bytes exceeds MaxOutputBytes 40: %q", len(res.Output), res.Output)
+	}
+}
+
+func TestShape_TruncationProducesValidUTF8(t *testing.T) {
+	var lines []string
+	for i := 0; i < 30; i++ {
+		lines = append(lines, "café—日本語")
+	}
+	raw := strings.Join(lines, "\n")
+
+	for _, maxBytes := range []int64{20, 23, 24, 40, 55, 56} {
+		b := ContextBudget{
+			MaxOutputLines: 5,
+			MaxOutputBytes: maxBytes,
+			OnOverflow:     OverflowHeadTail,
+			HeadLines:      2,
+			TailLines:      2,
 		}
-		return false
-	})()
+		res := b.Shape("t", raw, nil)
+		if !utf8.ValidString(res.Output) {
+			t.Fatalf("MaxOutputBytes=%d: output is not valid UTF-8: %q", maxBytes, res.Output)
+		}
+	}
 }

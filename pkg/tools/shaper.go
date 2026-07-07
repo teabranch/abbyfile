@@ -3,6 +3,7 @@ package tools
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 // OverflowStrategy selects how oversized tool output is shaped.
@@ -112,13 +113,7 @@ func (b ContextBudget) Shape(toolName, raw string, sink SpillSink) ShapeResult {
 	preview := b.assemble(lines, head, tail, res.OriginalLines, res.OriginalBytes, elidedLines)
 
 	// Byte backstop: hard-truncate the assembled preview if still too big.
-	if eff.MaxOutputBytes > 0 && int64(len(preview)) > eff.MaxOutputBytes {
-		cut := int(eff.MaxOutputBytes)
-		if cut > len(preview) {
-			cut = len(preview)
-		}
-		preview = preview[:cut]
-	}
+	preview = truncateBytes(preview, eff.MaxOutputBytes)
 
 	switch eff.OnOverflow {
 	case OverflowSpill:
@@ -126,13 +121,13 @@ func (b ContextBudget) Shape(toolName, raw string, sink SpillSink) ShapeResult {
 			key := fmt.Sprintf("spill/%s", toolName)
 			if uri, err := sink.Put(key, raw); err == nil {
 				res.SpillURI = uri
-				res.Output = preview + fmt.Sprintf("\n\nFull output saved to %s. Fetch it if you need the elided detail.", uri)
+				res.Output = truncateBytes(preview+fmt.Sprintf("\n\nFull output saved to %s. Fetch it if you need the elided detail.", uri), eff.MaxOutputBytes)
 				res.Shaped = true
 				return res
 			}
 		}
 		// Degrade to head-tail when no sink or spill failed.
-		res.Output = preview + "\n(spill unavailable — output truncated)"
+		res.Output = truncateBytes(preview+"\n(spill unavailable — output truncated)", eff.MaxOutputBytes)
 		res.Strategy = OverflowHeadTail
 		res.Shaped = true
 		return res
@@ -142,6 +137,19 @@ func (b ContextBudget) Shape(toolName, raw string, sink SpillSink) ShapeResult {
 		res.Shaped = true
 		return res
 	}
+}
+
+// truncateBytes returns s limited to at most maxBytes bytes without splitting
+// a UTF-8 rune. maxBytes <= 0 returns s unchanged.
+func truncateBytes(s string, maxBytes int64) string {
+	if maxBytes <= 0 || int64(len(s)) <= maxBytes {
+		return s
+	}
+	cut := int(maxBytes)
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut]
 }
 
 // assemble builds the head + marker + tail preview.
