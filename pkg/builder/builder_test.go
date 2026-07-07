@@ -189,6 +189,48 @@ func TestGenerateSource_CustomTools(t *testing.T) {
 	}
 }
 
+func TestGenerateSource_EmitsContextBudget(t *testing.T) {
+	dir := t.TempDir()
+	def := &definition.AgentDef{
+		Name: "b", Version: "0.0.1", Description: "d", Tools: []string{"Read"},
+		PromptBody: "body",
+		ContextBudget: &definition.ContextBudgetDef{
+			MaxOutputLines: 500,
+			OnOverflow:     "spill",
+			HeadLines:      50,
+		},
+	}
+	if err := GenerateSource(dir, def, "v0.9.1", ""); err != nil {
+		t.Fatalf("GenerateSource: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "main.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	if !strings.Contains(s, "agent.WithContextBudget(") {
+		t.Fatalf("main.go missing WithContextBudget:\n%s", s)
+	}
+	if !strings.Contains(s, "MaxOutputLines: 500") {
+		t.Fatalf("main.go missing MaxOutputLines value:\n%s", s)
+	}
+	if !strings.Contains(s, `OnOverflow: tools.OverflowStrategy("spill")`) {
+		t.Fatalf("main.go missing OnOverflow:\n%s", s)
+	}
+}
+
+func TestGenerateSource_NoBudget_NoWithContextBudget(t *testing.T) {
+	dir := t.TempDir()
+	def := &definition.AgentDef{Name: "b", Version: "0.0.1", Tools: []string{"Read"}, PromptBody: "x"}
+	if err := GenerateSource(dir, def, "v0.9.1", ""); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(filepath.Join(dir, "main.go"))
+	if strings.Contains(string(data), "WithContextBudget") {
+		t.Fatal("main.go should omit WithContextBudget when no budget declared")
+	}
+}
+
 func TestGenerateSource_NoCustomTools(t *testing.T) {
 	dir := t.TempDir()
 
