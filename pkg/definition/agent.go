@@ -28,17 +28,33 @@ type SkillDef struct {
 	Path        string `yaml:"path"` // relative to agent .md file
 }
 
+// ContextBudgetDef is the parsed context_budget frontmatter block.
+//
+// This is intentionally self-contained (not a re-export of tools.ContextBudget):
+// pkg/definition must not import pkg/tools.
+type ContextBudgetDef struct {
+	MaxOutputLines    int                         `yaml:"max_output_lines"`
+	MaxOutputBytes    int64                       `yaml:"max_output_bytes"`
+	OnOverflow        string                      `yaml:"on_overflow"`
+	HeadLines         int                         `yaml:"head_lines"`
+	TailLines         int                         `yaml:"tail_lines"`
+	SummaryLines      int                         `yaml:"summary_lines"`
+	EagerInstructions *bool                       `yaml:"eager_instructions"`
+	PerTool           map[string]ContextBudgetDef `yaml:"per_tool"`
+}
+
 // AgentDef is the parsed definition of a single agent, combining
 // data from the Abbyfile reference and the agent's .md file.
 type AgentDef struct {
-	Name        string
-	Description string
-	Tools       []string // Claude Code tool names: "Read", "Write", etc.
-	CustomTools []CustomToolDef
-	Skills      []SkillDef
-	Memory      bool
-	Version     string // set from Abbyfile, not the .md
-	PromptBody  string // markdown after frontmatter
+	Name          string
+	Description   string
+	Tools         []string // Claude Code tool names: "Read", "Write", etc.
+	CustomTools   []CustomToolDef
+	Skills        []SkillDef
+	ContextBudget *ContextBudgetDef
+	Memory        bool
+	Version       string // set from Abbyfile, not the .md
+	PromptBody    string // markdown after frontmatter
 }
 
 // frontmatter block 1: agent identity for Claude Code (name, memory).
@@ -51,12 +67,13 @@ type frontmatter1 struct {
 
 // frontmatter block 2: detailed metadata (tools, full description).
 type frontmatter2 struct {
-	Name        string          `yaml:"name"`
-	Description string          `yaml:"description"`
-	Tools       string          `yaml:"tools"`
-	CustomTools []CustomToolDef `yaml:"custom_tools"`
-	Skills      []SkillDef      `yaml:"skills"`
-	Model       string          `yaml:"model"`
+	Name          string            `yaml:"name"`
+	Description   string            `yaml:"description"`
+	Tools         string            `yaml:"tools"`
+	CustomTools   []CustomToolDef   `yaml:"custom_tools"`
+	Skills        []SkillDef        `yaml:"skills"`
+	Model         string            `yaml:"model"`
+	ContextBudget *ContextBudgetDef `yaml:"context_budget"`
 }
 
 // singleFrontmatter is the alternative single-block frontmatter format.
@@ -70,10 +87,11 @@ type singleFrontmatter struct {
 
 // abbyfileBlock holds tool, memory, and skill configuration in single-frontmatter format.
 type abbyfileBlock struct {
-	Tools       []string        `yaml:"tools"`
-	Memory      string          `yaml:"memory"`
-	CustomTools []CustomToolDef `yaml:"custom_tools"`
-	Skills      []SkillDef      `yaml:"skills"`
+	Tools         []string          `yaml:"tools"`
+	Memory        string            `yaml:"memory"`
+	CustomTools   []CustomToolDef   `yaml:"custom_tools"`
+	Skills        []SkillDef        `yaml:"skills"`
+	ContextBudget *ContextBudgetDef `yaml:"context_budget"`
 }
 
 // ParseAgentMD reads an agent .md file with dual or single frontmatter blocks.
@@ -179,6 +197,11 @@ func parseDualFormat(block1Str, block2Str, body, path string) (*AgentDef, error)
 	}
 	def.Skills = fm2.Skills
 
+	if err := validateContextBudget(fm2.ContextBudget); err != nil {
+		return nil, err
+	}
+	def.ContextBudget = fm2.ContextBudget
+
 	return def, nil
 }
 
@@ -218,6 +241,11 @@ func parseSingleFormat(fmStr, body, path string) (*AgentDef, error) {
 			return nil, err
 		}
 		def.Skills = sfm.Abbyfile.Skills
+
+		if err := validateContextBudget(sfm.Abbyfile.ContextBudget); err != nil {
+			return nil, err
+		}
+		def.ContextBudget = sfm.Abbyfile.ContextBudget
 	}
 
 	return def, nil
@@ -275,6 +303,34 @@ func validateSkills(skills []SkillDef) error {
 		}
 		if s.Path == "" {
 			return fmt.Errorf("skills[%d] (%s): path is required", i, s.Name)
+		}
+	}
+	return nil
+}
+
+// validateContextBudget checks a context_budget block for legal values.
+func validateContextBudget(cb *ContextBudgetDef) error {
+	if cb == nil {
+		return nil
+	}
+	check := func(c *ContextBudgetDef) error {
+		switch c.OnOverflow {
+		case "", "head-tail", "spill", "passthrough":
+		default:
+			return fmt.Errorf("context_budget: invalid on_overflow %q (want head-tail, spill, or passthrough)", c.OnOverflow)
+		}
+		if c.MaxOutputLines < 0 || c.MaxOutputBytes < 0 || c.HeadLines < 0 || c.TailLines < 0 || c.SummaryLines < 0 {
+			return fmt.Errorf("context_budget: numeric fields must be non-negative")
+		}
+		return nil
+	}
+	if err := check(cb); err != nil {
+		return err
+	}
+	for name, pt := range cb.PerTool {
+		ptCopy := pt
+		if err := check(&ptCopy); err != nil {
+			return fmt.Errorf("context_budget.per_tool[%q]: %w", name, err)
 		}
 	}
 	return nil
