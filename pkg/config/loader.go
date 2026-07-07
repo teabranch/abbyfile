@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/teabranch/abbyfile/pkg/fsutil"
 	"gopkg.in/yaml.v3"
@@ -92,6 +93,57 @@ func WriteFieldTo(path, field, value string) error {
 		cfg.Model = &value
 	case "tool_timeout":
 		cfg.ToolTimeout = &value
+	case "context_budget.max_output_lines":
+		n, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("max_output_lines must be an integer: %w", err)
+		}
+		ensureBudget(cfg)
+		cfg.ContextBudget.MaxOutputLines = &n
+	case "context_budget.max_output_bytes":
+		n, err := strconv.ParseInt(value, 10, 64)
+		if err != nil {
+			return fmt.Errorf("max_output_bytes must be an integer: %w", err)
+		}
+		ensureBudget(cfg)
+		cfg.ContextBudget.MaxOutputBytes = &n
+	case "context_budget.on_overflow":
+		switch value {
+		case "head-tail", "spill", "passthrough":
+		default:
+			return fmt.Errorf("on_overflow must be head-tail, spill, or passthrough")
+		}
+		ensureBudget(cfg)
+		v := value
+		cfg.ContextBudget.OnOverflow = &v
+	case "context_budget.head_lines":
+		n, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("head_lines must be an integer: %w", err)
+		}
+		ensureBudget(cfg)
+		cfg.ContextBudget.HeadLines = &n
+	case "context_budget.tail_lines":
+		n, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("tail_lines must be an integer: %w", err)
+		}
+		ensureBudget(cfg)
+		cfg.ContextBudget.TailLines = &n
+	case "context_budget.summary_lines":
+		n, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("summary_lines must be an integer: %w", err)
+		}
+		ensureBudget(cfg)
+		cfg.ContextBudget.SummaryLines = &n
+	case "context_budget.eager_instructions":
+		b, err := strconv.ParseBool(value)
+		if err != nil {
+			return fmt.Errorf("eager_instructions must be true or false: %w", err)
+		}
+		ensureBudget(cfg)
+		cfg.ContextBudget.EagerInstructions = &b
 	default:
 		return fmt.Errorf("unsupported config field: %s (use Write for complex fields)", field)
 	}
@@ -126,6 +178,8 @@ func ResetFieldTo(path, field string) error {
 		cfg.MemoryLimits = nil
 	case "command_policy":
 		cfg.CommandPolicy = nil
+	case "context_budget":
+		cfg.ContextBudget = nil
 	default:
 		return fmt.Errorf("unsupported config field: %s", field)
 	}
@@ -138,4 +192,13 @@ func ResetFieldTo(path, field string) error {
 	}
 
 	return WriteTo(path, cfg)
+}
+
+// ensureBudget lazily creates cfg.ContextBudget if it is nil, preserving
+// any fields already set so callers can set one sub-field at a time
+// without clobbering the others.
+func ensureBudget(cfg *Config) {
+	if cfg.ContextBudget == nil {
+		cfg.ContextBudget = &ContextBudgetOverride{}
+	}
 }

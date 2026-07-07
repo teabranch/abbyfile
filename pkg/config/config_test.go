@@ -308,3 +308,47 @@ func TestIsZero(t *testing.T) {
 		t.Error("config with model should not be zero")
 	}
 }
+
+func TestWriteResetField_ContextBudget(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/config.yaml"
+
+	if err := WriteFieldTo(path, "context_budget.max_output_lines", "500"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	cfg, err := LoadFrom(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.ContextBudget == nil || cfg.ContextBudget.MaxOutputLines == nil || *cfg.ContextBudget.MaxOutputLines != 500 {
+		t.Fatalf("max_output_lines not persisted: %+v", cfg.ContextBudget)
+	}
+
+	if err := WriteFieldTo(path, "context_budget.on_overflow", "spill"); err != nil {
+		t.Fatalf("write on_overflow: %v", err)
+	}
+	cfg, _ = LoadFrom(path)
+	if cfg.ContextBudget.OnOverflow == nil || *cfg.ContextBudget.OnOverflow != "spill" {
+		t.Fatalf("on_overflow not persisted: %+v", cfg.ContextBudget)
+	}
+	// max_output_lines must survive the second write (merge, not clobber).
+	if cfg.ContextBudget.MaxOutputLines == nil || *cfg.ContextBudget.MaxOutputLines != 500 {
+		t.Fatalf("second write clobbered max_output_lines")
+	}
+
+	if err := ResetFieldTo(path, "context_budget"); err != nil {
+		t.Fatalf("reset: %v", err)
+	}
+	cfg, _ = LoadFrom(path)
+	if cfg.ContextBudget != nil {
+		t.Fatalf("context_budget not reset: %+v", cfg.ContextBudget)
+	}
+}
+
+func TestWriteField_ContextBudget_InvalidStrategy(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/config.yaml"
+	if err := WriteFieldTo(path, "context_budget.on_overflow", "bogus"); err == nil {
+		t.Fatal("expected error for invalid on_overflow value")
+	}
+}
