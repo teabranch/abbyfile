@@ -41,7 +41,7 @@ func (s *tempFileSink) Put(key, value string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolving home: %w", err)
 	}
-	dir := filepath.Join(home, ".abbyfile", s.agentName, "spill")
+	dir := filepath.Join(home, ".abbyfile", filepath.Base(s.agentName), "spill")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("creating spill dir: %w", err)
 	}
