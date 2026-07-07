@@ -62,9 +62,8 @@ func (b *Bridge) Serve(ctx context.Context) error {
 // ServeTransport starts the MCP server on the given transport. This is useful
 // for testing with in-memory transports.
 func (b *Bridge) ServeTransport(ctx context.Context, transport gomcp.Transport) error {
-	// Load the system prompt for server instructions.
-	instructions, _ := b.cfg.Loader.Load()
-	instructions = b.appendModelHint(instructions)
+	// Determine what to advertise as server instructions at handshake time.
+	instructions := b.handshakeInstructions()
 
 	server := gomcp.NewServer(&gomcp.Implementation{
 		Name:    b.cfg.Name,
@@ -362,6 +361,22 @@ func (b *Bridge) addPrompts(server *gomcp.Server) {
 			}, nil
 		})
 	}
+}
+
+// handshakeInstructions returns what the MCP handshake advertises. When
+// EagerInstructions is false, it returns a short stub and keeps the full
+// prompt available on demand via the `system` prompt / get_instructions tool.
+func (b *Bridge) handshakeInstructions() string {
+	full, _ := b.cfg.Loader.Load()
+	full = b.appendModelHint(full)
+	if b.cfg.EagerInstructions {
+		return full
+	}
+	role := b.cfg.Description
+	if role == "" {
+		role = b.cfg.Name
+	}
+	return role + "\n\nFull instructions are available via the `system` prompt or the `get_instructions` tool."
 }
 
 // appendModelHint appends a model preference section to instructions if a model is configured.
