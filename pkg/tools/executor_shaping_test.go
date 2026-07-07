@@ -31,6 +31,25 @@ func TestExecutor_ShapesBuiltinOutput(t *testing.T) {
 	}
 }
 
+func TestExecutor_ShapesCLIErrorOutput(t *testing.T) {
+	def := &Definition{
+		Name:    "failbig",
+		Command: "sh",
+		Args:    []string{"-c", "for i in $(seq 1 50); do echo err line $i >&2; done; exit 1"},
+	}
+
+	budget := ContextBudget{MaxOutputLines: 5, MaxOutputBytes: 100000, OnOverflow: OverflowHeadTail, HeadLines: 2, TailLines: 2}
+	e := NewExecutor(time.Second, nil, WithContextBudget(budget, nil))
+
+	_, err := e.Run(context.Background(), def, nil)
+	if err == nil {
+		t.Fatalf("expected error from failing CLI tool")
+	}
+	if !strings.Contains(err.Error(), "elided") {
+		t.Fatalf("expected shaped error with elision marker, got: %v", err)
+	}
+}
+
 func TestExecutor_NoBudget_LeavesOutputUnchanged(t *testing.T) {
 	def := BuiltinTool("echo3", "3 lines", map[string]any{"type": "object"},
 		func(input map[string]any) (string, error) { return "a\nb\nc", nil })

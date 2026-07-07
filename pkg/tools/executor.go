@@ -157,8 +157,9 @@ func (e *Executor) Run(ctx context.Context, def *Definition, input map[string]an
 		if errMsg == "" {
 			errMsg = err.Error()
 		}
-		shapedErrMsg := e.shape(def.Name, strings.TrimSpace(errMsg))
-		e.logger.Error("CLI tool failed", "tool", def.Name, "duration", duration, "error", shapedErrMsg)
+		trimmed := strings.TrimSpace(errMsg)
+		shapedErrMsg := e.shape(def.Name, trimmed)
+		e.logger.Error("CLI tool failed", "tool", def.Name, "duration", duration, "error", trimmed)
 		return "", fmt.Errorf("tool %q failed: %s", def.Name, shapedErrMsg)
 	}
 
