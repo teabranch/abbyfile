@@ -89,3 +89,8 @@ func WithLazyToolLoading(enabled bool) Option {
 func WithConfigPath(path string) Option {
 	return func(a *Agent) { a.configPath = path }
 }
+
+// WithContextBudget sets the compiled-in context budget for the agent.
+func WithContextBudget(b tools.ContextBudget) Option {
+	return func(a *Agent) { a.budget = b }
+}

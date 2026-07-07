@@ -30,6 +30,12 @@ type BridgeConfig struct {
 	Memory          *memory.Manager // nil if memory is disabled
 	Logger          *slog.Logger    // nil disables logging
 	LazyToolLoading bool            // when true, only register search_tools meta-tool initially
+
+	// EagerInstructions, when true, requests that the bridge include full
+	// custom instructions in the MCP handshake rather than requiring a
+	// separate get_instructions call. Wired here in Task 6; consumed by the
+	// bridge's instruction-injection logic in Task 7.
+	EagerInstructions bool
 }
 
 // Bridge translates an abbyfile tools.Registry into an MCP server.

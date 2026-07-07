@@ -42,17 +42,18 @@ type ToolManifestEntry struct {
 
 // Options configures the root command.
 type Options struct {
-	Name          string
-	Version       string
-	Description   string
-	Model         string
-	Loader        *prompt.Loader
-	Registry      *tools.Registry
-	Memory        bool
-	MemoryLimits  *memory.Limits
-	ToolTimeout   time.Duration
-	CommandPolicy *tools.CommandPolicy
-	Logger        *slog.Logger
+	Name              string
+	Version           string
+	Description       string
+	Model             string
+	Loader            *prompt.Loader
+	Registry          *tools.Registry
+	Memory            bool
+	MemoryLimits      *memory.Limits
+	ToolTimeout       time.Duration
+	CommandPolicy     *tools.CommandPolicy
+	Logger            *slog.Logger
+	EagerInstructions bool
 }
 
 // NewRootCommand creates the root Cobra command for an agent binary.
