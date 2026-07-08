@@ -1,6 +1,8 @@
 package builder
 
 import (
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +10,10 @@ import (
 
 	"github.com/teabranch/abbyfile/pkg/definition"
 )
+
+func intPtr(i int) *int { return &i }
+
+func int64Ptr(i int64) *int64 { return &i }
 
 func TestGenerateSource(t *testing.T) {
 	dir := t.TempDir()
@@ -186,6 +192,166 @@ func TestGenerateSource_CustomTools(t *testing.T) {
 	// The deploy tool has json.Unmarshal, healthcheck should not.
 	if strings.Count(mainStr, "json.Unmarshal") != 1 {
 		t.Errorf("expected exactly 1 json.Unmarshal call (deploy only), got %d", strings.Count(mainStr, "json.Unmarshal"))
+	}
+}
+
+func TestGenerateSource_EmitsContextBudget(t *testing.T) {
+	dir := t.TempDir()
+	def := &definition.AgentDef{
+		Name: "b", Version: "0.0.1", Description: "d", Tools: []string{"Read"},
+		PromptBody: "body",
+		ContextBudget: &definition.ContextBudgetDef{
+			MaxOutputLines: intPtr(500),
+			OnOverflow:     "spill",
+			HeadLines:      50,
+		},
+	}
+	if err := GenerateSource(dir, def, "v0.9.1", ""); err != nil {
+		t.Fatalf("GenerateSource: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "main.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	if !strings.Contains(s, "agent.WithContextBudget(") {
+		t.Fatalf("main.go missing WithContextBudget:\n%s", s)
+	}
+	if !strings.Contains(s, "MaxOutputLines: 500") {
+		t.Fatalf("main.go missing MaxOutputLines value:\n%s", s)
+	}
+	if !strings.Contains(s, `OnOverflow: tools.OverflowStrategy("spill")`) {
+		t.Fatalf("main.go missing OnOverflow:\n%s", s)
+	}
+}
+
+func TestGenerateSource_NoBudget_NoWithContextBudget(t *testing.T) {
+	dir := t.TempDir()
+	def := &definition.AgentDef{Name: "b", Version: "0.0.1", Tools: []string{"Read"}, PromptBody: "x"}
+	if err := GenerateSource(dir, def, "v0.9.1", ""); err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(dir, "main.go")
+	data, _ := os.ReadFile(src)
+	if strings.Contains(string(data), "WithContextBudget") {
+		t.Fatal("main.go should omit WithContextBudget when no budget declared")
+	}
+	if _, err := parser.ParseFile(token.NewFileSet(), src, nil, parser.AllErrors); err != nil {
+		t.Fatalf("generated main.go is not valid Go: %v\n---\n%s", err, data)
+	}
+}
+
+// TestGenerateSource_BudgetProducesParseableGo guards the main.go.tmpl
+// context-budget block (including the per-tool map literal) against
+// syntax breakage — e.g. an unbalanced brace or stray comma — that the
+// string-matching tests above would not catch.
+func TestGenerateSource_BudgetProducesParseableGo(t *testing.T) {
+	dir := t.TempDir()
+	def := &definition.AgentDef{
+		Name: "p", Version: "0.0.1", Description: "d", Tools: []string{"Read"},
+		PromptBody: "body",
+		ContextBudget: &definition.ContextBudgetDef{
+			MaxOutputLines: intPtr(500),
+			OnOverflow:     "spill",
+			HeadLines:      50,
+			PerTool: map[string]definition.ContextBudgetDef{
+				"run_command": {OnOverflow: "head-tail"},
+			},
+		},
+	}
+	if err := GenerateSource(dir, def, "v0.9.1", ""); err != nil {
+		t.Fatalf("GenerateSource: %v", err)
+	}
+	src := filepath.Join(dir, "main.go")
+	if _, err := parser.ParseFile(token.NewFileSet(), src, nil, parser.AllErrors); err != nil {
+		// Read the file and include it so a failure is debuggable.
+		data, _ := os.ReadFile(src)
+		t.Fatalf("generated main.go is not valid Go: %v\n---\n%s", err, data)
+	}
+}
+
+// TestGenerateSource_PerToolOnOverflow_InheritsWhenEmpty locks Bug I1's fix:
+// a per_tool entry that omits on_overflow must generate an empty
+// tools.OverflowStrategy("") so tools.ContextBudget.effectiveFor inherits
+// the base strategy at runtime, instead of being silently forced to
+// "head-tail".
+func TestGenerateSource_PerToolOnOverflow_InheritsWhenEmpty(t *testing.T) {
+	dir := t.TempDir()
+	def := &definition.AgentDef{
+		Name: "inherit", Version: "0.0.1", Description: "d", Tools: []string{"Read"},
+		PromptBody: "body",
+		ContextBudget: &definition.ContextBudgetDef{
+			OnOverflow: "spill",
+			PerTool: map[string]definition.ContextBudgetDef{
+				"run_command": {HeadLines: 10},
+			},
+		},
+	}
+	if err := GenerateSource(dir, def, "v0.9.1", ""); err != nil {
+		t.Fatalf("GenerateSource: %v", err)
+	}
+	src := filepath.Join(dir, "main.go")
+	data, err := os.ReadFile(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	if !strings.Contains(s, `OnOverflow: tools.OverflowStrategy("spill")`) {
+		t.Fatalf("main.go missing base OnOverflow spill:\n%s", s)
+	}
+	if !strings.Contains(s, `OnOverflow: tools.OverflowStrategy("")`) {
+		t.Fatalf("main.go per-tool OnOverflow should be empty (inherit base), got:\n%s", s)
+	}
+	if strings.Count(s, `tools.OverflowStrategy("head-tail")`) != 0 {
+		t.Fatalf("per-tool OnOverflow must not be defaulted to head-tail:\n%s", s)
+	}
+	if _, err := parser.ParseFile(token.NewFileSet(), src, nil, parser.AllErrors); err != nil {
+		t.Fatalf("generated main.go is not valid Go: %v\n---\n%s", err, data)
+	}
+}
+
+// TestGenerateSource_ZeroMaxOutputLines_MeansUnlimited locks Bug I2's fix:
+// an explicit MaxOutputLines pointer to 0 in frontmatter must generate
+// MaxOutputLines: 0 (unlimited, per tools.Shaper's Shape semantics), while
+// a nil pointer (omitted) must fall back to the shipped default of 2000.
+func TestGenerateSource_ZeroMaxOutputLines_MeansUnlimited(t *testing.T) {
+	dir := t.TempDir()
+	def := &definition.AgentDef{
+		Name: "unlimited", Version: "0.0.1", Description: "d", Tools: []string{"Read"},
+		PromptBody: "body",
+		ContextBudget: &definition.ContextBudgetDef{
+			MaxOutputLines: intPtr(0),
+		},
+	}
+	if err := GenerateSource(dir, def, "v0.9.1", ""); err != nil {
+		t.Fatalf("GenerateSource: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "main.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	if !strings.Contains(s, "MaxOutputLines: 0") {
+		t.Fatalf("main.go with explicit 0 should emit MaxOutputLines: 0 (unlimited):\n%s", s)
+	}
+
+	// Now the omitted (nil) case must still default to 2000.
+	dir2 := t.TempDir()
+	def2 := &definition.AgentDef{
+		Name: "defaulted", Version: "0.0.1", Description: "d", Tools: []string{"Read"},
+		PromptBody:    "body",
+		ContextBudget: &definition.ContextBudgetDef{OnOverflow: "spill"},
+	}
+	if err := GenerateSource(dir2, def2, "v0.9.1", ""); err != nil {
+		t.Fatalf("GenerateSource: %v", err)
+	}
+	data2, err := os.ReadFile(filepath.Join(dir2, "main.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s2 := string(data2)
+	if !strings.Contains(s2, "MaxOutputLines: 2000") {
+		t.Fatalf("main.go with nil MaxOutputLines should default to 2000:\n%s", s2)
 	}
 }
 

@@ -36,6 +36,110 @@ func TestConfigGetAll(t *testing.T) {
 	}
 }
 
+func TestConfigGetAll_ContextBudget(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	defaults := CompiledDefaults{
+		Model:             "claude-sonnet-4-6",
+		ToolTimeout:       30 * time.Second,
+		MaxOutputLines:    2000,
+		MaxOutputBytes:    262144,
+		OnOverflow:        "head-tail",
+		EagerInstructions: false,
+	}
+	cmd := NewConfigCommand("test-agent", defaults)
+
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"get"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "context_budget.max_output_lines: 2000 (compiled)") {
+		t.Errorf("expected max_output_lines compiled default, got: %s", out)
+	}
+	if !strings.Contains(out, "context_budget.max_output_bytes: 262144 (compiled)") {
+		t.Errorf("expected max_output_bytes compiled default, got: %s", out)
+	}
+	if !strings.Contains(out, "context_budget.on_overflow: head-tail (compiled)") {
+		t.Errorf("expected on_overflow compiled default, got: %s", out)
+	}
+	if !strings.Contains(out, "context_budget.eager_instructions: false (compiled)") {
+		t.Errorf("expected eager_instructions compiled default, got: %s", out)
+	}
+}
+
+func TestConfigGetAll_ContextBudgetWithOverride(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	agentDir := filepath.Join(dir, ".abbyfile", "test-agent")
+	if err := os.MkdirAll(agentDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	overrideYAML := "context_budget:\n  max_output_lines: 50\n  eager_instructions: true\n"
+	if err := os.WriteFile(filepath.Join(agentDir, "config.yaml"), []byte(overrideYAML), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	defaults := CompiledDefaults{
+		Model:             "claude-sonnet-4-6",
+		ToolTimeout:       30 * time.Second,
+		MaxOutputLines:    2000,
+		MaxOutputBytes:    262144,
+		OnOverflow:        "head-tail",
+		EagerInstructions: false,
+	}
+	cmd := NewConfigCommand("test-agent", defaults)
+
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"get"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "context_budget.max_output_lines: 50 (override)") {
+		t.Errorf("expected max_output_lines override, got: %s", out)
+	}
+	if !strings.Contains(out, "context_budget.eager_instructions: true (override)") {
+		t.Errorf("expected eager_instructions override, got: %s", out)
+	}
+	if !strings.Contains(out, "context_budget.max_output_bytes: 262144 (compiled)") {
+		t.Errorf("expected max_output_bytes still compiled, got: %s", out)
+	}
+}
+
+func TestConfigGetField_ContextBudget(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	defaults := CompiledDefaults{
+		MaxOutputLines: 2000,
+		OnOverflow:     "head-tail",
+	}
+	cmd := NewConfigCommand("test-agent", defaults)
+
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"get", "context_budget.max_output_lines"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "2000 (compiled)") {
+		t.Errorf("expected '2000 (compiled)', got: %s", out)
+	}
+}
+
 func TestConfigGetAllWithOverride(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)

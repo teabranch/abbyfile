@@ -8,7 +8,7 @@ import (
 
 	"github.com/teabranch/abbyfile/pkg/agent"
 	"github.com/teabranch/abbyfile/pkg/builtins"
-{{- if .CustomTools}}
+{{- if or .CustomTools .Budget}}
 	"github.com/teabranch/abbyfile/pkg/tools"
 {{- end}}
 )
@@ -72,6 +72,30 @@ func main() {
 		agent.WithTools(toolDefs...),
 		{{- if .Memory}}
 		agent.WithMemory(true),
+		{{- end}}
+		{{- if .Budget}}
+		agent.WithContextBudget(tools.ContextBudget{
+			MaxOutputLines: {{.Budget.MaxOutputLines}},
+			MaxOutputBytes: {{.Budget.MaxOutputBytes}},
+			OnOverflow: tools.OverflowStrategy({{printf "%q" .Budget.OnOverflow}}),
+			HeadLines: {{.Budget.HeadLines}},
+			TailLines: {{.Budget.TailLines}},
+			SummaryLines: {{.Budget.SummaryLines}},
+			EagerInstructions: {{.Budget.EagerInstructions}},
+			{{- if .Budget.PerTool}}
+			PerTool: map[string]tools.ContextBudget{
+				{{- range $k, $v := .Budget.PerTool}}
+				{{printf "%q" $k}}: {
+					MaxOutputLines: {{$v.MaxOutputLines}},
+					MaxOutputBytes: {{$v.MaxOutputBytes}},
+					OnOverflow: tools.OverflowStrategy({{printf "%q" $v.OnOverflow}}),
+					HeadLines: {{$v.HeadLines}},
+					TailLines: {{$v.TailLines}},
+				},
+				{{- end}}
+			},
+			{{- end}}
+		}),
 		{{- end}}
 	)
 	if err != nil {

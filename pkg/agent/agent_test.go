@@ -2,8 +2,10 @@ package agent
 
 import (
 	"embed"
+	"path/filepath"
 	"testing"
 
+	"github.com/teabranch/abbyfile/pkg/config"
 	"github.com/teabranch/abbyfile/pkg/tools"
 )
 
@@ -101,5 +103,39 @@ func TestAgent_Defaults(t *testing.T) {
 	}
 	if a.memoryEnabled {
 		t.Error("memoryEnabled should default to false")
+	}
+}
+
+func TestApplyConfigOverrides_ContextBudget(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	lines := 42
+	over := "spill"
+	if err := config.WriteTo(cfgPath, &config.Config{
+		ContextBudget: &config.ContextBudgetOverride{
+			MaxOutputLines: &lines,
+			OnOverflow:     &over,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := New(
+		WithName("t"), WithVersion("0.0.1"),
+		WithPromptFS(testFS, "testdata/system.md"),
+		WithConfigPath(cfgPath),
+	)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if a.budget.MaxOutputLines != 42 {
+		t.Fatalf("MaxOutputLines = %d, want 42", a.budget.MaxOutputLines)
+	}
+	if a.budget.OnOverflow != tools.OverflowSpill {
+		t.Fatalf("OnOverflow = %v, want spill", a.budget.OnOverflow)
+	}
+	// Untouched fields keep the shipped default.
+	if a.budget.HeadLines != 100 {
+		t.Fatalf("HeadLines = %d, want default 100", a.budget.HeadLines)
 	}
 }

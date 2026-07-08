@@ -10,6 +10,7 @@ type Config struct {
 	ToolTimeout   *string                `yaml:"tool_timeout,omitempty"` // duration string, e.g. "60s"
 	MemoryLimits  *MemoryLimitsOverride  `yaml:"memory_limits,omitempty"`
 	CommandPolicy *CommandPolicyOverride `yaml:"command_policy,omitempty"`
+	ContextBudget *ContextBudgetOverride `yaml:"context_budget,omitempty"`
 }
 
 // MemoryLimitsOverride holds optional overrides for memory capacity limits.
@@ -27,7 +28,18 @@ type CommandPolicyOverride struct {
 	MaxOutputBytes   *int64    `yaml:"max_output_bytes,omitempty"`
 }
 
+// ContextBudgetOverride holds optional overrides for context budget limits.
+type ContextBudgetOverride struct {
+	MaxOutputLines    *int    `yaml:"max_output_lines,omitempty"`
+	MaxOutputBytes    *int64  `yaml:"max_output_bytes,omitempty"`
+	OnOverflow        *string `yaml:"on_overflow,omitempty"`
+	HeadLines         *int    `yaml:"head_lines,omitempty"`
+	TailLines         *int    `yaml:"tail_lines,omitempty"`
+	SummaryLines      *int    `yaml:"summary_lines,omitempty"`
+	EagerInstructions *bool   `yaml:"eager_instructions,omitempty"`
+}
+
 // IsZero returns true if no fields are set (all nil).
 func (c *Config) IsZero() bool {
-	return c.Model == nil && c.ToolTimeout == nil && c.MemoryLimits == nil && c.CommandPolicy == nil
+	return c.Model == nil && c.ToolTimeout == nil && c.MemoryLimits == nil && c.CommandPolicy == nil && c.ContextBudget == nil
 }

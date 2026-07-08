@@ -43,6 +43,8 @@ type Agent struct {
 
 	configPath string // override config.yaml path (for testing)
 
+	budget tools.ContextBudget
+
 	logger *slog.Logger
 }
 
@@ -50,6 +52,7 @@ type Agent struct {
 func New(opts ...Option) (*Agent, error) {
 	a := &Agent{
 		toolTimeout: 30 * time.Second,
+		budget:      tools.DefaultContextBudget(),
 	}
 	for _, opt := range opts {
 		opt(a)
@@ -90,8 +93,12 @@ func New(opts ...Option) (*Agent, error) {
 // compiledDefaults captures the compiled-in values before config overrides.
 func (a *Agent) compiledDefaults() cli.CompiledDefaults {
 	return cli.CompiledDefaults{
-		Model:       a.model,
-		ToolTimeout: a.toolTimeout,
+		Model:             a.model,
+		ToolTimeout:       a.toolTimeout,
+		MaxOutputLines:    a.budget.MaxOutputLines,
+		MaxOutputBytes:    a.budget.MaxOutputBytes,
+		OnOverflow:        string(a.budget.OnOverflow),
+		EagerInstructions: a.budget.EagerInstructions,
 	}
 }
 
@@ -141,6 +148,30 @@ func (a *Agent) applyConfigOverrides(cfg *config.Config) {
 			a.commandPolicy.MaxOutputBytes = *cp.MaxOutputBytes
 		}
 	}
+	if cfg.ContextBudget != nil {
+		cb := cfg.ContextBudget
+		if cb.MaxOutputLines != nil {
+			a.budget.MaxOutputLines = *cb.MaxOutputLines
+		}
+		if cb.MaxOutputBytes != nil {
+			a.budget.MaxOutputBytes = *cb.MaxOutputBytes
+		}
+		if cb.OnOverflow != nil {
+			a.budget.OnOverflow = tools.OverflowStrategy(*cb.OnOverflow)
+		}
+		if cb.HeadLines != nil {
+			a.budget.HeadLines = *cb.HeadLines
+		}
+		if cb.TailLines != nil {
+			a.budget.TailLines = *cb.TailLines
+		}
+		if cb.SummaryLines != nil {
+			a.budget.SummaryLines = *cb.SummaryLines
+		}
+		if cb.EagerInstructions != nil {
+			a.budget.EagerInstructions = *cb.EagerInstructions
+		}
+	}
 }
 
 // Execute sets up the CLI and runs the agent binary. Returns an exit code.
@@ -179,16 +210,17 @@ func (a *Agent) Execute() int {
 
 	// Build root command
 	cliOpts := cli.Options{
-		Name:          a.name,
-		Version:       a.version,
-		Description:   a.description,
-		Model:         a.model,
-		Loader:        loader,
-		Registry:      registry,
-		Memory:        a.memoryEnabled,
-		ToolTimeout:   a.toolTimeout,
-		CommandPolicy: a.commandPolicy,
-		Logger:        a.logger,
+		Name:              a.name,
+		Version:           a.version,
+		Description:       a.description,
+		Model:             a.model,
+		Loader:            loader,
+		Registry:          registry,
+		Memory:            a.memoryEnabled,
+		ToolTimeout:       a.toolTimeout,
+		CommandPolicy:     a.commandPolicy,
+		Logger:            a.logger,
+		EagerInstructions: a.budget.EagerInstructions,
 	}
 	if a.memoryEnabled {
 		cliOpts.MemoryLimits = &a.memoryLimits
@@ -204,9 +236,19 @@ func (a *Agent) Execute() int {
 		execOpts = append(execOpts, tools.WithExecutionHook(a.executionHook))
 	}
 
+	// Build the spill sink for the context budget: memory-backed if memory
+	// is enabled, otherwise a temp-file sink.
+	var sink tools.SpillSink
+	if mgr != nil {
+		sink = tools.NewMemorySink(a.name, mgr.Set)
+	} else {
+		sink = tools.NewTempFileSink(a.name)
+	}
+	execOpts = append(execOpts, tools.WithContextBudget(a.budget, sink))
+
 	// Add subcommands
 	cmd.AddCommand(cli.NewRunToolCommand(registry, a.toolTimeout, a.logger, execOpts...))
-	cmd.AddCommand(cli.NewServeMCPCommand(a.name, a.version, a.description, a.model, registry, a.toolTimeout, loader, mgr, a.logger, execOpts...))
+	cmd.AddCommand(cli.NewServeMCPCommand(a.name, a.version, a.description, a.model, registry, a.toolTimeout, loader, mgr, a.logger, a.budget.EagerInstructions, execOpts...))
 	cmd.AddCommand(cli.NewValidateCommand(a.name, a.version, loader, registry, a.memoryEnabled))
 	cmd.AddCommand(cli.NewConfigCommand(a.name, a.compiledDefaults()))
 

@@ -250,7 +250,7 @@ This writes the override to `config.yaml` during install so it takes effect imme
 - You want maximum portability (just markdown folders)
 
 **Use Sub-agents when:**
-- You need context isolation (verbose output shouldn't pollute main context)
+- You need context isolation (verbose output shouldn't pollute main context) — note: an Abbyfile agent built with `abby build --subagent` also gets this, running in its own context window and returning a bounded summary; see the [Context Budget Guide](./guides/context-budget.md)
 - The task is exploratory or one-shot (no persistent state needed)
 - You're delegating independent work units
 

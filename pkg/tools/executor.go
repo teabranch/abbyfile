@@ -21,6 +21,8 @@ type Executor struct {
 	logger        *slog.Logger
 	defaultPolicy *CommandPolicy // applied when def.Policy is nil
 	hook          ExecutionHook  // optional telemetry callback
+	budget        *ContextBudget // nil = no shaping
+	spillSink     SpillSink
 }
 
 // ExecutionHook is called after each tool execution with timing and error info.
@@ -37,6 +39,16 @@ func WithDefaultPolicy(p *CommandPolicy) ExecutorOption {
 // WithExecutionHook sets a callback invoked after each tool execution.
 func WithExecutionHook(h ExecutionHook) ExecutorOption {
 	return func(e *Executor) { e.hook = h }
+}
+
+// WithContextBudget enables output shaping using the given budget and sink.
+// A nil sink means spill degrades to head-tail truncation.
+func WithContextBudget(b ContextBudget, sink SpillSink) ExecutorOption {
+	return func(e *Executor) {
+		bc := b
+		e.budget = &bc
+		e.spillSink = sink
+	}
 }
 
 // NewExecutor creates a new Executor with the given timeout and logger.
@@ -73,7 +85,7 @@ func (e *Executor) Run(ctx context.Context, def *Definition, input map[string]an
 			return "", err
 		}
 		e.logger.Info("builtin tool completed", "tool", def.Name, "duration", duration)
-		return result, nil
+		return e.shape(def.Name, result), nil
 	}
 
 	if def.Command == "" {
@@ -145,8 +157,10 @@ func (e *Executor) Run(ctx context.Context, def *Definition, input map[string]an
 		if errMsg == "" {
 			errMsg = err.Error()
 		}
-		e.logger.Error("CLI tool failed", "tool", def.Name, "duration", duration, "error", strings.TrimSpace(errMsg))
-		return "", fmt.Errorf("tool %q failed: %s", def.Name, strings.TrimSpace(errMsg))
+		trimmed := strings.TrimSpace(errMsg)
+		shapedErrMsg := e.shape(def.Name, trimmed)
+		e.logger.Error("CLI tool failed", "tool", def.Name, "duration", duration, "error", trimmed)
+		return "", fmt.Errorf("tool %q failed: %s", def.Name, shapedErrMsg)
 	}
 
 	duration := time.Since(start)
@@ -159,5 +173,13 @@ func (e *Executor) Run(ctx context.Context, def *Definition, input map[string]an
 	if result == "" {
 		result = stderr.String()
 	}
-	return strings.TrimSpace(result), nil
+	return e.shape(def.Name, strings.TrimSpace(result)), nil
+}
+
+// shape applies the configured budget (if any) to output before returning.
+func (e *Executor) shape(toolName, output string) string {
+	if e.budget == nil {
+		return output
+	}
+	return e.budget.Shape(toolName, output, e.spillSink).Output
 }

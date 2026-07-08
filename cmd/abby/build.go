@@ -10,6 +10,7 @@ import (
 	"github.com/teabranch/abbyfile/pkg/definition"
 	"github.com/teabranch/abbyfile/pkg/plugin"
 	"github.com/teabranch/abbyfile/pkg/runtimecfg"
+	"github.com/teabranch/abbyfile/pkg/subagent"
 )
 
 // loadSkillFiles reads skill file contents from disk, resolving paths
@@ -42,6 +43,7 @@ func newBuildCommand() *cobra.Command {
 		outputDir    string
 		agentName    string
 		pluginFlag   bool
+		subagentFlag bool
 		parallelism  int
 		runtimeFlag  string
 		moduleDir    string
@@ -56,7 +58,7 @@ and compiles standalone binaries into the output directory.
 Also generates/updates MCP config for detected runtimes (Claude Code, Codex, Gemini).
 Use --runtime to target a specific runtime or "all" for all supported runtimes.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runBuild(abbyfilePath, outputDir, agentName, pluginFlag, parallelism, runtimeFlag, moduleDir)
+			return runBuild(abbyfilePath, outputDir, agentName, pluginFlag, subagentFlag, parallelism, runtimeFlag, moduleDir)
 		},
 	}
 
@@ -64,6 +66,7 @@ Use --runtime to target a specific runtime or "all" for all supported runtimes.`
 	cmd.Flags().StringVarP(&outputDir, "output", "o", "./build", "Output directory for binaries")
 	cmd.Flags().StringVar(&agentName, "agent", "", "Build a single agent by name")
 	cmd.Flags().BoolVar(&pluginFlag, "plugin", false, "Also generate a Claude Code plugin directory")
+	cmd.Flags().BoolVar(&subagentFlag, "subagent", false, "Also emit a Claude Code sub-agent (.claude/agents/<name>.md)")
 	cmd.Flags().IntVar(&parallelism, "parallelism", 0, "Max concurrent agent builds (0 = sequential)")
 	cmd.Flags().StringVar(&runtimeFlag, "runtime", "auto", "Target runtime: auto, all, claude-code, codex, gemini")
 	cmd.Flags().StringVar(&moduleDir, "module-dir", "", "Use local module path instead of published version (dev/CI only)")
@@ -71,7 +74,7 @@ Use --runtime to target a specific runtime or "all" for all supported runtimes.`
 	return cmd
 }
 
-func runBuild(abbyfilePath, outputDir, agentName string, pluginOutput bool, parallelism int, runtimeFlag, moduleDir string) error {
+func runBuild(abbyfilePath, outputDir, agentName string, pluginOutput bool, subagentFlag bool, parallelism int, runtimeFlag, moduleDir string) error {
 	if abbyfilePath == "" {
 		abbyfilePath = resolveAbbyfile()
 	}
@@ -169,6 +172,21 @@ func runBuild(abbyfilePath, outputDir, agentName string, pluginOutput bool, para
 				return fmt.Errorf("generating plugin for %s: %w", name, err)
 			}
 			fmt.Fprintf(os.Stderr, "→ %s/%s.claude-plugin/\n", outputDir, name)
+		}
+	}
+
+	// Generate a Claude Code sub-agent (.claude/agents/<name>.md) if requested,
+	// or implicitly alongside the plugin directory.
+	if pluginOutput || subagentFlag {
+		for name, def := range defs {
+			p, err := subagent.Generate(def, subagent.GenerateConfig{
+				OutputDir: outputDir,
+				Model:     "", // model hint not yet threaded from Abbyfile; wire when available
+			})
+			if err != nil {
+				return fmt.Errorf("generating sub-agent for %s: %w", name, err)
+			}
+			fmt.Fprintf(os.Stderr, "→ %s\n", p)
 		}
 	}
 

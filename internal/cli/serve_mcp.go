@@ -14,7 +14,8 @@ import (
 // NewServeMCPCommand creates the `serve-mcp` subcommand that starts an
 // MCP-over-stdio server exposing all registered tools.
 func NewServeMCPCommand(name, version, description, model string, registry *tools.Registry,
-	timeout time.Duration, loader *prompt.Loader, mgr *memory.Manager, logger *slog.Logger, execOpts ...tools.ExecutorOption) *cobra.Command {
+	timeout time.Duration, loader *prompt.Loader, mgr *memory.Manager, logger *slog.Logger,
+	eagerInstructions bool, execOpts ...tools.ExecutorOption) *cobra.Command {
 	return &cobra.Command{
 		Use:   "serve-mcp",
 		Short: "Start an MCP server over stdio",
@@ -22,15 +23,16 @@ func NewServeMCPCommand(name, version, description, model string, registry *tool
 		RunE: func(cmd *cobra.Command, args []string) error {
 			executor := tools.NewExecutor(timeout, logger, execOpts...)
 			bridge := mcp.NewBridge(mcp.BridgeConfig{
-				Name:        name,
-				Version:     version,
-				Description: description,
-				Model:       model,
-				Registry:    registry,
-				Executor:    executor,
-				Loader:      loader,
-				Memory:      mgr,
-				Logger:      logger,
+				Name:              name,
+				Version:           version,
+				Description:       description,
+				Model:             model,
+				Registry:          registry,
+				Executor:          executor,
+				Loader:            loader,
+				Memory:            mgr,
+				Logger:            logger,
+				EagerInstructions: eagerInstructions,
 			})
 			return bridge.Serve(cmd.Context())
 		},

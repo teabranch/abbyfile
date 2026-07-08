@@ -48,6 +48,112 @@ type templateData struct {
 	Memory        bool
 	ModuleVersion string // published module version (e.g. "v0.8.0")
 	ModuleDir     string // local module path for replace directive (dev/CI only)
+	Budget        *budgetData
+}
+
+// budgetData holds pre-serialized context budget info for code generation.
+type budgetData struct {
+	MaxOutputLines    int
+	MaxOutputBytes    int64
+	OnOverflow        string
+	HeadLines         int
+	TailLines         int
+	SummaryLines      int
+	EagerInstructions bool
+	PerTool           map[string]budgetData
+}
+
+// Shipped defaults, mirrored from tools.DefaultContextBudget so that a
+// partial frontmatter context_budget block still yields a complete,
+// valid budget in generated code.
+const (
+	defaultMaxOutputLines = 2000
+	defaultMaxOutputBytes = 262144
+	defaultHeadLines      = 100
+	defaultTailLines      = 40
+	defaultSummaryLines   = 25
+	defaultOnOverflow     = "head-tail"
+)
+
+// buildBudgetData maps a definition.ContextBudgetDef into a budgetData,
+// applying shipped defaults to omitted scalar fields and normalizing an
+// empty base OnOverflow to "head-tail" so the generated shaper's base
+// budget never has an invalid strategy.
+//
+// MaxOutputLines/MaxOutputBytes are pointers on the definition: nil means
+// "omitted, use the shipped default" and a non-nil pointer to 0 means
+// "explicitly unlimited" (tools.Shaper's Shape treats <=0 as unbounded).
+// Only nil is defaulted; an explicit 0 passes through unchanged.
+func buildBudgetData(cb *definition.ContextBudgetDef) *budgetData {
+	if cb == nil {
+		return nil
+	}
+
+	bd := &budgetData{
+		OnOverflow:   cb.OnOverflow,
+		HeadLines:    cb.HeadLines,
+		TailLines:    cb.TailLines,
+		SummaryLines: cb.SummaryLines,
+	}
+	if cb.EagerInstructions != nil {
+		bd.EagerInstructions = *cb.EagerInstructions
+	}
+
+	if cb.MaxOutputLines == nil {
+		bd.MaxOutputLines = defaultMaxOutputLines
+	} else {
+		bd.MaxOutputLines = *cb.MaxOutputLines
+	}
+	if cb.MaxOutputBytes == nil {
+		bd.MaxOutputBytes = defaultMaxOutputBytes
+	} else {
+		bd.MaxOutputBytes = *cb.MaxOutputBytes
+	}
+	if bd.OnOverflow == "" {
+		bd.OnOverflow = defaultOnOverflow
+	}
+	if bd.HeadLines == 0 {
+		bd.HeadLines = defaultHeadLines
+	}
+	if bd.TailLines == 0 {
+		bd.TailLines = defaultTailLines
+	}
+	if bd.SummaryLines == 0 {
+		bd.SummaryLines = defaultSummaryLines
+	}
+
+	if len(cb.PerTool) > 0 {
+		bd.PerTool = make(map[string]budgetData, len(cb.PerTool))
+		for name, pt := range cb.PerTool {
+			ptData := budgetData{
+				OnOverflow: pt.OnOverflow,
+				HeadLines:  pt.HeadLines,
+				TailLines:  pt.TailLines,
+			}
+			if pt.MaxOutputLines != nil {
+				ptData.MaxOutputLines = *pt.MaxOutputLines
+			}
+			if pt.MaxOutputBytes != nil {
+				ptData.MaxOutputBytes = *pt.MaxOutputBytes
+			}
+			// SummaryLines and EagerInstructions are intentionally not
+			// set here: the per-tool template block (and
+			// tools.ContextBudget.effectiveFor's merge) never renders
+			// or consumes them for per-tool overrides, so populating
+			// them would be dead code. Only the base budget's
+			// SummaryLines/EagerInstructions are used.
+			//
+			// Per-tool scalars (including OnOverflow) are intentionally
+			// left at their zero value ("" for OnOverflow, 0 for the
+			// others) when unset, so effectiveFor's merge in
+			// pkg/tools/shaper.go inherits the base budget's value.
+			// Do NOT default OnOverflow here — an empty per-tool
+			// OnOverflow must mean "inherit base", not "head-tail".
+			bd.PerTool[name] = ptData
+		}
+	}
+
+	return bd
 }
 
 // Build generates source code from an AgentDef and compiles it into a binary.
@@ -196,6 +302,7 @@ func GenerateSource(dir string, def *definition.AgentDef, moduleVersion, moduleD
 		Memory:        def.Memory,
 		ModuleVersion: moduleVersion,
 		ModuleDir:     moduleDir,
+		Budget:        buildBudgetData(def.ContextBudget),
 	}
 
 	tmpl, err := template.ParseFS(templateFS, "templates/*.tmpl")

@@ -11,8 +11,12 @@ import (
 // CompiledDefaults captures the compiled-in values before config overrides are applied.
 // Used by the config subcommand to show what the binary was built with.
 type CompiledDefaults struct {
-	Model       string
-	ToolTimeout time.Duration
+	Model             string
+	ToolTimeout       time.Duration
+	MaxOutputLines    int
+	MaxOutputBytes    int64
+	OnOverflow        string
+	EagerInstructions bool
 }
 
 // NewConfigCommand creates the `config` subcommand for inspecting and
@@ -123,8 +127,40 @@ func printField(cmd *cobra.Command, field string, cfg *config.Config, defaults C
 			source = "override"
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "%s (%s)\n", val, source)
+	case "context_budget.max_output_lines":
+		val := defaults.MaxOutputLines
+		source := "compiled"
+		if cfg.ContextBudget != nil && cfg.ContextBudget.MaxOutputLines != nil {
+			val = *cfg.ContextBudget.MaxOutputLines
+			source = "override"
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "%d (%s)\n", val, source)
+	case "context_budget.max_output_bytes":
+		val := defaults.MaxOutputBytes
+		source := "compiled"
+		if cfg.ContextBudget != nil && cfg.ContextBudget.MaxOutputBytes != nil {
+			val = *cfg.ContextBudget.MaxOutputBytes
+			source = "override"
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "%d (%s)\n", val, source)
+	case "context_budget.on_overflow":
+		val := defaults.OnOverflow
+		source := "compiled"
+		if cfg.ContextBudget != nil && cfg.ContextBudget.OnOverflow != nil {
+			val = *cfg.ContextBudget.OnOverflow
+			source = "override"
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "%s (%s)\n", val, source)
+	case "context_budget.eager_instructions":
+		val := defaults.EagerInstructions
+		source := "compiled"
+		if cfg.ContextBudget != nil && cfg.ContextBudget.EagerInstructions != nil {
+			val = *cfg.ContextBudget.EagerInstructions
+			source = "override"
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "%t (%s)\n", val, source)
 	default:
-		return fmt.Errorf("unknown field: %s (supported: model, tool_timeout)", field)
+		return fmt.Errorf("unknown field: %s (supported: model, tool_timeout, context_budget.max_output_lines, context_budget.max_output_bytes, context_budget.on_overflow, context_budget.eager_instructions)", field)
 	}
 	return nil
 }
@@ -156,6 +192,42 @@ func printAllFields(cmd *cobra.Command, cfg *config.Config, defaults CompiledDef
 		timeoutVal = time.Duration(30 * time.Second).String()
 	}
 	fmt.Fprintf(w, "tool_timeout: %s (%s)\n", timeoutVal, timeoutSource)
+
+	// context_budget.max_output_lines
+	maxLinesVal := defaults.MaxOutputLines
+	maxLinesSource := "compiled"
+	if cfg.ContextBudget != nil && cfg.ContextBudget.MaxOutputLines != nil {
+		maxLinesVal = *cfg.ContextBudget.MaxOutputLines
+		maxLinesSource = "override"
+	}
+	fmt.Fprintf(w, "context_budget.max_output_lines: %d (%s)\n", maxLinesVal, maxLinesSource)
+
+	// context_budget.max_output_bytes
+	maxBytesVal := defaults.MaxOutputBytes
+	maxBytesSource := "compiled"
+	if cfg.ContextBudget != nil && cfg.ContextBudget.MaxOutputBytes != nil {
+		maxBytesVal = *cfg.ContextBudget.MaxOutputBytes
+		maxBytesSource = "override"
+	}
+	fmt.Fprintf(w, "context_budget.max_output_bytes: %d (%s)\n", maxBytesVal, maxBytesSource)
+
+	// context_budget.on_overflow
+	onOverflowVal := defaults.OnOverflow
+	onOverflowSource := "compiled"
+	if cfg.ContextBudget != nil && cfg.ContextBudget.OnOverflow != nil {
+		onOverflowVal = *cfg.ContextBudget.OnOverflow
+		onOverflowSource = "override"
+	}
+	fmt.Fprintf(w, "context_budget.on_overflow: %s (%s)\n", onOverflowVal, onOverflowSource)
+
+	// context_budget.eager_instructions
+	eagerVal := defaults.EagerInstructions
+	eagerSource := "compiled"
+	if cfg.ContextBudget != nil && cfg.ContextBudget.EagerInstructions != nil {
+		eagerVal = *cfg.ContextBudget.EagerInstructions
+		eagerSource = "override"
+	}
+	fmt.Fprintf(w, "context_budget.eager_instructions: %t (%s)\n", eagerVal, eagerSource)
 
 	// memory_limits
 	if cfg.MemoryLimits != nil {

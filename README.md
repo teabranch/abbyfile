@@ -132,9 +132,10 @@ abby install github.com/you/my-agent
 | **Persistent memory** | None | None | None | Key-value store per agent |
 | **Versioning** | Git history | None | None | Semantic versioning, pinnable releases |
 | **Distribution** | Copy the file | Folder copy | N/A | `abby install` from anywhere |
-| **Context isolation** | No | No | Yes | No |
+| **Context isolation** | No | No | Yes | No by default; Yes via `abby build --subagent` |
 | **Cost model** | One-time | Text in context | Baseline per call | Marginal per turn |
 | **Runtime config** | Edit the file | N/A | N/A | `config set model opus` — override without rebuilding |
+| **Context budget** | N/A | N/A | N/A | Tool-output shaping (line/byte caps, head-tail/spill) — [Context Budget Guide](docs/guides/context-budget.md) |
 
 ## Runtime Configuration
 
@@ -187,6 +188,7 @@ make build && make install
 | **[MCP Integration](docs/guides/mcp.md)** | Multi-runtime integration via MCP |
 | **[Testing](docs/guides/testing.md)** | Unit, integration, and MCP testing |
 | **[Benchmarks](docs/guides/benchmarks.md)** | Token cost methodology and results |
+| **[Context Budget](docs/guides/context-budget.md)** | Tool-output shaping and sub-agent isolation |
 | **[Reference](docs/reference.md)** | All options, subcommands, flags, types |
 | **[Examples](examples/)** | Working agent configurations |
 | **[FAQ](docs/faq.md)** | Common questions |
