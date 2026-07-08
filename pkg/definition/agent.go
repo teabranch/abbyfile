@@ -33,8 +33,13 @@ type SkillDef struct {
 // This is intentionally self-contained (not a re-export of tools.ContextBudget):
 // pkg/definition must not import pkg/tools.
 type ContextBudgetDef struct {
-	MaxOutputLines    int                         `yaml:"max_output_lines"`
-	MaxOutputBytes    int64                       `yaml:"max_output_bytes"`
+	// MaxOutputLines and MaxOutputBytes are pointers so that an explicit
+	// `0` in frontmatter (meaning "unlimited", per tools.Shaper's Shape
+	// semantics) can be distinguished from an omitted field (meaning
+	// "inherit/use the shipped default"). A nil pointer means omitted;
+	// a non-nil pointer to 0 means unlimited.
+	MaxOutputLines    *int                        `yaml:"max_output_lines"`
+	MaxOutputBytes    *int64                      `yaml:"max_output_bytes"`
 	OnOverflow        string                      `yaml:"on_overflow"`
 	HeadLines         int                         `yaml:"head_lines"`
 	TailLines         int                         `yaml:"tail_lines"`
@@ -319,7 +324,9 @@ func validateContextBudget(cb *ContextBudgetDef) error {
 		default:
 			return fmt.Errorf("context_budget: invalid on_overflow %q (want head-tail, spill, or passthrough)", c.OnOverflow)
 		}
-		if c.MaxOutputLines < 0 || c.MaxOutputBytes < 0 || c.HeadLines < 0 || c.TailLines < 0 || c.SummaryLines < 0 {
+		if (c.MaxOutputLines != nil && *c.MaxOutputLines < 0) ||
+			(c.MaxOutputBytes != nil && *c.MaxOutputBytes < 0) ||
+			c.HeadLines < 0 || c.TailLines < 0 || c.SummaryLines < 0 {
 			return fmt.Errorf("context_budget: numeric fields must be non-negative")
 		}
 		return nil

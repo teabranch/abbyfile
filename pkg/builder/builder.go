@@ -76,31 +76,38 @@ const (
 )
 
 // buildBudgetData maps a definition.ContextBudgetDef into a budgetData,
-// applying shipped defaults to zero-valued scalar fields and normalizing
-// an empty OnOverflow to "head-tail" so the generated shaper never sees
-// an invalid strategy.
+// applying shipped defaults to omitted scalar fields and normalizing an
+// empty base OnOverflow to "head-tail" so the generated shaper's base
+// budget never has an invalid strategy.
+//
+// MaxOutputLines/MaxOutputBytes are pointers on the definition: nil means
+// "omitted, use the shipped default" and a non-nil pointer to 0 means
+// "explicitly unlimited" (tools.Shaper's Shape treats <=0 as unbounded).
+// Only nil is defaulted; an explicit 0 passes through unchanged.
 func buildBudgetData(cb *definition.ContextBudgetDef) *budgetData {
 	if cb == nil {
 		return nil
 	}
 
 	bd := &budgetData{
-		MaxOutputLines: cb.MaxOutputLines,
-		MaxOutputBytes: cb.MaxOutputBytes,
-		OnOverflow:     cb.OnOverflow,
-		HeadLines:      cb.HeadLines,
-		TailLines:      cb.TailLines,
-		SummaryLines:   cb.SummaryLines,
+		OnOverflow:   cb.OnOverflow,
+		HeadLines:    cb.HeadLines,
+		TailLines:    cb.TailLines,
+		SummaryLines: cb.SummaryLines,
 	}
 	if cb.EagerInstructions != nil {
 		bd.EagerInstructions = *cb.EagerInstructions
 	}
 
-	if bd.MaxOutputLines == 0 {
+	if cb.MaxOutputLines == nil {
 		bd.MaxOutputLines = defaultMaxOutputLines
+	} else {
+		bd.MaxOutputLines = *cb.MaxOutputLines
 	}
-	if bd.MaxOutputBytes == 0 {
+	if cb.MaxOutputBytes == nil {
 		bd.MaxOutputBytes = defaultMaxOutputBytes
+	} else {
+		bd.MaxOutputBytes = *cb.MaxOutputBytes
 	}
 	if bd.OnOverflow == "" {
 		bd.OnOverflow = defaultOnOverflow
@@ -119,11 +126,15 @@ func buildBudgetData(cb *definition.ContextBudgetDef) *budgetData {
 		bd.PerTool = make(map[string]budgetData, len(cb.PerTool))
 		for name, pt := range cb.PerTool {
 			ptData := budgetData{
-				MaxOutputLines: pt.MaxOutputLines,
-				MaxOutputBytes: pt.MaxOutputBytes,
-				OnOverflow:     pt.OnOverflow,
-				HeadLines:      pt.HeadLines,
-				TailLines:      pt.TailLines,
+				OnOverflow: pt.OnOverflow,
+				HeadLines:  pt.HeadLines,
+				TailLines:  pt.TailLines,
+			}
+			if pt.MaxOutputLines != nil {
+				ptData.MaxOutputLines = *pt.MaxOutputLines
+			}
+			if pt.MaxOutputBytes != nil {
+				ptData.MaxOutputBytes = *pt.MaxOutputBytes
 			}
 			// SummaryLines and EagerInstructions are intentionally not
 			// set here: the per-tool template block (and
@@ -132,13 +143,12 @@ func buildBudgetData(cb *definition.ContextBudgetDef) *budgetData {
 			// them would be dead code. Only the base budget's
 			// SummaryLines/EagerInstructions are used.
 			//
-			// Per-tool scalars left at 0 mean "inherit base" via
-			// effectiveFor's merge (Task 1); only the overflow
-			// strategy needs a non-empty default since an empty
-			// string is never a valid OverflowStrategy.
-			if ptData.OnOverflow == "" {
-				ptData.OnOverflow = defaultOnOverflow
-			}
+			// Per-tool scalars (including OnOverflow) are intentionally
+			// left at their zero value ("" for OnOverflow, 0 for the
+			// others) when unset, so effectiveFor's merge in
+			// pkg/tools/shaper.go inherits the base budget's value.
+			// Do NOT default OnOverflow here — an empty per-tool
+			// OnOverflow must mean "inherit base", not "head-tail".
 			bd.PerTool[name] = ptData
 		}
 	}
