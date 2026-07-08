@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/teabranch/abbyfile/pkg/definition"
+	"gopkg.in/yaml.v3"
 )
 
 func TestGenerate_WritesSubagentMarkdown(t *testing.T) {
@@ -38,6 +39,75 @@ func TestGenerate_WritesSubagentMarkdown(t *testing.T) {
 		"## Return Protocol",
 		"isolated context window",
 		"25-line",
+	} {
+		if !strings.Contains(s, sub) {
+			t.Fatalf("output missing %q:\n%s", sub, s)
+		}
+	}
+}
+
+// extractFrontmatter returns the YAML frontmatter block between the first
+// two "---" delimiter lines.
+func extractFrontmatter(t *testing.T, content string) string {
+	t.Helper()
+	parts := strings.SplitN(content, "---\n", 3)
+	if len(parts) < 3 {
+		t.Fatalf("could not locate frontmatter delimiters in:\n%s", content)
+	}
+	return parts[1]
+}
+
+func TestGenerate_EscapesSpecialCharsInDescription(t *testing.T) {
+	dir := t.TempDir()
+	wantDescription := "Reviews Go code: focuses on concurrency"
+	def := &definition.AgentDef{
+		Name:        "reviewer",
+		Description: wantDescription,
+		PromptBody:  "You review Go code carefully.",
+	}
+	path, err := Generate(def, GenerateConfig{OutputDir: dir})
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fm := extractFrontmatter(t, string(data))
+
+	var parsed map[string]any
+	if err := yaml.Unmarshal([]byte(fm), &parsed); err != nil {
+		t.Fatalf("frontmatter is not valid YAML: %v\nfrontmatter:\n%s", err, fm)
+	}
+	got, ok := parsed["description"].(string)
+	if !ok {
+		t.Fatalf("description missing or not a string in parsed frontmatter: %#v", parsed)
+	}
+	if got != wantDescription {
+		t.Fatalf("description round-trip = %q, want %q", got, wantDescription)
+	}
+}
+
+func TestGenerate_EmitsToolsAndReturnProtocolGuidance(t *testing.T) {
+	dir := t.TempDir()
+	def := &definition.AgentDef{
+		Name:       "reviewer",
+		Tools:      []string{"Read", "Grep"},
+		PromptBody: "You review Go code carefully.",
+	}
+	path, err := Generate(def, GenerateConfig{OutputDir: dir})
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	for _, sub := range []string{
+		"tools: Read, Grep",
+		"Do NOT paste",
+		"memory://",
 	} {
 		if !strings.Contains(s, sub) {
 			t.Fatalf("output missing %q:\n%s", sub, s)

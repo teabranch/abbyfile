@@ -9,12 +9,22 @@ import (
 	"strings"
 
 	"github.com/teabranch/abbyfile/pkg/definition"
+	"gopkg.in/yaml.v3"
 )
 
 // GenerateConfig configures sub-agent emission.
 type GenerateConfig struct {
 	OutputDir string // parent dir; file goes to <OutputDir>/.claude/agents/<name>.md
 	Model     string // optional model hint
+}
+
+// frontmatter is the YAML frontmatter schema for an emitted sub-agent file.
+// Field order matches struct field order: name, description, tools, model.
+type frontmatter struct {
+	Name        string `yaml:"name"`
+	Description string `yaml:"description,omitempty"`
+	Tools       string `yaml:"tools,omitempty"`
+	Model       string `yaml:"model,omitempty"`
 }
 
 // summaryLines returns the return-protocol summary cap.
@@ -32,18 +42,20 @@ func Generate(def *definition.AgentDef, cfg GenerateConfig) (string, error) {
 		return "", fmt.Errorf("creating agents dir: %w", err)
 	}
 
+	fm := frontmatter{
+		Name:        def.Name,
+		Description: def.Description,
+		Tools:       strings.Join(def.Tools, ", "),
+		Model:       cfg.Model,
+	}
+	fmBytes, err := yaml.Marshal(fm)
+	if err != nil {
+		return "", fmt.Errorf("marshaling sub-agent frontmatter: %w", err)
+	}
+
 	var sb strings.Builder
 	sb.WriteString("---\n")
-	sb.WriteString("name: " + def.Name + "\n")
-	if def.Description != "" {
-		sb.WriteString("description: " + def.Description + "\n")
-	}
-	if len(def.Tools) > 0 {
-		sb.WriteString("tools: " + strings.Join(def.Tools, ", ") + "\n")
-	}
-	if cfg.Model != "" {
-		sb.WriteString("model: " + cfg.Model + "\n")
-	}
+	sb.Write(fmBytes) // yaml.Marshal output ends with a newline
 	sb.WriteString("---\n\n")
 	sb.WriteString(def.PromptBody)
 	sb.WriteString("\n\n## Return Protocol\n")
