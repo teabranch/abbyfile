@@ -65,7 +65,7 @@ You are a build/test runner...
 | `eager_instructions` | bool | Whether the full system prompt is injected eagerly at the MCP handshake. `false` sends a short stub instead (see [Instructions Behavior](#instructions-behavior-eager_instructions)). |
 | `per_tool` | map | Sparse per-tool overrides, keyed by MCP tool name (e.g. `run_command`, `read_file`). Any field left unset inherits from the base budget. Only `max_output_lines`, `max_output_bytes`, `on_overflow`, `head_lines`, and `tail_lines` are honored per-tool; `summary_lines` and `eager_instructions` only apply at the base-budget level. |
 
-Validation happens at parse time (`pkg/definition/agent.go`'s `validateContextBudget`): `on_overflow` must be one of the three known strategies (or empty, which falls back to the default), and all numeric fields must be non-negative. This applies to both the base block and every `per_tool` entry. An invalid value fails `abby build` immediately, with the same rule enforced again at `config set` time (see [Consumer Overrides](#consumer-overrides)).
+Validation happens at parse time (`pkg/definition/agent.go`'s `validateContextBudget`): `on_overflow` must be one of the three known strategies (or empty, which falls back to the default), and all numeric fields must be non-negative. This applies to both the base block and every `per_tool` entry. An invalid value fails `abby build` immediately. At `config set` time (see [Consumer Overrides](#consumer-overrides)), `on_overflow` is re-validated against the known strategies, but numeric fields are only checked for parseability — a negative value written via `config set` is not rejected there, so prefer setting limits in frontmatter where the non-negativity rule is enforced.
 
 ## Overflow Strategies
 
