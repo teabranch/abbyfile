@@ -93,8 +93,12 @@ func New(opts ...Option) (*Agent, error) {
 // compiledDefaults captures the compiled-in values before config overrides.
 func (a *Agent) compiledDefaults() cli.CompiledDefaults {
 	return cli.CompiledDefaults{
-		Model:       a.model,
-		ToolTimeout: a.toolTimeout,
+		Model:             a.model,
+		ToolTimeout:       a.toolTimeout,
+		MaxOutputLines:    a.budget.MaxOutputLines,
+		MaxOutputBytes:    a.budget.MaxOutputBytes,
+		OnOverflow:        string(a.budget.OnOverflow),
+		EagerInstructions: a.budget.EagerInstructions,
 	}
 }
 
