@@ -84,7 +84,7 @@ The assembled preview is then hard-truncated to `max_output_bytes` as a backstop
 Same head-tail preview, but the *full* raw output is persisted via a `SpillSink` first, and the preview is appended with a pointer:
 
 ```
-Full output saved to memory://my-agent/spill/run_command. Fetch it if you need the elided detail.
+Full output saved to memory://my-agent/spill-run_command-3f2a9c1b7e4d. Fetch it if you need the elided detail.
 ```
 
 Nothing is lost — the agent (or a human) can fetch the full content later. Use this for tools where the elided detail sometimes actually matters (verbose diffs, full log dumps) and losing it would hurt more than the extra round-trip to fetch it back.
