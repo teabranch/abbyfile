@@ -31,6 +31,9 @@ func TestMemorySink_Put(t *testing.T) {
 	if !strings.HasSuffix(uri, capturedKey) {
 		t.Fatalf("URI %q does not end with stored key %q", uri, capturedKey)
 	}
+	if strings.ContainsAny(capturedKey, "/\\") {
+		t.Fatalf("memory key %q contains a path separator; memory.validateKey rejects it", capturedKey)
+	}
 }
 
 func TestTempFileSink_Put(t *testing.T) {
