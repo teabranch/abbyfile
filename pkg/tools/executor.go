@@ -67,8 +67,8 @@ func NewExecutor(timeout time.Duration, logger *slog.Logger, opts ...ExecutorOpt
 	return e
 }
 
-// Run executes a tool definition with the given input and returns the output.
-func (e *Executor) Run(ctx context.Context, def *Definition, input map[string]any) (string, error) {
+// RunRaw executes a tool and returns its output without success-path shaping. Error messages are still shaped.
+func (e *Executor) RunRaw(ctx context.Context, def *Definition, input map[string]any) (string, error) {
 	if def.Builtin {
 		if def.Handler == nil {
 			return "", fmt.Errorf("built-in tool %q has no handler", def.Name)
@@ -85,7 +85,7 @@ func (e *Executor) Run(ctx context.Context, def *Definition, input map[string]an
 			return "", err
 		}
 		e.logger.Info("builtin tool completed", "tool", def.Name, "duration", duration)
-		return e.shape(def.Name, result), nil
+		return result, nil
 	}
 
 	if def.Command == "" {
@@ -158,7 +158,7 @@ func (e *Executor) Run(ctx context.Context, def *Definition, input map[string]an
 			errMsg = err.Error()
 		}
 		trimmed := strings.TrimSpace(errMsg)
-		shapedErrMsg := e.shape(def.Name, trimmed)
+		shapedErrMsg := e.Shape(def.Name, trimmed)
 		e.logger.Error("CLI tool failed", "tool", def.Name, "duration", duration, "error", trimmed)
 		return "", fmt.Errorf("tool %q failed: %s", def.Name, shapedErrMsg)
 	}
@@ -173,13 +173,31 @@ func (e *Executor) Run(ctx context.Context, def *Definition, input map[string]an
 	if result == "" {
 		result = stderr.String()
 	}
-	return e.shape(def.Name, strings.TrimSpace(result)), nil
+	return strings.TrimSpace(result), nil
 }
 
-// shape applies the configured budget (if any) to output before returning.
-func (e *Executor) shape(toolName, output string) string {
+// Shape applies the configured budget (if any) to output.
+func (e *Executor) Shape(toolName, output string) string {
 	if e.budget == nil {
 		return output
 	}
 	return e.budget.Shape(toolName, output, e.spillSink).Output
+}
+
+// Run executes a tool and returns budget-shaped output.
+func (e *Executor) Run(ctx context.Context, def *Definition, input map[string]any) (string, error) {
+	raw, err := e.RunRaw(ctx, def, input)
+	if err != nil {
+		return "", err
+	}
+	return e.Shape(def.Name, raw), nil
+}
+
+// MaxOutputBytes returns the effective byte cap for toolName, or 0 when no
+// budget is configured or the cap is unlimited.
+func (e *Executor) MaxOutputBytes(toolName string) int64 {
+	if e.budget == nil {
+		return 0
+	}
+	return e.budget.effectiveFor(toolName).MaxOutputBytes
 }
