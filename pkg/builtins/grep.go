@@ -70,12 +70,15 @@ func handleGrepSearch(ctx context.Context, input map[string]any) (string, error)
 	}
 	const maxResults = 100
 	if !info.IsDir() {
-		return searchFile(root, searchPath, re, maxResults)
+		return searchFile(ctx, root, searchPath, re, maxResults)
 	}
 
 	var results []string
 	skipped := 0
 	err = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		if err != nil || d.IsDir() {
 			if d != nil && d.IsDir() && strings.HasPrefix(d.Name(), ".") && path != root {
 				return filepath.SkipDir
@@ -102,6 +105,11 @@ func handleGrepSearch(ctx context.Context, input map[string]any) (string, error)
 		lineNum := 0
 		for scanner.Scan() {
 			lineNum++
+			if lineNum%1000 == 0 {
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					return ctxErr
+				}
+			}
 			if re.MatchString(scanner.Text()) {
 				results = append(results, fmt.Sprintf("%s:%d:%s", label, lineNum, scanner.Text()))
 				if len(results) >= maxResults {
@@ -120,8 +128,10 @@ func handleGrepSearch(ctx context.Context, input map[string]any) (string, error)
 	return withSkipNote(strings.Join(results, "\n"), skipped), nil
 }
 
-// searchFile greps one file at path, labelling hits with label.
-func searchFile(path, label string, re *regexp.Regexp, maxResults int) (string, error) {
+// searchFile greps one file at path, labelling hits with label. It checks
+// ctx every 1000 lines so a single huge file cannot outlast a cancelled or
+// expired ctx.
+func searchFile(ctx context.Context, path, label string, re *regexp.Regexp, maxResults int) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return "", fmt.Errorf("opening file: %w", err)
@@ -133,6 +143,11 @@ func searchFile(path, label string, re *regexp.Regexp, maxResults int) (string, 
 	lineNum := 0
 	for scanner.Scan() {
 		lineNum++
+		if lineNum%1000 == 0 {
+			if err := ctx.Err(); err != nil {
+				return "", fmt.Errorf("searching: %w", err)
+			}
+		}
 		if re.MatchString(scanner.Text()) {
 			results = append(results, fmt.Sprintf("%s:%d:%s", label, lineNum, scanner.Text()))
 			if len(results) >= maxResults {

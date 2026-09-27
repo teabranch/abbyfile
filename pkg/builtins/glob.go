@@ -76,6 +76,9 @@ func handleGlobFiles(ctx context.Context, input map[string]any) (string, error) 
 		// would turn the skip note into an oracle for whether a guessed
 		// path outside the sandbox exists.
 		for _, m := range found {
+			if err := ctx.Err(); err != nil {
+				return "", fmt.Errorf("globbing: %w", err)
+			}
 			if _, err := sb.Resolve(m, sandbox.Read); err != nil {
 				continue
 			}
@@ -92,6 +95,9 @@ func handleGlobFiles(ctx context.Context, input map[string]any) (string, error) 
 			return "", err
 		}
 		err = filepath.WalkDir(searchDir, func(path string, d os.DirEntry, err error) error {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
 			if err != nil || d.IsDir() {
 				return nil
 			}
