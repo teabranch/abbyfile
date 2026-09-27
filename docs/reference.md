@@ -452,16 +452,17 @@ func NewBridge(cfg BridgeConfig) *Bridge
 
 ```go
 type BridgeConfig struct {
-    Name            string
-    Version         string
-    Description     string
-    Model           string          // model hint, appended to instructions
-    Registry        *tools.Registry
-    Executor        *tools.Executor
-    Loader          *prompt.Loader
-    Memory          *memory.Manager // nil if memory disabled
-    Logger          *slog.Logger    // nil disables logging
-    LazyToolLoading bool            // Deprecated: ignored (logs a warning)
+    Name              string
+    Version           string
+    Description       string
+    Model             string          // model hint, appended to instructions
+    Registry          *tools.Registry
+    Executor          *tools.Executor
+    Loader            *prompt.Loader
+    Memory            *memory.Manager // nil if memory disabled
+    Logger            *slog.Logger    // nil disables logging
+    LazyToolLoading   bool            // Deprecated: ignored (logs a warning)
+    EagerInstructions bool            // true: full prompt in handshake, no get_instructions tool
 }
 ```
 

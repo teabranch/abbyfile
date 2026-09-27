@@ -96,6 +96,10 @@ Two sink implementations are wired automatically based on whether memory is enab
 
 If a spill write fails (or no sink is available), the shaper never drops the cap silently — it degrades to `head-tail` and annotates the marker with `(spill unavailable — output truncated)`.
 
+**Accumulation.** Every distinct overflowing output writes a new key, `spill-<tool>-<hash>` (content-addressed by a hash of the raw output), into the same store as the agent's own `memory_write`/`memory_read` tools — nothing currently evicts or rotates these keys. If you've set `memory_limits` (`MaxKeys`, `MaxTotalBytes`) for the agent, accumulated spill keys count toward those limits alongside the agent's own writes, and enough spill traffic can make a later `memory_write` call fail once a limit is reached. A spill whose value is itself larger than `memory_limits.MaxValueBytes` fails to write and falls back to the `head-tail` degrade path described above, on that call only.
+
+If you use `on_overflow: spill` together with `memory_limits`, consider also setting `memory_limits.ttl` (a duration string such as `"72h"`, set via `agent.WithMemoryLimits(memory.Limits{TTL: ...})` at build time, or by hand-editing the `ttl` field under `memory_limits:` in `~/.abbyfile/<name>/config.yaml` — `config set` does not yet expose this field) so old entries expire. Note this only marks a key as expired for `Read`/`memory_read` (see [Memory Guide](./memory.md)); it does not delete the underlying file or shrink the `MaxKeys`/`MaxTotalBytes` accounting, so it does not by itself stop spill accumulation from reaching those limits. Dedicated eviction/rotation for spill keys is a tracked follow-up, not implemented in this release.
+
 ### `passthrough`
 
 Returns the raw output unchanged, regardless of size. This is the explicit opt-out — use it (or set the caps to `0`) to restore today's unbounded behavior for a tool you know is always small, or while debugging shaping itself.
@@ -203,6 +207,8 @@ context_budget:
 The agent then advertises `_meta["anthropic/maxResultSizeChars"]` on that tool's definition, set to the tool's effective `max_output_bytes`. Claude Code only ever *raises* its threshold for it. The hint puts **more** into context, so it is off by default and exists purely as an escape hatch.
 
 Rules: `inline_large` is valid only under `per_tool`. The effective cap must be between 1 and 500000; `abby build` rejects anything else. If a runtime `config set context_budget.max_output_bytes` later raises the cap, the hint is clamped to 500000. If it sets the cap to 0 (unlimited), the hint is dropped and a warning is logged.
+
+Because the hint value is derived from the runtime `max_output_bytes`, a `config set context_budget.max_output_bytes` also changes `tools/list` (the advertised `anthropic/maxResultSizeChars` changes or disappears). The same caveat as [`eager_instructions`](#instructions-behavior-eager_instructions) applies: restart the runtime session (for example, restart Claude Code) after the `config set` so it re-lists tools instead of using a cached list.
 
 ## Which Strategy for Which Tool
 
