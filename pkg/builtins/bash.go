@@ -67,11 +67,26 @@ func RunCommandDescription(cfg sandbox.Config) string {
 		strings.Join(quoted, ", "))
 }
 
-// commandTimeout is min(requested seconds or 30s, maxTimeout).
+// commandTimeout is min(requested seconds or 30s, maxTimeout). t is compared
+// against maxTimeout.Seconds() before conversion, so a huge requested value
+// saturates at maxTimeout instead of overflowing time.Duration(t*1e9) (a
+// float64->int64 conversion whose out-of-range result is platform-dependent).
+// A requested value that truncates to zero or less once converted
+// (sub-microsecond) floors to 1ms rather than becoming an instantly-expired
+// command.
 func commandTimeout(input map[string]any, maxTimeout time.Duration) time.Duration {
 	timeout := defaultCommandTimeout
 	if t, ok := input["timeout"].(float64); ok && t > 0 {
-		timeout = time.Duration(t * float64(time.Second))
+		switch {
+		case t >= maxTimeout.Seconds():
+			timeout = maxTimeout
+		default:
+			if d := time.Duration(t * float64(time.Second)); d > 0 {
+				timeout = d
+			} else {
+				timeout = time.Millisecond
+			}
+		}
 	}
 	return min(timeout, maxTimeout)
 }

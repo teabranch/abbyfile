@@ -85,6 +85,14 @@ func TestCommandTimeout(t *testing.T) {
 		{map[string]any{"timeout": float64(0)}, max, 30 * time.Second},
 		{map[string]any{"timeout": float64(-1)}, max, 30 * time.Second},
 		{map[string]any{}, 5 * time.Second, 5 * time.Second},
+		// Finding 5: a huge requested timeout must saturate at maxTimeout
+		// instead of overflowing time.Duration(t*1e9) (platform-dependent
+		// on a float64->int64 conversion that doesn't fit).
+		{map[string]any{"timeout": float64(1e30)}, max, max},
+		// Finding 5: a sub-microsecond requested timeout truncates to a
+		// zero or negative Duration when converted; it floors to 1ms
+		// rather than becoming an instantly-expired command.
+		{map[string]any{"timeout": float64(1e-15)}, max, time.Millisecond},
 	}
 	for _, tt := range tests {
 		if got := commandTimeout(tt.in, tt.max); got != tt.want {
