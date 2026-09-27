@@ -45,6 +45,23 @@ This is informational — the runtime decides which model to use.
 - `system` -- returns the agent's system prompt as a prompt message
 - `memory-context` (when memory is enabled) -- returns memory state; accepts an optional `key` argument to return a specific key's content
 
+## Protocol Versions
+
+Agent binaries speak MCP **2026-07-28** (stateless: `server/discover` plus
+per-request `_meta`) and still accept legacy `initialize` clients on
+**2025-11-25** and **2025-06-18**. The client picks the version; no
+configuration is needed.
+
+- Server instructions are returned by `server/discover` (modern) or
+  `initialize` (legacy).
+- `tools/list`, `prompts/list` and resource listings are cacheable for one
+  hour (`ttlMs: 3600000`, `cacheScope: public`). Memory reads are never
+  cached (`ttlMs: 0`, `cacheScope: private`).
+- Tools that declare an `outputSchema` return `structuredContent`, plus a
+  JSON text copy. Their output must be one JSON value within the tool's
+  `max_output_bytes`; structured output is never truncated.
+- Tool names must match `^[A-Za-z0-9_.-]{1,128}$`.
+
 ## Runtime Config Files
 
 `abby build` and `abby install` auto-generate MCP config for detected runtimes. Use `--runtime` to target a specific runtime.
