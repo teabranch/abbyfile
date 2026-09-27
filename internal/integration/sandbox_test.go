@@ -13,34 +13,30 @@ import (
 	"time"
 )
 
-func buildSandboxAgent(t *testing.T) string {
+// buildAgentWithSandbox builds a minimal agent named name whose frontmatter
+// sandbox: block is sandboxYAML (already indented, no trailing newline),
+// returning the built binary's path.
+func buildAgentWithSandbox(t *testing.T, name, sandboxYAML string) string {
 	t.Helper()
 	projectRoot := findProjectRoot()
 	tmp := t.TempDir()
-	agentMD := `---
-name: sandbox-agent
----
-
----
-description: "Sandbox integration agent"
-tools: Read, Bash
-sandbox:
-  allow_commands: ["echo *"]
-  max_command_timeout: 5s
----
-
-You test the sandbox.
-`
+	agentMD := "---\nname: " + name + "\n---\n\n---\ndescription: \"Sandbox integration agent\"\ntools: Read, Bash\nsandbox:\n" +
+		sandboxYAML + "\n---\n\nYou test the sandbox.\n"
 	os.MkdirAll(filepath.Join(tmp, "agents"), 0o755)
-	os.WriteFile(filepath.Join(tmp, "agents", "sandbox-agent.md"), []byte(agentMD), 0o644)
-	os.WriteFile(filepath.Join(tmp, "Abbyfile"), []byte("version: \"1\"\nagents:\n  sandbox-agent:\n    path: agents/sandbox-agent.md\n    version: 0.1.0\n"), 0o644)
+	os.WriteFile(filepath.Join(tmp, "agents", name+".md"), []byte(agentMD), 0o644)
+	os.WriteFile(filepath.Join(tmp, "Abbyfile"), []byte("version: \"1\"\nagents:\n  "+name+":\n    path: agents/"+name+".md\n    version: 0.1.0\n"), 0o644)
 	buildDir := filepath.Join(tmp, "build")
 	cmd := exec.Command(abbyBin, "build", "-f", filepath.Join(tmp, "Abbyfile"), "-o", buildDir, "--module-dir", projectRoot)
 	cmd.Dir = projectRoot
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("abby build: %v\n%s", err, out)
 	}
-	return filepath.Join(buildDir, "sandbox-agent")
+	return filepath.Join(buildDir, name)
+}
+
+func buildSandboxAgent(t *testing.T) string {
+	t.Helper()
+	return buildAgentWithSandbox(t, "sandbox-agent", "  allow_commands: [\"echo *\"]\n  max_command_timeout: 5s")
 }
 
 func runIn(t *testing.T, bin, dir string, args ...string) (string, string, error) {

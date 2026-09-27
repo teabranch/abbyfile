@@ -4,29 +4,33 @@ package integration
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 )
 
-// sendRawJSONRPC spawns `serve-mcp` with HOME isolated to a fresh temp dir,
-// writes each message in msgs to stdin (one JSON-RPC message per line), and
-// scans stdout until a response has arrived for every id in wantIDs. Every
-// line read from stdout must be a valid JSON-RPC 2.0 message — per spec A6,
-// a stdio server must never write logs or anything else to stdout — so a
-// non-JSON-RPC line fails the test immediately rather than being skipped.
-// It returns the parsed response object for each id in wantIDs, keyed by id.
-func sendRawJSONRPC(t *testing.T, msgs []string, wantIDs []float64) map[float64]map[string]any {
+// sendRawJSONRPC spawns bin's `serve-mcp` with HOME isolated to a fresh temp
+// dir, writes each message in msgs to stdin (one JSON-RPC message per
+// line), and scans stdout until a response has arrived for every id in
+// wantIDs. Every line read from stdout must be a valid JSON-RPC 2.0 message
+// — per spec A6, a stdio server must never write logs or anything else to
+// stdout — so a non-JSON-RPC line fails the test immediately rather than
+// being skipped. It returns the parsed response object for each id in
+// wantIDs (keyed by id) and everything the process wrote to stderr, so
+// callers can assert on both.
+func sendRawJSONRPC(t *testing.T, bin string, msgs []string, wantIDs []float64) (map[float64]map[string]any, string) {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, binaryPath, "serve-mcp")
+	cmd := exec.CommandContext(ctx, bin, "serve-mcp")
 	cmd.Env = append(os.Environ(), "HOME="+t.TempDir())
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -36,7 +40,8 @@ func sendRawJSONRPC(t *testing.T, msgs []string, wantIDs []float64) map[float64]
 	if err != nil {
 		t.Fatalf("stdout pipe: %v", err)
 	}
-	cmd.Stderr = io.Discard
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start serve-mcp: %v", err)
 	}
@@ -67,12 +72,12 @@ func sendRawJSONRPC(t *testing.T, msgs []string, wantIDs []float64) map[float64]
 		if id, ok := msg["id"].(float64); ok && want[id] {
 			responses[id] = msg
 			if len(responses) == len(want) {
-				return responses
+				return responses, stderr.String()
 			}
 		}
 	}
-	t.Fatalf("stream ended before all responses seen; got=%v scan err=%v", responses, sc.Err())
-	return nil
+	t.Fatalf("stream ended before all responses seen; got=%v scan err=%v stderr=%s", responses, sc.Err(), stderr.String())
+	return nil, ""
 }
 
 // TestStdoutIsOnlyJSONRPC drives serve-mcp with raw legacy-era (2025-11-25)
@@ -86,7 +91,7 @@ func TestStdoutIsOnlyJSONRPC(t *testing.T) {
 		`{"jsonrpc":"2.0","id":2,"method":"tools/list"}`,
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"does_not_exist","arguments":{}}}`,
 	}
-	responses := sendRawJSONRPC(t, msgs, []float64{1, 2, 3})
+	responses, _ := sendRawJSONRPC(t, binaryPath, msgs, []float64{1, 2, 3})
 
 	if _, ok := responses[1]["result"]; !ok {
 		t.Errorf("id 1 (initialize) has no result: %v", responses[1])
@@ -111,7 +116,7 @@ func TestStdoutIsOnlyJSONRPCModernEra(t *testing.T) {
 		`{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{` + meta + `}}`,
 		`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{` + meta + `}}`,
 	}
-	responses := sendRawJSONRPC(t, msgs, []float64{1, 2})
+	responses, _ := sendRawJSONRPC(t, binaryPath, msgs, []float64{1, 2})
 
 	if errObj, ok := responses[1]["error"]; ok {
 		t.Fatalf("id 1 (server/discover) returned error: %v", errObj)
@@ -130,5 +135,31 @@ func TestStdoutIsOnlyJSONRPCModernEra(t *testing.T) {
 	toolsList, ok := result["tools"].([]any)
 	if !ok || len(toolsList) == 0 {
 		t.Fatalf("id 2 result.tools is empty or missing: %v", result)
+	}
+}
+
+// TestStdoutIsOnlyJSONRPCWithSandboxWarnings drives serve-mcp for an agent
+// whose sandbox: block (bash: unrestricted) triggers a startup warning
+// (sandbox.New's Warnings(), logged via slog to stderr in buildSandbox).
+// Finding 8: that warning must still go to stderr, never stdout — a stdio
+// server's stdout is JSON-RPC only, per spec A6 — and the test asserts the
+// warning actually reached stderr, so it cannot pass vacuously.
+func TestStdoutIsOnlyJSONRPCWithSandboxWarnings(t *testing.T) {
+	bin := buildAgentWithSandbox(t, "warn-sandbox-agent", "  bash: unrestricted")
+	msgs := []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"raw","version":"1"}}}`,
+		`{"jsonrpc":"2.0","method":"notifications/initialized"}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/list"}`,
+	}
+	responses, stderr := sendRawJSONRPC(t, bin, msgs, []float64{1, 2})
+
+	if _, ok := responses[1]["result"]; !ok {
+		t.Errorf("id 1 (initialize) has no result: %v", responses[1])
+	}
+	if _, ok := responses[2]["result"]; !ok {
+		t.Errorf("id 2 (tools/list) has no result: %v", responses[2])
+	}
+	if !strings.Contains(stderr, "unrestricted") {
+		t.Errorf("expected the sandbox.bash: unrestricted warning on stderr, got: %q", stderr)
 	}
 }
