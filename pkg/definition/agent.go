@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/teabranch/abbyfile/pkg/tools"
 	"gopkg.in/yaml.v3"
 )
 
@@ -287,11 +288,8 @@ func validateCustomTools(cts []CustomToolDef) error {
 		if ct.Name == "" {
 			return fmt.Errorf("custom_tools[%d]: name is required", i)
 		}
-		if !validName.MatchString(ct.Name) {
-			return fmt.Errorf("custom_tools[%d]: name %q contains invalid characters", i, ct.Name)
-		}
-		if len(ct.Name) > 128 {
-			return fmt.Errorf("custom_tools[%d]: name %q exceeds 128 characters", i, ct.Name)
+		if err := tools.ValidateToolName(ct.Name); err != nil {
+			return fmt.Errorf("custom_tools[%d]: %w", i, err)
 		}
 		if ct.Command == "" {
 			return fmt.Errorf("custom_tools[%d] (%s): command is required", i, ct.Name)

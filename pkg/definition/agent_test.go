@@ -215,7 +215,30 @@ Body.`
 func TestValidateCustomToolsNameTooLong(t *testing.T) {
 	long := strings.Repeat("a", 129)
 	err := validateCustomTools([]CustomToolDef{{Name: long, Command: "echo"}})
-	if err == nil || !strings.Contains(err.Error(), "128") {
-		t.Fatalf("err = %v, want 128-char limit error", err)
+	if err == nil || !strings.Contains(err.Error(), "1-128") {
+		t.Fatalf("err = %v, want 1-128 char limit error", err)
+	}
+}
+
+func TestValidateCustomToolsAcceptsSEP986Names(t *testing.T) {
+	cases := []struct {
+		name string
+	}{
+		{"my.tool"},
+		{"_tool"},
+		{"a-b.c_d"},
+	}
+	for _, c := range cases {
+		err := validateCustomTools([]CustomToolDef{{Name: c.name, Command: "echo"}})
+		if err != nil {
+			t.Errorf("validateCustomTools(%q) err = %v, want nil", c.name, err)
+		}
+	}
+}
+
+func TestValidateCustomToolsRejectsSpace(t *testing.T) {
+	err := validateCustomTools([]CustomToolDef{{Name: "has space", Command: "echo"}})
+	if err == nil || !strings.Contains(err.Error(), "custom_tools[0]") {
+		t.Fatalf("err = %v, want custom_tools[0] in error", err)
 	}
 }
