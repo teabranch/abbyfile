@@ -647,3 +647,43 @@ func TestBridgeResultSizeHintMeta(t *testing.T) {
 		}
 	}
 }
+
+// TestBridgeInlineLargeIgnoredWarnsWhenUnlimited covers M5: a tool that opts
+// into inline_large under a base budget with an unlimited (0) MaxOutputBytes
+// must not advertise anthropic/maxResultSizeChars (there's no cap to hint),
+// and addTool must log a warning explaining why the opt-in was ignored.
+func TestBridgeInlineLargeIgnoredWarnsWhenUnlimited(t *testing.T) {
+	r := tools.NewRegistry()
+	noop := func(map[string]any) (string, error) { return "", nil }
+	_ = r.Register(tools.BuiltinTool("t", "t", map[string]any{"type": "object"}, noop))
+
+	b := tools.ContextBudget{
+		MaxOutputBytes: 0, // unlimited at the base level.
+		OnOverflow:     tools.OverflowHeadTail,
+		PerTool:        map[string]tools.ContextBudget{"t": {InlineLarge: true}},
+	}
+
+	var logBuf bytes.Buffer
+	session, _ := startBridgeWithConfig(t, agentmcp.BridgeConfig{
+		Name: "test-agent", Version: "v0.1.0", Registry: r,
+		Executor: tools.NewExecutor(30*time.Second, nil, tools.WithContextBudget(b, nil)),
+		Loader:   newTestLoader(t),
+		Logger:   slog.New(slog.NewTextHandler(&logBuf, nil)),
+	})
+
+	list, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range list.Tools {
+		if tool.Name != "t" {
+			continue
+		}
+		if _, has := tool.Meta["anthropic/maxResultSizeChars"]; has {
+			t.Errorf("t must not carry maxResultSizeChars when unlimited: %#v", tool.Meta)
+		}
+	}
+	if !strings.Contains(logBuf.String(), "inline_large ignored") {
+		t.Errorf("expected an 'inline_large ignored' warning in the log, got: %q", logBuf.String())
+	}
+}
