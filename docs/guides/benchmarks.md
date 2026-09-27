@@ -118,6 +118,18 @@ Savings (cumulative tokens avoided):
 
 Over 20 turns: GitHub MCP costs 1,100,000T cumulative. Abbyfile costs 33,620T. **33x reduction.**
 
+### Per-session handshake cost (v0.10.0, Phase D)
+
+What a client pays before the first tool call: `tools/list` schemas plus the
+server `instructions` actually delivered by `server/discover` / `initialize`.
+Representative agent: all 6 builtins + memory (5 tools), `benchmarks/testdata/system.md`.
+Measured with `go test ./benchmarks/ -run TestHandshakeContextCost -v` (bytes/4 estimate).
+
+| Build | `eager_instructions` | Tools | tools/list | Instructions | Total |
+|---|---|---|---|---|---|
+| v0.9.x (before) | false | 12 | ~1191 | ~26 | ~1217 |
+| v0.9.x (before) | true | 12 | ~1191 | ~845 | ~2036 |
+
 ### Claude Code Baseline Analysis
 
 Claude Code itself consumes context before any MCP servers are loaded. These are manual estimates from session transcripts — not live-validated (we can't send Claude Code's internal tool schemas to count_tokens). The bytes/4 heuristic underestimates by ~31%, so actual baseline is likely higher.

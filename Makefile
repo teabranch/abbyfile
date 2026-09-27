@@ -38,7 +38,7 @@ bench-integration:
 	go test -tags integration -bench=. -benchmem -count=3 -timeout 120s ./internal/integration/
 
 bench-report:
-	go test -run "TestScalingCurve|TestComparisonWithArticle|TestAntiPatternThreshold|TestTokenizerComparison|TestMultiTurnProjection|TestClaudeCodeBaseline|TestArticleMethodology" -v ./benchmarks/
+	go test -run "TestScalingCurve|TestComparisonWithArticle|TestAntiPatternThreshold|TestTokenizerComparison|TestMultiTurnProjection|TestClaudeCodeBaseline|TestArticleMethodology|TestHandshakeContextCost" -v ./benchmarks/
 
 bench-all: bench bench-integration bench-report
 

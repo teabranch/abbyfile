@@ -109,8 +109,16 @@ type HandshakePayload struct {
 	TotalSchemaTokens int               `json:"total_schema_tokens"`
 	PromptBytes       int               `json:"prompt_bytes"`
 	PromptTokens      int               `json:"prompt_tokens"`
-	TotalBytes        int               `json:"total_bytes"`
-	TotalTokens       int               `json:"total_tokens"`
+	// InstructionsBytes/Tokens measure the instructions the server actually
+	// sent (server/discover or initialize), which is the stub when
+	// EagerInstructions is false. PromptBytes/Tokens measure the full prompt.
+	InstructionsBytes  int `json:"instructions_bytes"`
+	InstructionsTokens int `json:"instructions_tokens"`
+	// HandshakeTokens is the per-session cost the client pays up front:
+	// tools/list schemas + handshake instructions.
+	HandshakeTokens int `json:"handshake_tokens"`
+	TotalBytes      int `json:"total_bytes"`
+	TotalTokens     int `json:"total_tokens"`
 }
 
 // ContextBudgetPercent returns the percentage of the 128K context window consumed.
@@ -164,6 +172,11 @@ func MeasureHandshake(cfg agentmcp.BridgeConfig) (*HandshakePayload, error) {
 		payload.TotalSchemaTokens += tm.SchemaTokens
 	}
 
+	if ir := session.InitializeResult(); ir != nil {
+		payload.InstructionsBytes = len(ir.Instructions)
+		payload.InstructionsTokens = EstimateTokens(ir.Instructions)
+	}
+
 	// Measure system prompt.
 	if cfg.Loader != nil {
 		text, err := cfg.Loader.Load()
@@ -175,6 +188,7 @@ func MeasureHandshake(cfg agentmcp.BridgeConfig) (*HandshakePayload, error) {
 
 	payload.TotalBytes = payload.TotalSchemaBytes + payload.PromptBytes
 	payload.TotalTokens = payload.TotalSchemaTokens + payload.PromptTokens
+	payload.HandshakeTokens = payload.TotalSchemaTokens + payload.InstructionsTokens
 
 	return payload, nil
 }
