@@ -57,6 +57,24 @@ func startBridgeWithConfig(t *testing.T, cfg agentmcp.BridgeConfig) (session *go
 	return sess, cancelFn
 }
 
+// startBridgeEra is startBridgeWithConfig with an explicit client protocol
+// version ("" = SDK latest, i.e. 2026-07-28 via server/discover).
+func startBridgeEra(t *testing.T, cfg agentmcp.BridgeConfig, protocolVersion string) *gomcp.ClientSession {
+	t.Helper()
+	bridge := agentmcp.NewBridge(cfg)
+	serverTransport, clientTransport := gomcp.NewInMemoryTransports()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	go func() { _ = bridge.ServeTransport(ctx, serverTransport) }()
+	client := gomcp.NewClient(&gomcp.Implementation{Name: "era-client", Version: "v0.1.0"}, nil)
+	sess, err := client.Connect(ctx, clientTransport, &gomcp.ClientSessionOptions{ProtocolVersion: protocolVersion})
+	if err != nil {
+		cancel()
+		t.Fatalf("connect (%q): %v", protocolVersion, err)
+	}
+	t.Cleanup(func() { sess.Close(); cancel() })
+	return sess
+}
+
 // startBridge creates and starts a bridge with the given registry, returning
 // a connected client session. Delegates to startBridgeWithConfig.
 func startBridge(t *testing.T, registry *tools.Registry) (session *gomcp.ClientSession, cancel context.CancelFunc) {
