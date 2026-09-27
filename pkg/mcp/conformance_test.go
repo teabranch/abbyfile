@@ -37,6 +37,15 @@ func TestDualEra(t *testing.T) { // Review Focus #5 covers the 2025-06-18 row
 			if !strings.Contains(ir.Instructions, "Era test agent") {
 				t.Errorf("instructions not delivered: %q", ir.Instructions)
 			}
+			if ir.Capabilities == nil {
+				t.Fatal("Capabilities is nil")
+			}
+			if ir.Capabilities.Logging != nil {
+				t.Errorf("Logging capability advertised: %+v", ir.Capabilities.Logging)
+			}
+			if ir.Capabilities.Tools == nil {
+				t.Error("Tools capability not advertised")
+			}
 			tl, err := sess.ListTools(context.Background(), nil)
 			if err != nil {
 				t.Fatal(err)

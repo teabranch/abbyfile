@@ -71,6 +71,12 @@ func (b *Bridge) ServeTransport(ctx context.Context, transport gomcp.Transport) 
 	}, &gomcp.ServerOptions{
 		Instructions: instructions,
 		SetCacheable: setCacheable,
+		// Capabilities overrides go-sdk's default of advertising the
+		// deprecated (SEP-2577) logging capability. An empty, non-nil
+		// struct suppresses Logging while leaving Tools/Prompts/Resources
+		// to be filled in by Server.capabilities() when those features are
+		// actually registered (see server.go's capabilities()).
+		Capabilities: &gomcp.ServerCapabilities{},
 	})
 
 	if b.cfg.LazyToolLoading {
