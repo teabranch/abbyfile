@@ -100,7 +100,7 @@ func (b *Bridge) ServeTransport(ctx context.Context, transport gomcp.Transport) 
 
 // addTool registers a single abbyfile tool definition as an MCP tool.
 func (b *Bridge) addTool(server *gomcp.Server, def *tools.Definition) {
-	schema := schemaToRaw(def.InputSchema)
+	schema := inputSchemaToRaw(def.InputSchema)
 
 	tool := &gomcp.Tool{
 		Name:        def.Name,
@@ -418,4 +418,28 @@ func schemaToRaw(schema any) json.RawMessage {
 		return json.RawMessage(`{"type":"object","properties":{}}`)
 	}
 	return data
+}
+
+// inputSchemaToRaw is schemaToRaw plus a guarantee that the top-level schema
+// declares "type":"object". go-sdk v1.8.0 panics in AddTool otherwise, and
+// frontmatter authors routinely omit it.
+func inputSchemaToRaw(schema any) json.RawMessage {
+	raw := schemaToRaw(schema)
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil || m == nil {
+		return json.RawMessage(`{"type":"object","properties":{}}`)
+	}
+	if _, ok := m["type"]; ok {
+		return raw
+	}
+	withType := make(map[string]any, len(m)+1)
+	for k, v := range m {
+		withType[k] = v
+	}
+	withType["type"] = "object"
+	out, err := json.Marshal(withType)
+	if err != nil {
+		return json.RawMessage(`{"type":"object","properties":{}}`)
+	}
+	return out
 }

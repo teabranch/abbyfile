@@ -54,3 +54,32 @@ func TestWireToolsListGolden(t *testing.T) {
 		t.Errorf("tools/list wire changed.\n--- got ---\n%s\n--- want ---\n%s", got, want)
 	}
 }
+
+func TestInputSchemaWithoutTypeDoesNotPanic(t *testing.T) {
+	r := tools.NewRegistry()
+	_ = r.Register(tools.CLI("notype", "echo", "schema missing type"))
+	def := r.Get("notype")
+	def.InputSchema = map[string]any{"properties": map[string]any{"args": map[string]any{"type": "string"}}}
+
+	session, _ := startBridge(t, r) // v1.8.0 AddTool panics if type != "object"
+	res, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("list tools: %v", err)
+	}
+	for _, tool := range res.Tools {
+		if tool.Name != "notype" {
+			continue
+		}
+		raw, _ := json.Marshal(tool.InputSchema)
+		var m map[string]any
+		_ = json.Unmarshal(raw, &m)
+		if m["type"] != "object" {
+			t.Fatalf("inputSchema.type = %v, want object", m["type"])
+		}
+		if _, ok := m["properties"]; !ok {
+			t.Fatal("properties dropped")
+		}
+		return
+	}
+	t.Fatal("notype tool not listed")
+}
