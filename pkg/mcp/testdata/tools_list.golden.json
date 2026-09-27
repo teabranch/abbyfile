@@ -33,6 +33,18 @@
   },
   {
     "annotations": {
+      "idempotentHint": false,
+      "readOnlyHint": false,
+      "title": "Gamma"
+    },
+    "description": "Gamma tool",
+    "inputSchema": {
+      "type": "object"
+    },
+    "name": "gamma"
+  },
+  {
+    "annotations": {
       "idempotentHint": true,
       "readOnlyHint": true,
       "title": "Get Instructions"

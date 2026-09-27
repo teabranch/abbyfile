@@ -13,8 +13,13 @@ import (
 
 var updateGolden = flag.Bool("update", false, "rewrite golden files")
 
-// wireRegistry is a fixed registry covering annotations, output schema, and
-// a schema without explicit type, so SDK serialization changes show up in the diff.
+// wireRegistry is a fixed registry covering the tools/list wire shape:
+// alpha carries true-valued ReadOnlyHint/IdempotentHint annotations, beta
+// declares an OutputSchema and no annotations, and gamma carries
+// false-valued ReadOnlyHint/IdempotentHint so the golden witnesses go-sdk
+// v1.8.0 emitting those hints even when false (they lack `omitempty` as of
+// v1.8.0; see ToolAnnotations in the SDK source). Any of these serialization
+// choices changing shows up as a diff against testdata/tools_list.golden.json.
 func wireRegistry() *tools.Registry {
 	r := tools.NewRegistry()
 	_ = r.Register(tools.BuiltinTool("alpha", "Alpha tool",
@@ -27,6 +32,10 @@ func wireRegistry() *tools.Registry {
 	)
 	beta.OutputSchema = map[string]any{"type": "object", "properties": map[string]any{"n": map[string]any{"type": "integer"}}}
 	_ = r.Register(beta)
+	_ = r.Register(tools.BuiltinTool("gamma", "Gamma tool",
+		map[string]any{"type": "object"},
+		func(map[string]any) (string, error) { return "ok", nil },
+	).WithAnnotations(&tools.Annotations{ReadOnlyHint: false, IdempotentHint: false, Title: "Gamma"}))
 	return r
 }
 
@@ -58,9 +67,10 @@ func TestWireToolsListGolden(t *testing.T) {
 // TestInputSchemaWithoutTypeDoesNotPanic covers input schemas whose top-level
 // "type" is missing, null, a non-"object" scalar, or a union — go-sdk v1.8.0's
 // AddTool panics unless the decoded top-level "type" is exactly "object". Each
-// case runs in its own subtest with its own registry/bridge, since a panic in
-// AddTool kills the whole server goroutine (and would otherwise take down
-// unrelated subtests sharing the same registry).
+// case runs in its own subtest with its own registry/bridge. This isolates the
+// tool each case registers — it does not protect other subtests from a panic:
+// ServeTransport runs AddTool in an unrecovered goroutine, so an AddTool panic
+// kills the whole test binary, not just the subtest that triggered it.
 func TestInputSchemaWithoutTypeDoesNotPanic(t *testing.T) {
 	cases := []struct {
 		name   string

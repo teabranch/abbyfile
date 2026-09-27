@@ -10,7 +10,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// validName matches safe agent, tool, and skill names (alphanumeric, hyphens, underscores).
+// validName matches safe agent and skill names (alphanumeric, hyphens,
+// underscores). Tool names are validated separately by
+// tools.ValidateToolName (MCP SEP-986: [A-Za-z0-9_.-]{1,128}).
 var validName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
 
 // CustomToolDef describes a custom CLI tool declared in agent frontmatter.
