@@ -69,8 +69,9 @@ func TestWireToolsListGolden(t *testing.T) {
 // AddTool panics unless the decoded top-level "type" is exactly "object". Each
 // case runs in its own subtest with its own registry/bridge. This isolates the
 // tool each case registers — it does not protect other subtests from a panic:
-// ServeTransport runs AddTool in an unrecovered goroutine, so an AddTool panic
-// kills the whole test binary, not just the subtest that triggered it.
+// the test helpers (startBridge/startBridgeEra) run ServeTransport, and thus
+// AddTool, in an unrecovered goroutine, so an AddTool panic kills the whole
+// test binary, not just the subtest that triggered it.
 func TestInputSchemaWithoutTypeDoesNotPanic(t *testing.T) {
 	cases := []struct {
 		name   string
