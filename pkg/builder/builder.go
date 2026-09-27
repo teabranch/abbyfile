@@ -49,6 +49,7 @@ type templateData struct {
 	ModuleVersion string // published module version (e.g. "v0.8.0")
 	ModuleDir     string // local module path for replace directive (dev/CI only)
 	Budget        *budgetData
+	Sandbox       *sandboxData
 }
 
 // budgetData holds pre-serialized context budget info for code generation.
@@ -154,6 +155,36 @@ func buildBudgetData(cb *definition.ContextBudgetDef) *budgetData {
 	}
 
 	return bd
+}
+
+// sandboxData holds the normalized sandbox config for code generation.
+// MaxCommandTimeout is emitted as an untyped nanosecond constant so the
+// generated file needs no "time" import.
+type sandboxData struct {
+	AllowedDirs           []string
+	Bash                  string
+	AllowCommands         []string
+	MaxCommandTimeout     int64
+	MaxCommandTimeoutText string
+}
+
+// buildSandboxData validates and normalizes a frontmatter sandbox block.
+// A nil block yields nil: the agent then uses sandbox.Default() at runtime.
+func buildSandboxData(s *definition.SandboxDef) (*sandboxData, error) {
+	if s == nil {
+		return nil, nil
+	}
+	cfg, err := s.ToConfig()
+	if err != nil {
+		return nil, err
+	}
+	return &sandboxData{
+		AllowedDirs:           cfg.AllowedDirs,
+		Bash:                  string(cfg.Bash),
+		AllowCommands:         cfg.AllowCommands,
+		MaxCommandTimeout:     int64(cfg.MaxCommandTimeout),
+		MaxCommandTimeoutText: cfg.MaxCommandTimeout.String(),
+	}, nil
 }
 
 // Build generates source code from an AgentDef and compiles it into a binary.
@@ -293,6 +324,11 @@ func GenerateSource(dir string, def *definition.AgentDef, moduleVersion, moduleD
 		customTools = append(customTools, ctd)
 	}
 
+	sbData, err := buildSandboxData(def.Sandbox)
+	if err != nil {
+		return fmt.Errorf("agent %q: %w", def.Name, err)
+	}
+
 	data := templateData{
 		Name:          def.Name,
 		Version:       def.Version,
@@ -303,6 +339,7 @@ func GenerateSource(dir string, def *definition.AgentDef, moduleVersion, moduleD
 		ModuleVersion: moduleVersion,
 		ModuleDir:     moduleDir,
 		Budget:        buildBudgetData(def.ContextBudget),
+		Sandbox:       sbData,
 	}
 
 	tmpl, err := template.ParseFS(templateFS, "templates/*.tmpl")
