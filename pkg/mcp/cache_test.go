@@ -53,3 +53,44 @@ func TestMemoryReadIsPrivateAndUncached(t *testing.T) {
 		t.Errorf("memory read cache = %d/%q, want 0/private", res.TTLMs, res.CacheScope)
 	}
 }
+
+func TestResourceListsAreCacheable(t *testing.T) {
+	store, err := memory.NewFileStoreAt(t.TempDir(), memory.Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr := memory.NewManager(store)
+	if err := mgr.Set("k", "v"); err != nil {
+		t.Fatal(err)
+	}
+	session, _ := startBridgeWithConfig(t, agentmcp.BridgeConfig{
+		Name: "test-agent", Version: "v0.1.0",
+		Registry: tools.NewRegistry(), Executor: tools.NewExecutor(30*time.Second, nil),
+		Loader: newTestLoader(t), Memory: mgr,
+	})
+	ctx := context.Background()
+
+	// List resources should be cacheable with 1-hour TTL and public scope.
+	rl, err := session.ListResources(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rl.Resources) == 0 {
+		t.Fatal("resource list is empty (memory resources should be present)")
+	}
+	if rl.TTLMs != 3_600_000 || rl.CacheScope != "public" {
+		t.Errorf("resources/list cache = %d/%q, want 3600000/public", rl.TTLMs, rl.CacheScope)
+	}
+
+	// List resource templates should be cacheable with 1-hour TTL and public scope.
+	tl, err := session.ListResourceTemplates(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tl.ResourceTemplates) == 0 {
+		t.Fatal("resource template list is empty (memory template should be present)")
+	}
+	if tl.TTLMs != 3_600_000 || tl.CacheScope != "public" {
+		t.Errorf("resources/templates/list cache = %d/%q, want 3600000/public", tl.TTLMs, tl.CacheScope)
+	}
+}
