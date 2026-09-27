@@ -11,6 +11,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/teabranch/abbyfile/pkg/sandbox"
 )
 
 const defaultTimeout = 30 * time.Second
@@ -23,6 +25,7 @@ type Executor struct {
 	hook          ExecutionHook  // optional telemetry callback
 	budget        *ContextBudget // nil = no shaping
 	spillSink     SpillSink
+	sandbox       *sandbox.Sandbox // nil = sandbox.FromContext fallback
 }
 
 // ExecutionHook is called after each tool execution with timing and error info.
@@ -39,6 +42,11 @@ func WithDefaultPolicy(p *CommandPolicy) ExecutorOption {
 // WithExecutionHook sets a callback invoked after each tool execution.
 func WithExecutionHook(h ExecutionHook) ExecutorOption {
 	return func(e *Executor) { e.hook = h }
+}
+
+// WithSandbox sets the sandbox injected into every HandlerCtx call.
+func WithSandbox(s *sandbox.Sandbox) ExecutorOption {
+	return func(e *Executor) { e.sandbox = s }
 }
 
 // WithContextBudget enables output shaping using the given budget and sink.
@@ -70,12 +78,12 @@ func NewExecutor(timeout time.Duration, logger *slog.Logger, opts ...ExecutorOpt
 // RunRaw executes a tool and returns its output without success-path shaping. Error messages are still shaped.
 func (e *Executor) RunRaw(ctx context.Context, def *Definition, input map[string]any) (string, error) {
 	if def.Builtin {
-		if def.Handler == nil {
+		if def.HandlerCtx == nil && def.Handler == nil {
 			return "", fmt.Errorf("built-in tool %q has no handler", def.Name)
 		}
 		e.logger.Info("running builtin tool", "tool", def.Name)
 		start := time.Now()
-		result, err := def.Handler(input)
+		result, err := e.runBuiltin(ctx, def, input)
 		duration := time.Since(start)
 		if e.hook != nil {
 			e.hook(def.Name, duration, err)
@@ -126,6 +134,7 @@ func (e *Executor) RunRaw(ctx context.Context, def *Definition, input map[string
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, def.Command, args...)
+	ConfigureProcessGroup(cmd)
 
 	if def.StdinInput && input != nil {
 		inputJSON, err := json.Marshal(input)
@@ -135,9 +144,10 @@ func (e *Executor) RunRaw(ctx context.Context, def *Definition, input map[string
 		cmd.Stdin = bytes.NewReader(inputJSON)
 	}
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	limit := e.outputLimit(def)
+	stdout, stderr := NewLimitedBuffer(limit), NewLimitedBuffer(limit)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 
 	if err := cmd.Run(); err != nil {
 		duration := time.Since(start)
@@ -224,4 +234,45 @@ func (e *Executor) ResultSizeHint(toolName string) (chars int, requested bool) {
 		return 0, true
 	}
 	return int(min(limit, MaxResultSizeCharsCeiling)), true
+}
+
+// runBuiltin calls the tool's handler. HandlerCtx runs under the executor
+// timeout (extended to max_command_timeout for UsesCommandTimeout tools)
+// with the sandbox and output cap in ctx. Legacy Handler takes no context,
+// so no timeout can apply to it.
+func (e *Executor) runBuiltin(ctx context.Context, def *Definition, input map[string]any) (string, error) {
+	if def.HandlerCtx == nil {
+		return def.Handler(input)
+	}
+	sb := e.sandbox
+	if sb == nil {
+		sb = sandbox.FromContext(ctx)
+	}
+	limit := e.timeout
+	if def.UsesCommandTimeout {
+		limit = max(limit, sb.Config().MaxCommandTimeout)
+	}
+	hctx, cancel := context.WithTimeout(ctx, limit)
+	defer cancel()
+	hctx = sandbox.NewContext(hctx, sb)
+	hctx = WithOutputLimit(hctx, e.outputLimit(def))
+	result, err := def.HandlerCtx(hctx, input)
+	if err != nil && errors.Is(hctx.Err(), context.DeadlineExceeded) {
+		return "", fmt.Errorf("tool %q timed out after %s", def.Name, limit)
+	}
+	return result, err
+}
+
+// outputLimit is the memory cap for captured output: the tool's (or the
+// executor's default) CommandPolicy.MaxOutputBytes when positive, else
+// DefaultMaxOutputBytes. Zero never means unlimited here.
+func (e *Executor) outputLimit(def *Definition) int64 {
+	p := def.Policy
+	if p == nil {
+		p = e.defaultPolicy
+	}
+	if p != nil && p.MaxOutputBytes > 0 {
+		return p.MaxOutputBytes
+	}
+	return DefaultMaxOutputBytes
 }

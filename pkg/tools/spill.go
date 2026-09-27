@@ -41,11 +41,10 @@ func NewTempFileSink(agentName string) SpillSink {
 }
 
 func (s *tempFileSink) Put(key, value string) (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolving home: %w", err)
+	dir := SpillDir(s.agentName)
+	if dir == "" {
+		return "", fmt.Errorf("resolving home directory for spill")
 	}
-	dir := filepath.Join(home, ".abbyfile", filepath.Base(s.agentName), "spill")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("creating spill dir: %w", err)
 	}
@@ -55,6 +54,17 @@ func (s *tempFileSink) Put(key, value string) (string, error) {
 		return "", fmt.Errorf("writing spill file: %w", err)
 	}
 	return "file://" + path, nil
+}
+
+// SpillDir is where the temp-file sink writes overflow for agentName, or ""
+// if the home directory cannot be resolved. The agent passes it to the
+// sandbox as a read-only root so the model can read spilled output.
+func SpillDir(agentName string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".abbyfile", filepath.Base(agentName), "spill")
 }
 
 func shortHash(s string) string {

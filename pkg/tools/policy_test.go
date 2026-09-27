@@ -18,24 +18,6 @@ func TestCommandPolicy_Check(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:    "deny list blocks dangerous commands",
-			policy:  DefaultCommandPolicy(),
-			command: "rm -rf /",
-			wantErr: true,
-		},
-		{
-			name:    "deny list blocks fork bomb",
-			policy:  DefaultCommandPolicy(),
-			command: ":(){:|:&};:",
-			wantErr: true,
-		},
-		{
-			name:    "deny list allows safe commands",
-			policy:  DefaultCommandPolicy(),
-			command: "ls -la",
-			wantErr: false,
-		},
-		{
 			name: "allow list permits matching prefix",
 			policy: &CommandPolicy{
 				AllowedPrefixes: []string{"git ", "go "},
@@ -69,5 +51,15 @@ func TestCommandPolicy_Check(t *testing.T) {
 				t.Errorf("Check(%q) error = %v, wantErr %v", tt.command, err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestDefaultCommandPolicy_NoDenylist(t *testing.T) {
+	p := DefaultCommandPolicy()
+	if len(p.DeniedSubstrings) != 0 {
+		t.Errorf("default denylist must be gone (it was never a security boundary), got %q", p.DeniedSubstrings)
+	}
+	if p.MaxOutputBytes != DefaultMaxOutputBytes {
+		t.Errorf("MaxOutputBytes = %d, want %d", p.MaxOutputBytes, DefaultMaxOutputBytes)
 	}
 }
