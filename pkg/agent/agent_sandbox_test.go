@@ -76,3 +76,33 @@ func TestAgentSandboxAllowsSpillRead(t *testing.T) {
 		t.Fatal("spill dir must be read-only")
 	}
 }
+
+// Fix round 1, issue 1c: an invalid sandbox override (e.g. a hand-edited
+// config.yaml with sandbox.allowed_dirs: [""], predating the config-set
+// validation added for issue 1b) must not lock every invocation out.
+// effectiveSandbox falls back to the default sandbox instead.
+func TestEffectiveSandbox_FallsBackOnInvalidOverride(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("sandbox:\n  allowed_dirs: [\"\"]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a := newTestAgent(t, WithConfigPath(cfgPath))
+
+	// buildSandbox (no fallback) must fail on the invalid override.
+	if _, err := a.buildSandbox(); err == nil {
+		t.Fatal("buildSandbox should fail on an invalid sandbox.allowed_dirs override")
+	}
+
+	sb, err := a.effectiveSandbox()
+	if err != nil {
+		t.Fatalf("effectiveSandbox should fall back, not error: %v", err)
+	}
+	want := sandbox.Default().Normalize()
+	got := sb.Config()
+	if got.Bash != want.Bash || len(got.AllowCommands) != 0 || got.MaxCommandTimeout != want.MaxCommandTimeout {
+		t.Fatalf("fallback sandbox = %+v, want default %+v", got, want)
+	}
+	if len(sb.AllowedDirs()) == 0 {
+		t.Fatal("fallback sandbox must still confine to the working directory")
+	}
+}

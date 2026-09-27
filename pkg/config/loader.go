@@ -189,7 +189,45 @@ func WriteFieldTo(path, field, value string) error {
 		return fmt.Errorf("unsupported config field: %s (use Write for complex fields)", field)
 	}
 
+	// Validate the merged sandbox override as a whole (not just the field
+	// just set): individual case checks above catch obviously-bad values
+	// for that one field, but only this catches a combination that is
+	// invalid together, or a sibling field left invalid by a hand-edited
+	// config.yaml from before this validation existed. Without it, a value
+	// like `sandbox.allowed_dirs '[""]'` could merge into a config that
+	// locks every future invocation out of the sandbox (see
+	// Agent.effectiveSandbox for the runtime fallback of last resort).
+	if strings.HasPrefix(field, "sandbox.") {
+		if err := validateSandboxOverride(cfg.Sandbox); err != nil {
+			return fmt.Errorf("%s: %w", field, err)
+		}
+	}
+
 	return WriteTo(path, cfg)
+}
+
+// validateSandboxOverride builds a sandbox.Config from so's non-nil fields
+// layered on sandbox.Default() and validates it.
+func validateSandboxOverride(so *SandboxOverride) error {
+	cfg := sandbox.Default()
+	if so == nil {
+		return cfg.Validate()
+	}
+	if so.AllowedDirs != nil {
+		cfg.AllowedDirs = *so.AllowedDirs
+	}
+	if so.Bash != nil {
+		cfg.Bash = sandbox.BashMode(*so.Bash)
+	}
+	if so.AllowCommands != nil {
+		cfg.AllowCommands = *so.AllowCommands
+	}
+	if so.MaxCommandTimeout != nil {
+		if d, err := time.ParseDuration(*so.MaxCommandTimeout); err == nil {
+			cfg.MaxCommandTimeout = d
+		}
+	}
+	return cfg.Validate()
 }
 
 // ResetField removes a single field from the agent's config.yaml, reverting to the compiled default.
@@ -247,17 +285,21 @@ func ensureBudget(cfg *Config) {
 }
 
 // ParseList parses a config-set list value: a JSON array (use it when an
-// entry contains a comma) or a comma-separated list. Blank items are
-// dropped; an empty string yields an empty, non-nil list.
+// entry contains a comma) or a comma-separated list. Blank (whitespace-only)
+// items are dropped in both forms; an empty string yields an empty, non-nil
+// list.
 func ParseList(value string) ([]string, error) {
 	v := strings.TrimSpace(value)
 	if strings.HasPrefix(v, "[") {
-		var out []string
-		if err := json.Unmarshal([]byte(v), &out); err != nil {
+		var raw []string
+		if err := json.Unmarshal([]byte(v), &raw); err != nil {
 			return nil, fmt.Errorf("invalid JSON list: %w", err)
 		}
-		if out == nil {
-			out = []string{}
+		out := []string{}
+		for _, s := range raw {
+			if strings.TrimSpace(s) != "" {
+				out = append(out, s)
+			}
 		}
 		return out, nil
 	}

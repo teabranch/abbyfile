@@ -223,6 +223,32 @@ func (a *Agent) buildSandbox() (*sandbox.Sandbox, error) {
 	return sb, nil
 }
 
+// effectiveSandbox resolves the sandbox Execute should use. If the
+// configured sandbox fails to build — e.g. a hand-edited config.yaml (or one
+// written before validation caught a value like sandbox.allowed_dirs: [""])
+// left it invalid — it prints a warning and falls back to sandbox.Default()
+// so the agent keeps working, confined to the working directory, instead of
+// every invocation exiting 1 until the user edits the file by hand. It
+// returns an error only if the default sandbox also fails to build (e.g.
+// the working directory is unresolvable).
+func (a *Agent) effectiveSandbox() (*sandbox.Sandbox, error) {
+	sb, err := a.buildSandbox()
+	if err == nil {
+		return sb, nil
+	}
+	fmt.Fprintf(os.Stderr, "Error: invalid sandbox config: %v; falling back to the default sandbox (run \"%s config reset sandbox\" to clear the override)\n", err, a.name)
+
+	cwd, cwdErr := os.Getwd()
+	if cwdErr != nil {
+		return nil, fmt.Errorf("resolving working directory: %w", cwdErr)
+	}
+	fallback, fallbackErr := sandbox.New(sandbox.Default(), cwd, tools.SpillDir(a.name))
+	if fallbackErr != nil {
+		return nil, fmt.Errorf("building default sandbox: %w", fallbackErr)
+	}
+	return fallback, nil
+}
+
 // sandboxedToolDefs returns the tool definitions with run_command's
 // description rewritten for the effective sandbox. Originals are not mutated.
 func (a *Agent) sandboxedToolDefs(sb *sandbox.Sandbox) []*tools.Definition {
@@ -240,7 +266,7 @@ func (a *Agent) sandboxedToolDefs(sb *sandbox.Sandbox) []*tools.Definition {
 
 // Execute sets up the CLI and runs the agent binary. Returns an exit code.
 func (a *Agent) Execute() int {
-	sb, err := a.buildSandbox()
+	sb, err := a.effectiveSandbox()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: invalid sandbox config: %v\n", err)
 		return 1

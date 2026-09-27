@@ -422,10 +422,12 @@ func TestResetSandbox(t *testing.T) {
 
 func TestParseList(t *testing.T) {
 	for in, want := range map[string][]string{
-		"":             {},
-		"a, b ,,c":     {"a", "b", "c"},
-		`["x, y","z"]`: {"x, y", "z"},
-		`[]`:           {},
+		"":               {},
+		"a, b ,,c":       {"a", "b", "c"},
+		`["x, y","z"]`:   {"x, y", "z"},
+		`[]`:             {},
+		`[""]`:           {},
+		`["", " ", "a"]`: {"a"},
 	} {
 		got, err := ParseList(in)
 		if err != nil || !reflect.DeepEqual(got, want) {
@@ -434,5 +436,259 @@ func TestParseList(t *testing.T) {
 	}
 	if _, err := ParseList(`[broken`); err == nil {
 		t.Error("broken JSON must fail")
+	}
+}
+
+// Fix round 1, issue 1a: the JSON branch of ParseList must drop blank
+// entries too, matching its doc comment — otherwise
+// `config set sandbox.allowed_dirs '[""]'` used to slip a single blank
+// entry past the len(dirs)==0 guard in WriteFieldTo.
+func TestParseList_JSONBranchDropsBlankEntries(t *testing.T) {
+	got, err := ParseList(`["", "  ", "a", "b"]`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, []string{"a", "b"}) {
+		t.Errorf("ParseList = %#v, want [a b]", got)
+	}
+}
+
+// Fix round 1, issue 1: config set sandbox.allowed_dirs '[""]' (or
+// '["", " "]') must be rejected, not silently accepted as a lockout.
+func TestWriteFieldSandbox_AllowedDirsAllBlankRejected(t *testing.T) {
+	for _, value := range []string{`[""]`, `["", " "]`} {
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		err := WriteFieldTo(path, "sandbox.allowed_dirs", value)
+		if err == nil || !strings.Contains(err.Error(), "sandbox.allowed_dirs") {
+			t.Errorf("value=%q: err = %v, want error naming sandbox.allowed_dirs", value, err)
+		}
+		if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+			t.Errorf("value=%q: config file must not be written on a rejected value", value)
+		}
+	}
+}
+
+func TestWriteFieldSandbox_AllowCommandsMalformedJSON(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	err := WriteFieldTo(path, "sandbox.allow_commands", "[broken")
+	if err == nil || !strings.Contains(err.Error(), "sandbox.allow_commands") {
+		t.Fatalf("err = %v, want error naming sandbox.allow_commands", err)
+	}
+}
+
+// Fix round 1, issue 1b: WriteFieldTo must validate the *merged* sandbox
+// override, not just the field being set, so a sibling field left invalid
+// by a hand-edited config.yaml (from before this validation existed) is
+// caught rather than persisted forward untouched.
+func TestWriteFieldTo_MergedValidationCatchesHandEditedSibling(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	original := "sandbox:\n  allowed_dirs: [\"\"]\n"
+	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	err := WriteFieldTo(path, "sandbox.bash", "restricted")
+	if err == nil || !strings.Contains(err.Error(), "sandbox.bash") {
+		t.Fatalf("err = %v, want error naming sandbox.bash", err)
+	}
+
+	raw, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(raw) != original {
+		t.Errorf("config file must not be written when merged validation fails, got %q", raw)
+	}
+}
+
+// --- Coverage: Write/WriteField/ResetField (agent-name based wrappers) and
+// remaining WriteFieldTo/ResetFieldTo branches (fix round 1, issue 2). ---
+
+func TestPath_HomeUnresolvable(t *testing.T) {
+	t.Setenv("HOME", "")
+	if p := Path("test-agent"); p != "" {
+		t.Errorf("Path() = %q, want empty when HOME cannot be resolved", p)
+	}
+}
+
+func TestLoad_HomeUnresolvable(t *testing.T) {
+	t.Setenv("HOME", "")
+	cfg, err := Load("test-agent")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.IsZero() {
+		t.Errorf("expected zero config when HOME cannot be resolved, got %+v", cfg)
+	}
+}
+
+func TestLoadFrom_ReadError(t *testing.T) {
+	dir := t.TempDir()
+	// A directory can't be read as a file: os.ReadFile fails with something
+	// other than os.ErrNotExist.
+	if _, err := LoadFrom(dir); err == nil {
+		t.Fatal("expected error reading a directory as a config file")
+	}
+}
+
+func TestWrite_RoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	model := "gpt-5"
+	if err := Write("test-agent", &Config{Model: &model}); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	cfg, err := Load("test-agent")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Model == nil || *cfg.Model != "gpt-5" {
+		t.Errorf("model = %v, want gpt-5", cfg.Model)
+	}
+}
+
+func TestWrite_HomeUnresolvable(t *testing.T) {
+	t.Setenv("HOME", "")
+	if err := Write("test-agent", &Config{}); err == nil {
+		t.Fatal("expected error when HOME cannot be resolved")
+	}
+}
+
+func TestWriteTo_MkdirAllError(t *testing.T) {
+	dir := t.TempDir()
+	blocker := filepath.Join(dir, "blocker")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// blocker is a file, not a directory, so MkdirAll for a path under it must fail.
+	path := filepath.Join(blocker, "sub", "config.yaml")
+	if err := WriteTo(path, &Config{}); err == nil {
+		t.Fatal("expected error creating config directory under a file")
+	}
+}
+
+func TestWriteField_ViaAgentName(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	if err := WriteField("test-agent", "model", "opus"); err != nil {
+		t.Fatalf("WriteField: %v", err)
+	}
+	cfg, err := Load("test-agent")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Model == nil || *cfg.Model != "opus" {
+		t.Errorf("model = %v, want opus", cfg.Model)
+	}
+}
+
+func TestWriteField_HomeUnresolvable(t *testing.T) {
+	t.Setenv("HOME", "")
+	if err := WriteField("test-agent", "model", "opus"); err == nil {
+		t.Fatal("expected error when HOME cannot be resolved")
+	}
+}
+
+func TestResetField_ViaAgentName(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	if err := WriteField("test-agent", "model", "opus"); err != nil {
+		t.Fatalf("WriteField: %v", err)
+	}
+	if err := ResetField("test-agent", "model"); err != nil {
+		t.Fatalf("ResetField: %v", err)
+	}
+	cfg, err := Load("test-agent")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Model != nil {
+		t.Errorf("model should be nil after reset, got %v", *cfg.Model)
+	}
+}
+
+func TestResetField_HomeUnresolvable(t *testing.T) {
+	t.Setenv("HOME", "")
+	if err := ResetField("test-agent", "model"); err == nil {
+		t.Fatal("expected error when HOME cannot be resolved")
+	}
+}
+
+func TestResetFieldTo_LoadError(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte(":\ninvalid: [yaml: {broken"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := ResetFieldTo(path, "model"); err == nil {
+		t.Fatal("expected error resetting a field in an unparsable config file")
+	}
+}
+
+func TestWriteField_ContextBudget_AllFields(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	valid := map[string]string{
+		"context_budget.max_output_lines":   "10",
+		"context_budget.max_output_bytes":   "2048",
+		"context_budget.head_lines":         "5",
+		"context_budget.tail_lines":         "5",
+		"context_budget.summary_lines":      "3",
+		"context_budget.eager_instructions": "true",
+	}
+	for field, value := range valid {
+		if err := WriteFieldTo(path, field, value); err != nil {
+			t.Errorf("%s=%q: unexpected error: %v", field, value, err)
+		}
+	}
+
+	cfg, err := LoadFrom(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ContextBudget == nil {
+		t.Fatal("context_budget is nil after writing all sub-fields")
+	}
+	if cfg.ContextBudget.MaxOutputLines == nil || *cfg.ContextBudget.MaxOutputLines != 10 {
+		t.Errorf("max_output_lines = %v, want 10", cfg.ContextBudget.MaxOutputLines)
+	}
+	if cfg.ContextBudget.MaxOutputBytes == nil || *cfg.ContextBudget.MaxOutputBytes != 2048 {
+		t.Errorf("max_output_bytes = %v, want 2048", cfg.ContextBudget.MaxOutputBytes)
+	}
+	if cfg.ContextBudget.HeadLines == nil || *cfg.ContextBudget.HeadLines != 5 {
+		t.Errorf("head_lines = %v, want 5", cfg.ContextBudget.HeadLines)
+	}
+	if cfg.ContextBudget.TailLines == nil || *cfg.ContextBudget.TailLines != 5 {
+		t.Errorf("tail_lines = %v, want 5", cfg.ContextBudget.TailLines)
+	}
+	if cfg.ContextBudget.SummaryLines == nil || *cfg.ContextBudget.SummaryLines != 3 {
+		t.Errorf("summary_lines = %v, want 3", cfg.ContextBudget.SummaryLines)
+	}
+	if cfg.ContextBudget.EagerInstructions == nil || !*cfg.ContextBudget.EagerInstructions {
+		t.Errorf("eager_instructions = %v, want true", cfg.ContextBudget.EagerInstructions)
+	}
+}
+
+func TestWriteField_ContextBudget_InvalidValues(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	invalid := map[string]string{
+		"context_budget.max_output_lines":   "not-a-number",
+		"context_budget.max_output_bytes":   "not-a-number",
+		"context_budget.head_lines":         "not-a-number",
+		"context_budget.tail_lines":         "not-a-number",
+		"context_budget.summary_lines":      "not-a-number",
+		"context_budget.eager_instructions": "not-a-bool",
+	}
+	for field, value := range invalid {
+		if err := WriteFieldTo(path, field, value); err == nil {
+			t.Errorf("%s=%q: expected error", field, value)
+		}
 	}
 }
