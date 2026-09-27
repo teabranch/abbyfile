@@ -3,6 +3,7 @@ package definition
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -208,5 +209,13 @@ Body.`
 	}
 	if def3.ContextBudget.MaxOutputLines != nil {
 		t.Fatalf("MaxOutputLines = %v, want nil (omitted)", def3.ContextBudget.MaxOutputLines)
+	}
+}
+
+func TestValidateCustomToolsNameTooLong(t *testing.T) {
+	long := strings.Repeat("a", 129)
+	err := validateCustomTools([]CustomToolDef{{Name: long, Command: "echo"}})
+	if err == nil || !strings.Contains(err.Error(), "128") {
+		t.Fatalf("err = %v, want 128-char limit error", err)
 	}
 }

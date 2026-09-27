@@ -290,6 +290,9 @@ func validateCustomTools(cts []CustomToolDef) error {
 		if !validName.MatchString(ct.Name) {
 			return fmt.Errorf("custom_tools[%d]: name %q contains invalid characters", i, ct.Name)
 		}
+		if len(ct.Name) > 128 {
+			return fmt.Errorf("custom_tools[%d]: name %q exceeds 128 characters", i, ct.Name)
+		}
 		if ct.Command == "" {
 			return fmt.Errorf("custom_tools[%d] (%s): command is required", i, ct.Name)
 		}
