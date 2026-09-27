@@ -60,6 +60,22 @@ func TestStructuredOutputNonJSON(t *testing.T) {
 	if !r.IsError || !strings.Contains(textOf(t, r), "non-JSON") {
 		t.Fatalf("want isError non-JSON, got %+v", r)
 	}
+	if !strings.Contains(textOf(t, r), "if stdout was empty, stderr was used as output") {
+		t.Fatalf("want stderr-fallback hint, got %+v", r)
+	}
+	if r.StructuredContent != nil {
+		t.Fatal("structured content must be nil on error")
+	}
+}
+
+func TestStructuredOutputNull(t *testing.T) { // F6: JSON null is not usable structured content
+	r := structuredResult("t", "null", 0)
+	if !r.IsError {
+		t.Fatalf("want isError for JSON null, got %+v", r)
+	}
+	if !strings.Contains(textOf(t, r), `tool "t" declared outputSchema but produced JSON null`) {
+		t.Fatalf("error text = %q", textOf(t, r))
+	}
 	if r.StructuredContent != nil {
 		t.Fatal("structured content must be nil on error")
 	}
@@ -69,5 +85,8 @@ func TestStructuredOutputOverCap(t *testing.T) {
 	r := structuredResult("t", `{"s":"`+strings.Repeat("x", 100)+`"}`, 50)
 	if !r.IsError || !strings.Contains(textOf(t, r), "50-byte cap") {
 		t.Fatalf("want isError over cap, got %+v", r)
+	}
+	if !strings.Contains(textOf(t, r), "tools.ContextBudget.PerTool") {
+		t.Fatalf("want ContextBudget hint, got %+v", r)
 	}
 }
