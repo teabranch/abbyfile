@@ -43,6 +43,10 @@ type BridgeConfig struct {
 	EagerInstructions bool
 }
 
+// metaMaxResultSizeChars is the Claude Code tool-definition _meta key that
+// raises a tool's inline-result threshold (https://code.claude.com/docs/en/mcp.md).
+const metaMaxResultSizeChars = "anthropic/maxResultSizeChars"
+
 // Bridge translates an abbyfile tools.Registry into an MCP server.
 type Bridge struct {
 	cfg    BridgeConfig
@@ -135,6 +139,12 @@ func (b *Bridge) addTool(server *gomcp.Server, def *tools.Definition) {
 			OpenWorldHint:   def.Annotations.OpenWorldHint,
 			Title:           def.Annotations.Title,
 		}
+	}
+
+	if chars, requested := b.cfg.Executor.ResultSizeHint(def.Name); chars > 0 {
+		tool.Meta = gomcp.Meta{metaMaxResultSizeChars: chars}
+	} else if requested {
+		b.logger.Warn("inline_large ignored: tool's max_output_bytes is unlimited", "tool", def.Name)
 	}
 
 	// Capture def for the closure.

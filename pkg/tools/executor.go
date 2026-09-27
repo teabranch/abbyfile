@@ -201,3 +201,27 @@ func (e *Executor) MaxOutputBytes(toolName string) int64 {
 	}
 	return e.budget.effectiveFor(toolName).MaxOutputBytes
 }
+
+// MaxResultSizeCharsCeiling is the largest anthropic/maxResultSizeChars value
+// Claude Code accepts.
+const MaxResultSizeCharsCeiling = 500000
+
+// ResultSizeHint returns the anthropic/maxResultSizeChars value to advertise
+// for toolName. requested reports whether the tool opted in with a per-tool
+// InlineLarge. chars is 0 when nothing should be sent: no opt-in, no budget,
+// or an unlimited (<=0) effective cap. Caps above the ceiling are clamped.
+func (e *Executor) ResultSizeHint(toolName string) (chars int, requested bool) {
+	// Called at tool-registration time, so a nil Executor must not panic.
+	if e == nil || e.budget == nil {
+		return 0, false
+	}
+	pt, ok := e.budget.PerTool[toolName]
+	if !ok || !pt.InlineLarge {
+		return 0, false
+	}
+	limit := e.budget.effectiveFor(toolName).MaxOutputBytes
+	if limit <= 0 {
+		return 0, true
+	}
+	return int(min(limit, MaxResultSizeCharsCeiling)), true
+}

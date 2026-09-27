@@ -24,7 +24,10 @@ type ContextBudget struct {
 	TailLines         int
 	SummaryLines      int
 	EagerInstructions bool
-	PerTool           map[string]ContextBudget
+	// InlineLarge is honoured only inside PerTool entries: it opts the tool
+	// into advertising its byte cap as Claude Code's maxResultSizeChars.
+	InlineLarge bool
+	PerTool     map[string]ContextBudget
 }
 
 // SpillSink persists overflow output and returns a fetchable URI.

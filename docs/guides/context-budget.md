@@ -63,7 +63,7 @@ You are a build/test runner...
 | `tail_lines` | int | Lines kept from the bottom of the output under `head-tail`/`spill`. |
 | `summary_lines` | int | Caps the return-protocol summary emitted for sub-agent output (Layer A only — see [`--subagent`](#the---subagent-flag)). |
 | `eager_instructions` | bool | Whether the full system prompt is injected eagerly at the MCP handshake. `false` sends a short stub instead (see [Instructions Behavior](#instructions-behavior-eager_instructions)). |
-| `per_tool` | map | Sparse per-tool overrides, keyed by MCP tool name (e.g. `run_command`, `read_file`). Any field left unset inherits from the base budget. Only `max_output_lines`, `max_output_bytes`, `on_overflow`, `head_lines`, and `tail_lines` are honored per-tool; `summary_lines` and `eager_instructions` only apply at the base-budget level. |
+| `per_tool` | map | Sparse per-tool overrides, keyed by MCP tool name (e.g. `run_command`, `read_file`). Any field left unset inherits from the base budget. Only `max_output_lines`, `max_output_bytes`, `on_overflow`, `head_lines`, `tail_lines`, and `inline_large` are honored per-tool; `summary_lines` and `eager_instructions` only apply at the base-budget level. |
 
 Validation happens at parse time (`pkg/definition/agent.go`'s `validateContextBudget`): `on_overflow` must be one of the three known strategies (or empty, which falls back to the default), and all numeric fields must be non-negative. This applies to both the base block and every `per_tool` entry. An invalid value fails `abby build` immediately. At `config set` time (see [Consumer Overrides](#consumer-overrides)), `on_overflow` is re-validated against the known strategies, but numeric fields are only checked for parseability — a negative value written via `config set` is not rejected there, so prefer setting limits in frontmatter where the non-negativity rule is enforced.
 
@@ -187,6 +187,22 @@ In this mode the agent registers a `get_instructions` tool that returns the full
 Set `eager_instructions: true` (in frontmatter, or with `config set context_budget.eager_instructions true`) to send the full prompt in the handshake. `get_instructions` is then **not** registered, since it would only duplicate the handshake and cost context on every turn. This suits agents with short instructions.
 
 Changing this value changes `tools/list`. Servers read config only at start-up, and clients may cache `tools/list` for up to an hour. So after `config set`, restart the runtime session (for example, restart Claude Code) so that it re-lists tools.
+
+## Large inline results (`inline_large`, Claude Code)
+
+Claude Code keeps an MCP tool result inline up to about 25k tokens (`MAX_MCP_OUTPUT_TOKENS`). Larger results are saved to a file and replaced with a pointer. For a tool whose large output you want kept inline, opt in per tool:
+
+```yaml
+context_budget:
+  per_tool:
+    run_command:
+      inline_large: true
+      max_output_bytes: 300000
+```
+
+The agent then advertises `_meta["anthropic/maxResultSizeChars"]` on that tool's definition, set to the tool's effective `max_output_bytes`. Claude Code only ever *raises* its threshold for it. The hint puts **more** into context, so it is off by default and exists purely as an escape hatch.
+
+Rules: `inline_large` is valid only under `per_tool`. The effective cap must be between 1 and 500000; `abby build` rejects anything else. If a runtime `config set context_budget.max_output_bytes` later raises the cap, the hint is clamped to 500000. If it sets the cap to 0 (unlimited), the hint is dropped and a warning is logged.
 
 ## Which Strategy for Which Tool
 

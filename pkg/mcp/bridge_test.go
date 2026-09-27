@@ -614,3 +614,36 @@ func extractText(result *gomcp.CallToolResult) string {
 	}
 	return ""
 }
+
+func TestBridgeResultSizeHintMeta(t *testing.T) {
+	r := tools.NewRegistry()
+	noop := func(map[string]any) (string, error) { return "", nil }
+	for _, name := range []string{"big", "plain"} {
+		_ = r.Register(tools.BuiltinTool(name, name, map[string]any{"type": "object"}, noop))
+	}
+	b := tools.DefaultContextBudget()
+	b.PerTool = map[string]tools.ContextBudget{"big": {InlineLarge: true, MaxOutputBytes: 300000}}
+
+	session, _ := startBridgeWithConfig(t, agentmcp.BridgeConfig{
+		Name: "test-agent", Version: "v0.1.0", Registry: r,
+		Executor: tools.NewExecutor(30*time.Second, nil, tools.WithContextBudget(b, nil)),
+		Loader:   newTestLoader(t),
+	})
+	list, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range list.Tools {
+		got, has := tool.Meta["anthropic/maxResultSizeChars"]
+		switch tool.Name {
+		case "big":
+			if n, ok := got.(float64); !ok || n != 300000 {
+				t.Errorf("big _meta = %#v, want anthropic/maxResultSizeChars=300000", tool.Meta)
+			}
+		default:
+			if has {
+				t.Errorf("%s must not carry maxResultSizeChars: %#v", tool.Name, tool.Meta)
+			}
+		}
+	}
+}

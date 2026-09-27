@@ -91,6 +91,9 @@ func main() {
 					OnOverflow: tools.OverflowStrategy({{printf "%q" $v.OnOverflow}}),
 					HeadLines: {{$v.HeadLines}},
 					TailLines: {{$v.TailLines}},
+					{{- if $v.InlineLarge}}
+					InlineLarge: true,
+					{{- end}}
 				},
 				{{- end}}
 			},
