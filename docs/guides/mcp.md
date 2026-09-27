@@ -14,12 +14,12 @@ When you run `./my-agent serve-mcp`, the MCP server registers:
 
 ### Tools
 
-Every tool registered via `WithTools()` plus the automatically registered memory tools (if memory is enabled). Additionally, a `get_instructions` tool is always registered for backward compatibility.
+Every tool registered via `WithTools()` plus the automatically registered memory tools (if memory is enabled). Additionally, a `get_instructions` tool is registered when `eager_instructions` is false (the default); see [Context Budget](context-budget.md#instructions-behavior-eager_instructions).
 
 Example tool listing for an agent with `tools: Read, Write` and memory enabled:
 - `read_file`, `write_file` -- builtin tools
 - `memory_read`, `memory_write`, `memory_list`, `memory_delete` -- memory tools
-- `get_instructions` -- returns the system prompt
+- `get_instructions` -- returns the system prompt (non-eager agents only)
 
 ### Server Instructions
 

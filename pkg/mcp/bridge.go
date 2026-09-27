@@ -36,10 +36,10 @@ type BridgeConfig struct {
 	// logs a warning. It will be removed in a future release.
 	LazyToolLoading bool
 
-	// EagerInstructions, when true, requests that the bridge include full
-	// custom instructions in the MCP handshake rather than requiring a
-	// separate get_instructions call. Wired here in Task 6; consumed by the
-	// bridge's instruction-injection logic in Task 7.
+	// EagerInstructions, when true, sends the full custom instructions in the
+	// handshake (server/discover or initialize) and does not register
+	// get_instructions. When false (the default), the handshake carries a
+	// short stub and get_instructions serves the full text on demand.
 	EagerInstructions bool
 }
 
@@ -92,8 +92,12 @@ func (b *Bridge) ServeTransport(ctx context.Context, transport gomcp.Transport) 
 	for _, def := range b.cfg.Registry.All() {
 		b.addTool(server, def)
 	}
-	// Register the special get_instructions tool (backward compatibility).
-	b.addGetInstructionsTool(server)
+	// A non-eager handshake carries only a stub pointing at get_instructions,
+	// so the tool must exist. An eager handshake already carries the full
+	// text, so the tool would only cost context.
+	if !b.cfg.EagerInstructions {
+		b.addGetInstructionsTool(server)
+	}
 
 	// Register memory resources if memory is enabled.
 	if b.cfg.Memory != nil {
@@ -171,11 +175,11 @@ func (b *Bridge) addTool(server *gomcp.Server, def *tools.Definition) {
 }
 
 // addGetInstructionsTool registers the get_instructions tool that returns
-// the agent's system prompt. Kept for backward compatibility.
+// the agent's full instructions. Only registered when EagerInstructions is false.
 func (b *Bridge) addGetInstructionsTool(server *gomcp.Server) {
 	tool := &gomcp.Tool{
 		Name:        "get_instructions",
-		Description: "Get the agent's system prompt / custom instructions. Deprecated: use server instructions (handshake) or the 'system' prompt instead.",
+		Description: "Load this agent's full instructions (system prompt). Call this before acting.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
 		Annotations: &gomcp.ToolAnnotations{
 			ReadOnlyHint:   true,
@@ -324,9 +328,13 @@ func (b *Bridge) addPrompts(server *gomcp.Server) {
 	}
 }
 
+// instructionsStub is appended to the role line in a non-eager handshake.
+// It must name only tools that are registered in that mode.
+const instructionsStub = "Call the `get_instructions` tool to load your full instructions before acting."
+
 // handshakeInstructions returns what the MCP handshake advertises. When
-// EagerInstructions is false, it returns a short stub and keeps the full
-// prompt available on demand via the `system` prompt / get_instructions tool.
+// EagerInstructions is false, it returns the role line plus instructionsStub;
+// get_instructions serves the full prompt on demand.
 func (b *Bridge) handshakeInstructions() string {
 	full, _ := b.cfg.Loader.Load()
 	full = b.appendModelHint(full)
@@ -337,7 +345,7 @@ func (b *Bridge) handshakeInstructions() string {
 	if role == "" {
 		role = b.cfg.Name
 	}
-	return role + "\n\nFull instructions are available via the `system` prompt or the `get_instructions` tool."
+	return role + "\n\n" + instructionsStub
 }
 
 // appendModelHint appends a model preference section to instructions if a model is configured.

@@ -49,7 +49,7 @@
       "readOnlyHint": true,
       "title": "Get Instructions"
     },
-    "description": "Get the agent's system prompt / custom instructions. Deprecated: use server instructions (handshake) or the 'system' prompt instead.",
+    "description": "Load this agent's full instructions (system prompt). Call this before acting.",
     "inputSchema": {
       "properties": {},
       "type": "object"

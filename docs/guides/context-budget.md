@@ -174,17 +174,19 @@ The summary cap (`≤25-line` above) comes from the agent's effective `summary_l
 
 ## Instructions Behavior (`eager_instructions`)
 
-By default (`eager_instructions: false`), the MCP handshake does **not** send the full system prompt as the server's `instructions`. Instead it sends a short stub:
+By default (`eager_instructions: false`), the MCP handshake (`server/discover`, or `initialize` for older clients) does **not** send the full system prompt as the server's `instructions`. It sends a short stub:
 
 ```
 <description or agent name>
 
-Full instructions are available via the `system` prompt or the `get_instructions` tool.
+Call the `get_instructions` tool to load your full instructions before acting.
 ```
 
-The full prompt is unchanged and still reachable on demand through the existing channels — the `system` MCP prompt template and the `get_instructions` tool both still return the complete text. This just avoids paying for the full prompt's tokens on every session handshake when the runtime may never need it.
+In this mode the agent registers a `get_instructions` tool that returns the full prompt (plus the model hint, if any). The `system` MCP prompt also returns it, but prompts are user-invoked (slash commands in Claude Code), so the model reaches the prompt through the tool.
 
-Set `eager_instructions: true` (in frontmatter, or via `config set context_budget.eager_instructions true`) to restore the previous behavior and inject the full prompt eagerly at handshake time — useful for agents whose instructions are short enough that the stub indirection isn't worth it, or where you want the prompt visible without an extra tool round-trip.
+Set `eager_instructions: true` (in frontmatter, or with `config set context_budget.eager_instructions true`) to send the full prompt in the handshake. `get_instructions` is then **not** registered, since it would only duplicate the handshake and cost context on every turn. This suits agents with short instructions.
+
+Changing this value changes `tools/list`. Servers read config only at start-up, and clients may cache `tools/list` for up to an hour. So after `config set`, restart the runtime session (for example, restart Claude Code) so that it re-lists tools.
 
 ## Which Strategy for Which Tool
 
