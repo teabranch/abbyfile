@@ -44,6 +44,13 @@ func handleGlobFiles(ctx context.Context, input map[string]any) (string, error) 
 	if !ok {
 		return "", fmt.Errorf("missing required parameter: pattern")
 	}
+	// Refuse ".." uniformly, before any globbing or walking. Without this,
+	// a pattern like "../secret.go" would reach filepath.Glob, whose
+	// success or failure (an existence Lstat done before any confinement
+	// check) would leak whether a guessed path outside the sandbox exists.
+	if containsDotDotElement(pattern) {
+		return "", fmt.Errorf(`pattern %q must not contain ".." (use the path argument to choose the base directory)`, pattern)
+	}
 	sb := sandbox.FromContext(ctx)
 	baseDir := "."
 	if p, ok := input["path"].(string); ok && p != "" {
@@ -62,11 +69,14 @@ func handleGlobFiles(ctx context.Context, input map[string]any) (string, error) 
 		if err != nil {
 			return "", fmt.Errorf("globbing: %w", err)
 		}
-		// Glob follows symlinked directories and ".." in the pattern, so
-		// every hit is checked.
+		// Glob follows symlinked directory components, so every hit is
+		// still checked here. A denied hit is dropped silently, not
+		// counted: the pattern can no longer contain "..", so the only way
+		// to reach here is a symlinked directory, and counting the miss
+		// would turn the skip note into an oracle for whether a guessed
+		// path outside the sandbox exists.
 		for _, m := range found {
 			if _, err := sb.Resolve(m, sandbox.Read); err != nil {
-				skipped++
 				continue
 			}
 			matches = append(matches, displayPath(baseDir, resolvedBase, m))
@@ -85,7 +95,7 @@ func handleGlobFiles(ctx context.Context, input map[string]any) (string, error) 
 			if err != nil || d.IsDir() {
 				return nil
 			}
-			if !allowedEntry(sb, path, d) {
+			if _, ok := allowedEntry(sb, path, d); !ok {
 				skipped++
 				return nil
 			}
@@ -115,4 +125,18 @@ func handleGlobFiles(ctx context.Context, input map[string]any) (string, error) 
 		return withSkipNote("No files matched.", skipped), nil
 	}
 	return withSkipNote(strings.Join(matches, "\n"), skipped), nil
+}
+
+// containsDotDotElement reports whether pattern has a ".." path element,
+// checking both '/' and the OS separator so a forward-slash pattern is
+// still caught on platforms whose separator differs.
+func containsDotDotElement(pattern string) bool {
+	for _, part := range strings.FieldsFunc(pattern, func(r rune) bool {
+		return r == '/' || r == filepath.Separator
+	}) {
+		if part == ".." {
+			return true
+		}
+	}
+	return false
 }

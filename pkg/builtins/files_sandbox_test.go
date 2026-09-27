@@ -93,12 +93,45 @@ func TestGlobFiles_SkipsEscapes(t *testing.T) {
 	if !strings.Contains(got, "in.go") || strings.Contains(got, "link.go") {
 		t.Errorf("glob *.go = %q; want in.go, not link.go", got)
 	}
-	if !strings.Contains(got, "1 entries outside the allowed directories were skipped") {
-		t.Errorf("missing skip note: %q", got)
+	// The non-** branch must not emit a skip note: counting denied hits
+	// here would turn the note into an oracle for whether a path outside
+	// the sandbox exists (filepath.Glob itself would already have Lstat'd
+	// it before any confinement check).
+	if strings.Contains(got, "entries outside the allowed directories were skipped") {
+		t.Errorf("non-** glob must not report a skip count: %q", got)
 	}
 	got, err = handleGlobFiles(ctx, map[string]any{"pattern": "outdir/*.go"})
 	if err != nil || strings.Contains(got, "secret.go") {
 		t.Errorf("glob through symlinked dir leaked: %q, %v", got, err)
+	}
+	if strings.Contains(got, "entries outside the allowed directories were skipped") {
+		t.Errorf("non-** glob must not report a skip count: %q", got)
+	}
+}
+
+func TestGlobFiles_DotDotPatternRejectedWithoutOracle(t *testing.T) {
+	f := newFixture(t)
+	ctx := sandboxCtx(t, f.root, sandbox.Config{})
+	sibling := filepath.Base(f.outside)
+	existingPattern := filepath.Join("..", sibling, "secret.go")
+	missingPattern := filepath.Join("..", sibling, "missing.go")
+
+	_, errExisting := handleGlobFiles(ctx, map[string]any{"pattern": existingPattern})
+	_, errMissing := handleGlobFiles(ctx, map[string]any{"pattern": missingPattern})
+	if errExisting == nil {
+		t.Fatal("pattern with \"..\" targeting an existing outside file must be denied")
+	}
+	if errMissing == nil {
+		t.Fatal("pattern with \"..\" targeting a missing outside file must be denied")
+	}
+	if !strings.Contains(errExisting.Error(), `must not contain ".."`) {
+		t.Errorf("error = %q, want a \"..\" denial", errExisting)
+	}
+	// Same message shape regardless of whether the target exists: the
+	// denial must not be an oracle for external file existence.
+	norm := strings.NewReplacer(existingPattern, "<pattern>", missingPattern, "<pattern>")
+	if norm.Replace(errExisting.Error()) != norm.Replace(errMissing.Error()) {
+		t.Errorf("error text must not depend on whether the target exists: %q vs %q", errExisting, errMissing)
 	}
 }
 
@@ -143,6 +176,25 @@ func TestGrepSearch_SkipsEscapes(t *testing.T) {
 	}
 	if !strings.HasPrefix(got, "in.go:") && !strings.Contains(got, "\nin.go:") {
 		t.Errorf("grep output must stay relative to the given path: %q", got)
+	}
+}
+
+// TestGrepSearch_InSandboxSymlinkOpens proves grep opens the path Resolve
+// returned rather than the raw walked path: a symlink that stays inside the
+// sandbox must still be searchable (checking allowedEntry's bool result
+// alone would work here too, so this also guards against regressing back
+// to opening the walked path once escaping symlinks are excluded earlier).
+func TestGrepSearch_InSandboxSymlinkOpens(t *testing.T) {
+	f := newFixture(t)
+	if err := os.Symlink(filepath.Join(f.root, "in.go"), filepath.Join(f.root, "link-in.go")); err != nil {
+		t.Fatal(err)
+	}
+	got, err := handleGrepSearch(sandboxCtx(t, f.root, sandbox.Config{}), map[string]any{"pattern": "needle"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "link-in.go:") {
+		t.Errorf("in-sandbox symlink must still be searched: %q", got)
 	}
 }
 

@@ -87,12 +87,13 @@ func handleGrepSearch(ctx context.Context, input map[string]any) (string, error)
 				return nil
 			}
 		}
-		if !allowedEntry(sb, path, d) {
+		openPath, ok := allowedEntry(sb, path, d)
+		if !ok {
 			skipped++
 			return nil
 		}
 		label := displayPath(searchPath, root, path)
-		f, err := os.Open(path)
+		f, err := os.Open(openPath)
 		if err != nil {
 			return nil
 		}
