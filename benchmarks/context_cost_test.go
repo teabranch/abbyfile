@@ -63,4 +63,28 @@ func TestHandshakeContextCost(t *testing.T) {
 		t.Errorf("HandshakeTokens = %d, want schema+instructions = %d",
 			stub.HandshakeTokens, stub.TotalSchemaTokens+stub.InstructionsTokens)
 	}
+
+	has := func(p *benchmarks.HandshakePayload, name string) bool {
+		for _, tm := range p.Tools {
+			if tm.Name == name {
+				return true
+			}
+		}
+		return false
+	}
+	for mode, p := range results {
+		if has(p, "search_tools") {
+			t.Errorf("eager=%t: search_tools is listed (D-1 regression)", mode)
+		}
+	}
+	if !has(stub, "get_instructions") {
+		t.Error("non-eager agent must list get_instructions (its stub points at it)")
+	}
+	if has(eager, "get_instructions") {
+		t.Error("eager agent must not list get_instructions (D-2 regression)")
+	}
+	if eager.TotalSchemaTokens >= stub.TotalSchemaTokens {
+		t.Errorf("eager tools/list (%d tokens) should be smaller than non-eager (%d) by the get_instructions schema",
+			eager.TotalSchemaTokens, stub.TotalSchemaTokens)
+	}
 }
