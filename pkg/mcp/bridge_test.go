@@ -1,9 +1,11 @@
 package mcp_test
 
 import (
+	"bytes"
 	"context"
 	"embed"
 	"fmt"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -464,111 +466,51 @@ func TestBridgeMemoryContextPrompt(t *testing.T) {
 	}
 }
 
-func TestBridgeLazyToolLoadingSearchTools(t *testing.T) {
+func TestBridgeLazyToolLoadingIgnored(t *testing.T) { // Review Focus #3
 	registry := tools.NewRegistry()
-	_ = registry.Register(tools.BuiltinTool(
-		"echo",
-		"Echo back the input message",
-		map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"message": map[string]any{"type": "string"},
-			},
-		},
+	_ = registry.Register(tools.BuiltinTool("echo", "Echo back the input message",
+		map[string]any{"type": "object", "properties": map[string]any{"message": map[string]any{"type": "string"}}},
 		func(input map[string]any) (string, error) {
 			msg, _ := input["message"].(string)
 			return "echo: " + msg, nil
-		},
-	))
-	_ = registry.Register(tools.BuiltinTool(
-		"file_read",
-		"Read a file from disk",
-		map[string]any{"type": "object", "properties": map[string]any{}},
-		func(input map[string]any) (string, error) { return "content", nil },
-	))
+		}))
 
+	var logBuf bytes.Buffer
 	session, _ := startBridgeWithConfig(t, agentmcp.BridgeConfig{
 		Name:            "test-agent",
 		Version:         "v0.1.0",
 		Registry:        registry,
 		Executor:        tools.NewExecutor(30*time.Second, nil),
 		Loader:          newTestLoader(t),
+		Logger:          slog.New(slog.NewTextHandler(&logBuf, nil)),
 		LazyToolLoading: true,
 	})
 	ctx := context.Background()
 
-	// List tools — in lazy mode should only see search_tools + get_instructions = 2.
-	listResult, err := session.ListTools(ctx, nil)
+	list, err := session.ListTools(ctx, nil)
 	if err != nil {
 		t.Fatalf("list tools: %v", err)
 	}
-	if len(listResult.Tools) != 2 {
-		names := make([]string, len(listResult.Tools))
-		for i, tool := range listResult.Tools {
-			names[i] = tool.Name
-		}
-		t.Fatalf("expected 2 tools in lazy mode, got %d: %v", len(listResult.Tools), names)
+	names := map[string]bool{}
+	for _, tool := range list.Tools {
+		names[tool.Name] = true
+	}
+	if names["search_tools"] {
+		t.Error("search_tools must not be registered")
+	}
+	if !names["echo"] {
+		t.Errorf("echo must be listed even with LazyToolLoading set; got %v", names)
 	}
 
-	var foundSearch, foundInstructions bool
-	for _, tool := range listResult.Tools {
-		switch tool.Name {
-		case "search_tools":
-			foundSearch = true
-		case "get_instructions":
-			foundInstructions = true
-		}
+	res, err := session.CallTool(ctx, &gomcp.CallToolParams{Name: "echo", Arguments: map[string]any{"message": "hi"}})
+	if err != nil || res.IsError {
+		t.Fatalf("echo call: err=%v isError=%v", err, res != nil && res.IsError)
 	}
-	if !foundSearch {
-		t.Error("search_tools not found in lazy mode")
+	if got := extractText(res); got != "echo: hi" {
+		t.Errorf("echo = %q", got)
 	}
-	if !foundInstructions {
-		t.Error("get_instructions not found in lazy mode")
-	}
-
-	// Call search_tools with a query matching "echo".
-	result, err := session.CallTool(ctx, &gomcp.CallToolParams{
-		Name:      "search_tools",
-		Arguments: map[string]any{"query": "echo"},
-	})
-	if err != nil {
-		t.Fatalf("call search_tools: %v", err)
-	}
-	if result.IsError {
-		t.Fatalf("search_tools returned error: %s", extractText(result))
-	}
-	text := extractText(result)
-	if !strings.Contains(text, "echo") {
-		t.Errorf("search result should contain 'echo', got %q", text)
-	}
-	if strings.Contains(text, "file_read") {
-		t.Errorf("search result should not contain 'file_read' for query 'echo', got %q", text)
-	}
-
-	// Call search_tools with a query matching by description.
-	result2, err := session.CallTool(ctx, &gomcp.CallToolParams{
-		Name:      "search_tools",
-		Arguments: map[string]any{"query": "file"},
-	})
-	if err != nil {
-		t.Fatalf("call search_tools (file): %v", err)
-	}
-	text2 := extractText(result2)
-	if !strings.Contains(text2, "file_read") {
-		t.Errorf("search result should contain 'file_read', got %q", text2)
-	}
-
-	// Call search_tools with no matches.
-	result3, err := session.CallTool(ctx, &gomcp.CallToolParams{
-		Name:      "search_tools",
-		Arguments: map[string]any{"query": "nonexistent_xyz"},
-	})
-	if err != nil {
-		t.Fatalf("call search_tools (no match): %v", err)
-	}
-	text3 := extractText(result3)
-	if !strings.Contains(text3, "No tools matched") {
-		t.Errorf("expected 'No tools matched' message, got %q", text3)
+	if !strings.Contains(logBuf.String(), "LazyToolLoading is deprecated") {
+		t.Errorf("expected deprecation warning, log was: %q", logBuf.String())
 	}
 }
 

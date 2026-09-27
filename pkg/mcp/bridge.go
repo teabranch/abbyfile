@@ -20,16 +20,21 @@ import (
 
 // BridgeConfig holds everything the MCP bridge needs to expose an agent.
 type BridgeConfig struct {
-	Name            string
-	Version         string
-	Description     string
-	Model           string // model hint/recommendation for the runtime
-	Registry        *tools.Registry
-	Executor        *tools.Executor
-	Loader          *prompt.Loader
-	Memory          *memory.Manager // nil if memory is disabled
-	Logger          *slog.Logger    // nil disables logging
-	LazyToolLoading bool            // when true, only register search_tools meta-tool initially
+	Name        string
+	Version     string
+	Description string
+	Model       string // model hint/recommendation for the runtime
+	Registry    *tools.Registry
+	Executor    *tools.Executor
+	Loader      *prompt.Loader
+	Memory      *memory.Manager // nil if memory is disabled
+	Logger      *slog.Logger    // nil disables logging
+
+	// Deprecated: lazy tool loading was removed in v0.10.0. It listed tools
+	// it never registered, and MCP 2026-07-28 requires a tools/list that
+	// does not change per connection. The field is ignored; setting it
+	// logs a warning. It will be removed in a future release.
+	LazyToolLoading bool
 
 	// EagerInstructions, when true, requests that the bridge include full
 	// custom instructions in the MCP handshake rather than requiring a
@@ -80,18 +85,15 @@ func (b *Bridge) ServeTransport(ctx context.Context, transport gomcp.Transport) 
 	})
 
 	if b.cfg.LazyToolLoading {
-		// In lazy mode, only register the search_tools meta-tool and
-		// get_instructions initially. Clients discover tools via search.
-		b.addSearchToolsTool(server)
-		b.addGetInstructionsTool(server)
-	} else {
-		// Register each abbyfile tool as an MCP tool.
-		for _, def := range b.cfg.Registry.All() {
-			b.addTool(server, def)
-		}
-		// Register the special get_instructions tool (backward compatibility).
-		b.addGetInstructionsTool(server)
+		b.logger.Warn("BridgeConfig.LazyToolLoading is deprecated and ignored; all tools are registered")
 	}
+
+	// Register each abbyfile tool as an MCP tool.
+	for _, def := range b.cfg.Registry.All() {
+		b.addTool(server, def)
+	}
+	// Register the special get_instructions tool (backward compatibility).
+	b.addGetInstructionsTool(server)
 
 	// Register memory resources if memory is enabled.
 	if b.cfg.Memory != nil {
@@ -190,65 +192,6 @@ func (b *Bridge) addGetInstructionsTool(server *gomcp.Server) {
 		text = b.appendModelHint(text)
 		return &gomcp.CallToolResult{
 			Content: []gomcp.Content{&gomcp.TextContent{Text: text}},
-		}, nil
-	})
-}
-
-// addSearchToolsTool registers a search_tools meta-tool that lets clients
-// discover available tools by searching name and description. Used in lazy
-// tool loading mode.
-func (b *Bridge) addSearchToolsTool(server *gomcp.Server) {
-	tool := &gomcp.Tool{
-		Name:        "search_tools",
-		Description: "Search available tools by name or description. Returns matching tool names and descriptions.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"Substring to match against tool names and descriptions"}},"required":["query"]}`),
-		Annotations: &gomcp.ToolAnnotations{
-			ReadOnlyHint:   true,
-			IdempotentHint: true,
-			Title:          "Search Tools",
-		},
-	}
-
-	server.AddTool(tool, func(ctx context.Context, req *gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
-		var input map[string]any
-		if len(req.Params.Arguments) > 0 {
-			if err := json.Unmarshal(req.Params.Arguments, &input); err != nil {
-				return errorResult(fmt.Sprintf("invalid arguments: %v", err)), nil
-			}
-		}
-
-		query, _ := input["query"].(string)
-		if query == "" {
-			return errorResult("missing required parameter: query"), nil
-		}
-
-		queryLower := strings.ToLower(query)
-		type toolMatch struct {
-			Name        string `json:"name"`
-			Description string `json:"description"`
-		}
-		var matches []toolMatch
-
-		for _, def := range b.cfg.Registry.All() {
-			nameLower := strings.ToLower(def.Name)
-			descLower := strings.ToLower(def.Description)
-			if strings.Contains(nameLower, queryLower) || strings.Contains(descLower, queryLower) {
-				matches = append(matches, toolMatch{
-					Name:        def.Name,
-					Description: def.Description,
-				})
-			}
-		}
-
-		if len(matches) == 0 {
-			return &gomcp.CallToolResult{
-				Content: []gomcp.Content{&gomcp.TextContent{Text: "No tools matched query: " + query}},
-			}, nil
-		}
-
-		data, _ := json.Marshal(matches)
-		return &gomcp.CallToolResult{
-			Content: []gomcp.Content{&gomcp.TextContent{Text: string(data)}},
 		}, nil
 	})
 }

@@ -56,7 +56,7 @@ Sets the agent's model hint. This is informational metadata — the runtime (Cla
 
 ### `WithLazyToolLoading(enabled bool) Option`
 
-Enables lazy tool loading via the `search_tools` meta-tool. When enabled, the MCP server only registers `search_tools` and `get_instructions` initially; clients discover other tools by searching.
+**Deprecated (v0.10.0), no effect.** Lazy loading via a `search_tools` meta-tool was removed: it advertised tools it never registered, and MCP 2026-07-28 requires a fixed `tools/list`. Clients such as Claude Code already defer MCP tool definitions through their own tool search. Passing `true` logs a warning. The option will be removed in a future release.
 
 ### `WithConfigPath(path string) Option`
 
@@ -461,7 +461,7 @@ type BridgeConfig struct {
     Loader          *prompt.Loader
     Memory          *memory.Manager // nil if memory disabled
     Logger          *slog.Logger    // nil disables logging
-    LazyToolLoading bool            // only register search_tools initially
+    LazyToolLoading bool            // Deprecated: ignored (logs a warning)
 }
 ```
 
