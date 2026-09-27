@@ -145,13 +145,17 @@ func (b ContextBudget) Shape(toolName, raw string, sink SpillSink) ShapeResult {
 
 // appendCappedSuffix appends suffix (a spill pointer or a "spill unavailable"
 // degrade note) to preview, truncating preview as needed so the combined
-// result never exceeds maxBytes. The suffix takes priority over preview
-// content when the two conflict: a pointer to the full output is more useful
-// than a few more bytes of a preview that's already been elided (I1). When
-// maxBytes leaves no room for preview alongside the full suffix (maxBytes <=
-// len(suffix)), preview is dropped entirely and the suffix itself is
-// truncated to fit — a partial pointer still beats a preview with no pointer
-// at all. maxBytes <= 0 means unlimited: preview and suffix are concatenated
+// result fits within maxBytes. The suffix takes priority over preview content
+// when the two conflict: a pointer to the full output is more useful than a
+// few more bytes of a preview that's already been elided (I1).
+//
+// When maxBytes leaves no room for preview alongside the full suffix
+// (maxBytes <= len(suffix)), preview is dropped entirely and the suffix is
+// still returned whole, even though that means exceeding maxBytes. A
+// truncated pointer or degrade note is useless (a cut-off URI can't be
+// fetched); a complete one that slightly overruns the cap is still useful,
+// so the byte cap is deliberately not a hard guarantee in this narrow edge
+// case. maxBytes <= 0 means unlimited: preview and suffix are concatenated
 // unchanged.
 func appendCappedSuffix(preview, suffix string, maxBytes int64) string {
 	if maxBytes <= 0 {
@@ -159,7 +163,7 @@ func appendCappedSuffix(preview, suffix string, maxBytes int64) string {
 	}
 	suffixLen := int64(len(suffix))
 	if maxBytes <= suffixLen {
-		return truncateBytes(suffix, maxBytes)
+		return suffix
 	}
 	return truncateBytes(preview, maxBytes-suffixLen) + suffix
 }

@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -102,7 +103,7 @@ func TestShape_SpillFinalOutputRespectsByteCap(t *testing.T) {
 
 	b := ContextBudget{
 		MaxOutputLines: 5,
-		MaxOutputBytes: 40,
+		MaxOutputBytes: 120, // comfortably above the ~85-byte pointer suffix.
 		OnOverflow:     OverflowSpill,
 		HeadLines:      2,
 		TailLines:      2,
@@ -111,8 +112,31 @@ func TestShape_SpillFinalOutputRespectsByteCap(t *testing.T) {
 	if !res.Shaped {
 		t.Fatal("expected shaped")
 	}
-	if int64(len(res.Output)) > 40 {
-		t.Fatalf("final Output %d bytes exceeds MaxOutputBytes 40: %q", len(res.Output), res.Output)
+	if int64(len(res.Output)) > b.MaxOutputBytes {
+		t.Fatalf("final Output %d bytes exceeds MaxOutputBytes %d: %q", len(res.Output), b.MaxOutputBytes, res.Output)
+	}
+}
+
+// TestShape_TinyCapStillIncludesFullPointer covers the I1 edge case: when
+// MaxOutputBytes is smaller than the pointer suffix itself, the shaper still
+// returns the full pointer rather than a truncated, useless URI fragment —
+// deliberately exceeding the byte cap in this rare case, since a usable
+// pointer beats a strictly-capped but broken one.
+func TestShape_TinyCapStillIncludesFullPointer(t *testing.T) {
+	b := ContextBudget{
+		MaxOutputBytes: 5, // far smaller than any real pointer suffix.
+		OnOverflow:     OverflowSpill,
+		HeadLines:      2,
+		TailLines:      2,
+	}
+	raw := strings.Repeat("line\n", 50)
+	res := b.Shape("t", raw, stubSpillSink{})
+	if !res.Shaped || res.SpillURI == "" {
+		t.Fatalf("expected spill: shaped=%v uri=%q", res.Shaped, res.SpillURI)
+	}
+	want := fmt.Sprintf("\n\nFull output saved to %s. Fetch it if you need the elided detail.", res.SpillURI)
+	if res.Output != want {
+		t.Fatalf("tiny cap must still return the full pointer\ngot:  %q\nwant: %q", res.Output, want)
 	}
 }
 
@@ -125,7 +149,7 @@ func TestShape_DegradeFinalOutputRespectsByteCap(t *testing.T) {
 
 	b := ContextBudget{
 		MaxOutputLines: 5,
-		MaxOutputBytes: 40,
+		MaxOutputBytes: 120, // comfortably above the 41-byte degrade note.
 		OnOverflow:     OverflowSpill,
 		HeadLines:      2,
 		TailLines:      2,
@@ -134,8 +158,27 @@ func TestShape_DegradeFinalOutputRespectsByteCap(t *testing.T) {
 	if !res.Shaped {
 		t.Fatal("expected shaped")
 	}
-	if len(res.Output) > 40 {
-		t.Fatalf("final Output %d bytes exceeds MaxOutputBytes 40: %q", len(res.Output), res.Output)
+	if int64(len(res.Output)) > b.MaxOutputBytes {
+		t.Fatalf("final Output %d bytes exceeds MaxOutputBytes %d: %q", len(res.Output), b.MaxOutputBytes, res.Output)
+	}
+}
+
+// TestShape_TinyCapStillIncludesFullDegradeNote covers the I1 edge case for
+// the degrade path (no sink / spill failed): when MaxOutputBytes is smaller
+// than the degrade note itself, the shaper still returns the full note
+// rather than a silently truncated fragment.
+func TestShape_TinyCapStillIncludesFullDegradeNote(t *testing.T) {
+	b := ContextBudget{
+		MaxOutputBytes: 5, // far smaller than the degrade note.
+		OnOverflow:     OverflowSpill,
+		HeadLines:      2,
+		TailLines:      2,
+	}
+	raw := strings.Repeat("line\n", 50)
+	res := b.Shape("t", raw, nil) // nil sink forces the degrade path.
+	want := "\n(spill unavailable — output truncated)"
+	if res.Output != want {
+		t.Fatalf("tiny cap must still return the full degrade note\ngot:  %q\nwant: %q", res.Output, want)
 	}
 }
 
