@@ -159,7 +159,7 @@ tool_timeout: 30s (compiled)
 
 Supported fields for `set`: `model`, `tool_timeout`, `context_budget.max_output_lines`, `context_budget.max_output_bytes`, `context_budget.on_overflow`, `context_budget.head_lines`, `context_budget.tail_lines`, `context_budget.summary_lines`, `context_budget.eager_instructions`, `sandbox.allowed_dirs`, `sandbox.bash`, `sandbox.allow_commands`, `sandbox.max_command_timeout`. Complex fields (`memory_limits`, `command_policy`) can be set by editing the YAML directly.
 
-`reset` supports `model` and `tool_timeout` individually, plus the whole-block names `context_budget` and `sandbox`, which clear every override in that block at once (e.g. `config reset sandbox` reverts all four `sandbox.*` fields to their compiled defaults). There is no per-field reset for an individual `context_budget.*` or `sandbox.*` key — reset the whole block instead.
+`reset` supports `model` and `tool_timeout` individually, the complex fields `memory_limits` and `command_policy` (each cleared as a whole), and the whole-block names `context_budget` and `sandbox`, which clear every override in that block at once (e.g. `config reset sandbox` reverts all four `sandbox.*` fields to their compiled defaults). There is no per-field reset for an individual `context_budget.*` or `sandbox.*` key — reset the whole block instead.
 
 Setting any `sandbox.*` field validates the merged sandbox as a whole, not just the field being set, and refuses to write an override that would be invalid. `set` prints a restart hint for every `sandbox.*` field (a running MCP session already loaded the old sandbox), plus a stderr warning for `sandbox.bash unrestricted` or a `sandbox.allowed_dirs` containing `/`.
 
@@ -238,10 +238,10 @@ Validation PASSED
     "maxTotalBytes": 0
   },
   "sandbox": {
-    "allowedDirs": ["."],
+    "allowedDirs": ["/"],
     "bash": "restricted",
-    "allowCommands": ["go test *"],
-    "maxCommandTimeout": "120s",
+    "allowCommands": ["echo *"],
+    "maxCommandTimeout": "2m0s",
     "warnings": ["sandbox.allowed_dirs entry \"/\" resolves to / — file tools can reach the whole filesystem"]
   }
 }
@@ -254,7 +254,7 @@ Notes:
 - `memoryLimits` is only present when memory is enabled and limits are set
 - `annotations` is only present when set on the tool definition
 - `builtin` is `true` for builtin tools and memory tools, `false` for CLI tools
-- `sandbox` reflects the effective sandbox (compiled defaults plus any `config.yaml` override); `warnings` is `omitempty` and only appears when there is at least one (e.g. `allowed_dirs` including `/`, or `bash: unrestricted`)
+- `sandbox` reflects the effective, resolved sandbox (compiled defaults plus any `config.yaml` override) — `allowedDirs` is the resolved absolute path(s), not the raw frontmatter value (so `allowed_dirs: ["."]` renders as the working directory's absolute path), and `maxCommandTimeout` is a Go `time.Duration` string (e.g. `"2m0s"` for the 120s default, not `"120s"`); `warnings` is `omitempty` and only appears when there is at least one (e.g. `allowed_dirs` including `/`, or `bash: unrestricted`)
 
 ---
 
