@@ -106,12 +106,12 @@ Agents declare tools by their Claude Code name. The builder maps these to MCP to
 
 | Declare in `.md` | MCP tool name | Description |
 |-------------------|---------------|-------------|
-| `Read` | `read_file` | Read file contents at an absolute path |
-| `Write` | `write_file` | Write content to a file, creating parent dirs |
-| `Edit` | `edit_file` | Find-and-replace a unique string in a file |
-| `Bash` | `run_command` | Execute a shell command with timeout |
-| `Glob` | `glob_files` | Find files matching a glob pattern (supports `**`) |
-| `Grep` | `grep_search` | Search file contents with regex |
+| `Read` | `read_file` | Read a file's contents, confined to the [sandbox](tools.md#sandbox) |
+| `Write` | `write_file` | Write content to a file, creating parent dirs, confined to the [sandbox](tools.md#sandbox) |
+| `Edit` | `edit_file` | Find-and-replace a unique string in a file, confined to the [sandbox](tools.md#sandbox) |
+| `Bash` | `run_command` | Run an allowlisted command with no shell, per the [sandbox](tools.md#sandbox) |
+| `Glob` | `glob_files` | Find files matching a glob pattern (supports `**`), confined to the [sandbox](tools.md#sandbox) |
+| `Grep` | `grep_search` | Search file contents with regex, confined to the [sandbox](tools.md#sandbox) |
 
 Example:
 

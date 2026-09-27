@@ -111,6 +111,8 @@ func readFileTool() *tools.Definition {
 }
 ```
 
+This example uses the plain `Handler` for brevity, with its own hand-rolled path check. The shipped `read_file` builtin instead uses `tools.BuiltinToolCtx` and `HandlerCtx`, confining paths through the sandbox described in [Sandbox](#sandbox) rather than a local `..`/absolute-path check.
+
 ### Example: `go_test` builtin tool
 
 ```go
@@ -150,6 +152,68 @@ func goTestTool() *tools.Definition {
 ```
 
 Note that `go_test` returns test failures as successful tool results (not errors). This lets Claude Code see the test output and reason about it. Reserve errors for infrastructure failures, not expected negative results.
+
+## Sandbox
+
+Built-in tools are confined by a `sandbox:` block in agent frontmatter. Without the block you get the defaults shown here:
+
+```yaml
+sandbox:
+  allowed_dirs: ["."]          # file tools stay inside these; "." = the working directory the runtime starts the server in
+  bash: restricted             # restricted (default) | unrestricted
+  allow_commands: []           # run_command refuses every call until you list commands
+  max_command_timeout: 120s    # hard cap on the timeout the model may request
+```
+
+**File tools** (`read_file`, `write_file`, `edit_file`, `glob_files`, `grep_search`):
+- Every path is resolved (relative paths against the working directory, symlinks evaluated) and must land inside an `allowed_dirs` entry.
+- `glob_files` refuses any pattern containing a `..` path element outright (`pattern must not contain ".."` — use the `path` argument to choose the base directory instead). A plain, non-`**` pattern drops hits that escape the sandbox (via a symlinked directory) silently; only the `**` walk and `grep_search` report how many entries they skipped, appending "(N entries outside the allowed directories were skipped)". `grep_search` opens the symlink-resolved path, not the original one.
+- The agent's spill directory (`~/.abbyfile/<name>/spill/`) is readable but not writable, so `on_overflow: spill` pointers still work.
+- `allowed_dirs: ["/"]` opts out. It is warned about at startup and in `--describe`.
+
+**`run_command`, restricted mode:**
+- There is **no shell**. The command is split into words, with `'` and `"` quoting honoured, and run directly.
+- Unquoted `;` `&` `|` `` ` `` `$(` `>` `<` and newlines are rejected, not filtered. Pipes, redirects and chaining need `bash: unrestricted`.
+- `allow_commands` entries are words:
+  - `go test` allows exactly `go test`.
+  - `go test *` allows `go test` with any arguments.
+  - `*` is only valid as the last word.
+- The effective timeout is `min(requested or 30s, max_command_timeout)`.
+- Subprocesses — both `run_command` and custom CLI tools — run in their own process group. The group is killed on timeout or cancellation, and it is also reaped after a normal exit, so a background child can't outlive the call. If that child exited successfully but left a background process holding the output pipe open, the call reports success after a short (~2s) wait rather than hanging.
+- Output is capped in memory at 10 MB.
+
+**`run_command`, unrestricted mode:** the old `sh -c` behaviour. `abby build` prints a warning and `--describe` reports it.
+
+**What the sandbox does not do:**
+- It does not confine `run_command` *arguments*. `cat *` can read any file. `git *`, `find *`, `env *`, `xargs *` and `make *` (with `write_file`) can run arbitrary programs. Allow the narrowest commands you can.
+- It is not an OS sandbox (no seatbelt or landlock).
+- It checks each path when the call is made, so it does not defend against a local process racing to swap symlinks.
+
+**Startup fallback.** If the effective sandbox — compiled defaults plus any `config.yaml` override — fails to build (for example a hand-edited config with `sandbox.allowed_dirs: [""]`), the agent prints an error to stderr with a `config reset sandbox` hint and falls back to the compiled-in sandbox. If the compiled sandbox is also invalid, it falls back further to the default sandbox instead of exiting. This runs on every subcommand, not only `serve-mcp`.
+
+**`--describe`** includes a `sandbox` object: `allowedDirs`, `bash`, `allowCommands`, `maxCommandTimeout`, and `warnings` (present only when there is at least one).
+
+**Changing it after install** (restart the runtime session afterwards):
+
+```bash
+my-agent config set sandbox.allow_commands '["go test *","make *"]'   # JSON array, or: "go test *,make *"
+my-agent config set sandbox.allowed_dirs ".,../shared"
+my-agent config set sandbox.bash unrestricted                       # prints a warning
+my-agent config set sandbox.max_command_timeout 300s
+my-agent config reset sandbox
+```
+
+- `config set sandbox.*` validates the merged override — all four fields together, not just the one being set — and refuses to write one that would leave the sandbox unusable.
+- List values (`allow_commands`, `allowed_dirs`) drop blank entries in both the JSON-array and comma-separated forms.
+- Every `sandbox.*` set prints a restart hint on stdout, since a running MCP session already loaded the old sandbox. Setting `bash unrestricted`, or `allowed_dirs` to something containing `/`, also prints a warning to stderr.
+
+### Migrating from v0.10
+
+1. `tools: Bash` now needs `sandbox.allow_commands`, or `sandbox.bash: unrestricted`. Until then `run_command` refuses every call and `abby build` prints a note.
+2. File tools are confined to the server's working directory unless `sandbox.allowed_dirs` says otherwise.
+3. Restricted `run_command` no longer uses a shell. Pipes, redirects and chaining need `sandbox.bash: unrestricted`.
+4. `write_file` and `edit_file` are now annotated destructive.
+5. Library users: builtins use `tools.Definition.HandlerCtx`. `Handler` still works, but it runs under the default sandbox with no deadline. `tools.DefaultCommandPolicy()` no longer has a denylist.
 
 ## Annotations
 

@@ -116,7 +116,7 @@ Example:
 ## Available Tools
 - **read_file** -- Read the contents of a file
 - **write_file** -- Write content to a file
-- **run_command** -- Execute a shell command
+- **run_command** -- Run an allowlisted command (no shell; see the [sandbox](tools.md#sandbox))
 - **glob_files** -- Find files by pattern
 - **grep_search** -- Search file contents with regex
 ```

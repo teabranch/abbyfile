@@ -6,6 +6,8 @@ memory: project
 ---
 description: "A helpful coding assistant with file and shell access"
 tools: Read, Write, Edit, Bash, Glob, Grep
+sandbox:
+  allow_commands: ["go build *", "go test *", "go vet *", "gofmt *"]
 ---
 
 You are a helpful coding assistant. Use your tools to read, search, and modify files when helping users with their tasks.
