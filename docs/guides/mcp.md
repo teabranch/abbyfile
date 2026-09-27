@@ -60,7 +60,7 @@ picks the version; no configuration is needed.
   hour (`ttlMs: 3600000`, `cacheScope: public`). Memory reads are never
   cached (`ttlMs: 0`, `cacheScope: private`).
 - Tools that declare an `outputSchema` return `structuredContent`, plus a
-  JSON text copy. Their output must be one JSON value within the tool's
+  JSON text copy. Their output must be one non-null JSON value within the tool's
   `max_output_bytes`; structured output is never truncated.
 - Tool names must match `^[A-Za-z0-9_.-]{1,128}$`.
 

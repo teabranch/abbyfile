@@ -9,10 +9,11 @@ import (
 )
 
 // structuredResult builds a CallToolResult for a tool that declares an
-// outputSchema. The raw output must be a single JSON value (any type, per
-// SEP-2106). Structured content is never truncated: output over maxBytes
-// (when > 0) is an error rather than a corrupted JSON value. A text copy is
-// included for clients that ignore structuredContent.
+// outputSchema. The raw output must be a single non-null JSON value (object,
+// array, string, number or boolean, per SEP-2106); null is an error.
+// Structured content is never truncated: output over maxBytes (when > 0) is an
+// error rather than a corrupted JSON value. A text copy is included for
+// clients that ignore structuredContent.
 func structuredResult(toolName, raw string, maxBytes int64) *gomcp.CallToolResult {
 	trimmed := strings.TrimSpace(raw)
 	if maxBytes > 0 && int64(len(trimmed)) > maxBytes {

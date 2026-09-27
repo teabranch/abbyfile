@@ -9,7 +9,7 @@ Guide for contributing to the Abbyfile framework itself.
 
 ## Prerequisites
 
-- Go 1.24+
+- Go 1.26+
 - Make
 
 ## Build Commands
