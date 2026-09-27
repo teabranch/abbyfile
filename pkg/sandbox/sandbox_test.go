@@ -200,6 +200,27 @@ func TestAccessors(t *testing.T) {
 	}
 }
 
+// Finding 1: DenyAll is the tier-3 last-resort fallback. It must deny every
+// path and every command, not just the working directory.
+func TestDenyAll(t *testing.T) {
+	s := DenyAll()
+	if _, err := s.Resolve("/tmp", Read); err == nil {
+		t.Fatal("DenyAll must deny reads")
+	}
+	if _, err := s.Resolve("/tmp/x", Write); err == nil {
+		t.Fatal("DenyAll must deny writes")
+	}
+	if len(s.AllowedDirs()) != 0 {
+		t.Fatalf("DenyAll must have no allowed dirs, got %v", s.AllowedDirs())
+	}
+	if _, err := s.CheckCommand("echo hi"); err == nil {
+		t.Fatal("DenyAll must refuse every command")
+	}
+	if c := s.Config(); c.Bash != BashRestricted || len(c.AllowCommands) != 0 {
+		t.Errorf("DenyAll config = %+v, want restricted with no allowed commands", c)
+	}
+}
+
 func must(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {

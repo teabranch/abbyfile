@@ -14,7 +14,7 @@ func NewContext(ctx context.Context, s *Sandbox) context.Context {
 
 // FromContext returns the sandbox carried by ctx. Without one it returns
 // the secure default for the process working directory; if that cannot be
-// determined, a sandbox with no roots, which denies every path.
+// determined, DenyAll(), which denies every path and command.
 func FromContext(ctx context.Context) *Sandbox {
 	if s, ok := ctx.Value(ctxKey{}).(*Sandbox); ok && s != nil {
 		return s
@@ -24,5 +24,5 @@ func FromContext(ctx context.Context) *Sandbox {
 			return s
 		}
 	}
-	return &Sandbox{cfg: Default().Normalize()}
+	return DenyAll()
 }

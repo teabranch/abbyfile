@@ -137,6 +137,16 @@ func (s *Sandbox) CheckCommand(command string) ([]string, error) {
 	return nil, fmt.Errorf("command %q is not allowed; sandbox.allow_commands permits: %s", command, strings.Join(s.cfg.AllowCommands, "; "))
 }
 
+// DenyAll returns a sandbox with no allowed directories, no read-only roots,
+// and no allowed commands: every Resolve and CheckCommand call is refused,
+// regardless of path or working directory. It is the last-resort fallback
+// when even the compiled-in sandbox fails to build, so file and command
+// tools are disabled outright instead of silently widening access to
+// sandbox.Default() (the process working directory).
+func DenyAll() *Sandbox {
+	return &Sandbox{cfg: Default().Normalize()}
+}
+
 // Config returns the normalized configuration (a copy).
 func (s *Sandbox) Config() Config { return s.cfg.Normalize() }
 
