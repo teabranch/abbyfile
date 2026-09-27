@@ -179,17 +179,19 @@ sandbox:
   - `go test *` allows `go test` with any arguments.
   - `*` is only valid as the last word.
 - The effective timeout is `min(requested or 30s, max_command_timeout)`.
-- Subprocesses — both `run_command` and custom CLI tools — run in their own process group. The group is killed on timeout or cancellation, and it is also reaped after a normal exit, so a background child can't outlive the call. If that child exited successfully but left a background process holding the output pipe open, the call reports success after a short (~2s) wait rather than hanging.
+- Subprocesses — both `run_command` and custom CLI tools — run in their own process group. The group is killed on timeout or cancellation, and it is also reaped after a normal exit, so an ordinary background child (`&`, `nohup`) does not outlive the call. A child that calls `setsid` or otherwise daemonizes into a new session escapes the group and can still outlive it. If a well-behaved child exited successfully but left a background process holding the output pipe open, the call reports success after a short (~2s) wait rather than hanging.
 - Output is capped in memory at 10 MB.
 
 **`run_command`, unrestricted mode:** the old `sh -c` behaviour. `abby build` prints a warning and `--describe` reports it.
 
 **What the sandbox does not do:**
 - It does not confine `run_command` *arguments*. `cat *` can read any file. `git *`, `find *`, `env *`, `xargs *` and `make *` (with `write_file`) can run arbitrary programs. Allow the narrowest commands you can.
+- It does not fully confine the Go toolchain either: an allowlisted `go test *`/`go build *`/`go vet *` still permits `go test -exec <prog>`, `go build -toolexec <prog>` and `go vet -vettool=<prog>`, each of which runs an arbitrary program; `gofmt -w <path>` can write to any path the process can reach, not just `allowed_dirs`; and `go test` itself runs the package's (possibly model-written) test code. Prefer exact argv entries with no trailing `*` (e.g. `go test ./...` rather than `go test *`) so the model cannot add these flags.
 - It is not an OS sandbox (no seatbelt or landlock).
 - It checks each path when the call is made, so it does not defend against a local process racing to swap symlinks.
+- `read_file` on a FIFO (named pipe) blocks until a writer opens the other end; this is a documented limitation, not something the sandbox or the executor timeout currently guards against.
 
-**Startup fallback.** If the effective sandbox — compiled defaults plus any `config.yaml` override — fails to build (for example a hand-edited config with `sandbox.allowed_dirs: [""]`), the agent prints an error to stderr with a `config reset sandbox` hint and falls back to the compiled-in sandbox. If the compiled sandbox is also invalid, it falls back further to the default sandbox instead of exiting. This runs on every subcommand, not only `serve-mcp`.
+**Startup fallback.** If the effective sandbox — compiled defaults plus any `config.yaml` override — fails to build, the agent prints an error to stderr and falls back rather than exiting; this runs on every subcommand, not only `serve-mcp`. When a `config.yaml` sandbox override caused the failure (for example a hand-edited config with `sandbox.allowed_dirs: [""]`), it retries the compiled-in sandbox with a `config reset sandbox` hint. If the compiled sandbox is itself invalid — with or without an override — file and command tools are disabled outright (a deny-all sandbox: no allowed directories, no allowed commands) rather than widening access to the default sandbox (the working directory).
 
 **`--describe`** includes a `sandbox` object: `allowedDirs`, `bash`, `allowCommands`, `maxCommandTimeout`, and `warnings` (present only when there is at least one).
 
@@ -214,6 +216,8 @@ my-agent config reset sandbox
 3. Restricted `run_command` no longer uses a shell. Pipes, redirects and chaining need `sandbox.bash: unrestricted`.
 4. `write_file` and `edit_file` are now annotated destructive.
 5. Library users: builtins use `tools.Definition.HandlerCtx`. `Handler` still works, but it runs under the default sandbox with no deadline. `tools.DefaultCommandPolicy()` no longer has a denylist.
+6. Custom CLI tools, not just `run_command`, now run in their own process group that is killed after the call returns, so a background child started with `&` or `nohup` no longer outlives the call (one that calls `setsid` or otherwise daemonizes into a new session still escapes and can outlive it).
+7. CLI tool output capture is capped at 10 MB in memory (`tools.DefaultMaxOutputBytes`); output beyond that is truncated with a `[output truncated at N bytes]` marker.
 
 ## Annotations
 
