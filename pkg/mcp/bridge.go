@@ -421,23 +421,22 @@ func schemaToRaw(schema any) json.RawMessage {
 }
 
 // inputSchemaToRaw is schemaToRaw plus a guarantee that the top-level schema
-// declares "type":"object". go-sdk v1.8.0 panics in AddTool otherwise, and
-// frontmatter authors routinely omit it.
+// declares "type":"object". It normalizes any non-"object" top-level type —
+// missing, null, a different scalar (e.g. "string"), or a union like
+// ["object","null"] — to "object". go-sdk v1.8.0's AddTool panics unless the
+// decoded top-level "type" is exactly the string "object", and frontmatter
+// authors routinely omit or mis-specify it.
 func inputSchemaToRaw(schema any) json.RawMessage {
 	raw := schemaToRaw(schema)
 	var m map[string]any
 	if err := json.Unmarshal(raw, &m); err != nil || m == nil {
 		return json.RawMessage(`{"type":"object","properties":{}}`)
 	}
-	if _, ok := m["type"]; ok {
+	if typ, ok := m["type"]; ok && typ == "object" {
 		return raw
 	}
-	withType := make(map[string]any, len(m)+1)
-	for k, v := range m {
-		withType[k] = v
-	}
-	withType["type"] = "object"
-	out, err := json.Marshal(withType)
+	m["type"] = "object"
+	out, err := json.Marshal(m)
 	if err != nil {
 		return json.RawMessage(`{"type":"object","properties":{}}`)
 	}
