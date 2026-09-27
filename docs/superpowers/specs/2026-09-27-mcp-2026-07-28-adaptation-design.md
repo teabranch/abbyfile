@@ -27,7 +27,7 @@ Sources: [2026-07-28 changelog](https://modelcontextprotocol.io/specification/20
 | Change | Revision | Impact on Abbyfile |
 |---|---|---|
 | `initialize`/`initialized` removed; per-request `_meta` carries protocol version + client info/capabilities (SEP-2575) | 2026-07-28 | Handled by SDK ≥ v1.7.0 (dual-era stdio) |
-| `server/discover` mandatory; returns `instructions` | 2026-07-28 | Our handshake instructions move here via SDK; `get_instructions` tool becomes redundant |
+| `server/discover` mandatory; returns `instructions` | 2026-07-28 | Our handshake instructions move here via SDK; `get_instructions` is redundant only in eager mode |
 | stdio: server MUST NOT send requests on stdout; elicitation/sampling/roots via MRTR `input_required` (SEP-2322) | 2026-07-28 | We send none today; any future confirmation flow must use MRTR |
 | `ping`, `logging/setLevel`, resource subscribe/unsubscribe removed | 2026-07-28 | Not used |
 | `tools/list` MUST NOT vary per connection; SHOULD be deterministic; `ttlMs`/`cacheScope` required on list results (SEP-2549) | 2026-07-28 | Lazy loading conflicts; cache hints needed |
@@ -60,7 +60,7 @@ blocked by a TLS proxy during design); Phase A step 1 resolves it.
 | D7 | Claude Code user-scope path is `~/.claude/mcp.json`; Claude Code reads user/local scope from `~/.claude.json`. | `pkg/runtimecfg/claude.go:27` |
 | D8 | Config merge ignores parse errors and overwrites the file; writes are non-atomic 0644. | `pkg/runtimecfg/claude.go:47`, `codex.go:40` |
 | D9 | Checksum verification is fail-open: missing SHA256SUMS, download failure, or missing entry all install silently. | `cmd/abby/install.go:340` |
-| D10 | `get_instructions` always registered (deprecated in its own description) — per-turn context cost. | `pkg/mcp/bridge.go:150` |
+| D10 | `get_instructions` always registered and labeled deprecated, even in eager mode where it duplicates the handshake instructions — per-turn context cost. | `pkg/mcp/bridge.go:150` |
 | D11 | Tool names not validated against SEP-986. | `pkg/definition` |
 
 Verified non-issues: `Registry.All()` sorts by name (deterministic list);
@@ -137,20 +137,31 @@ marked `// Deprecated:` (kept one release to avoid breaking library callers).
 Rationale: Claude Code's native tool search defers MCP tools by default, and a
 tool list that changes after search conflicts with 2026-07-28.
 
-**D-2. Remove `get_instructions` (fixes D10).** Not registered by default.
-Opt-in via frontmatter `legacy_instructions_tool: true` (and config key of the
-same name). The `system` prompt and the handshake/discover instructions stub
-remain.
+**D-2. Register `get_instructions` only when it is needed (fixes D10).**
+`eager_instructions` defaults to **false**, and in that mode the discover
+stub is the only instructions the model sees. MCP prompts are user-invoked
+(slash commands in Claude Code), so the `system` prompt is not a path the model
+can take on its own. Therefore:
+- `eager_instructions: false` (default) → `get_instructions` **is** registered
+  (no "Deprecated" wording), and the stub says: "Call the `get_instructions`
+  tool to load your full instructions before acting."
+- `eager_instructions: true` → full instructions are delivered via
+  discover/initialize and `get_instructions` is **not** registered; the
+  `system` prompt remains for users.
+Test both states: tool presence/absence and stub text naming only tools that
+exist.
 
-**D-3. Result-size hint.** For each tool, set
-`_meta["anthropic/maxResultSizeChars"]` in `tools/list` to the tool's effective
-context-budget byte cap (per-tool override, else base), capped at 500 000. Omit
-when the cap is 0 (unlimited). This stops Claude Code from spilling below our
-own shaping limit. Other runtimes ignore unknown `_meta`.
+**D-3. Result-size hint — opt-in only.** Claude Code's
+`_meta["anthropic/maxResultSizeChars"]` *raises* its inline threshold
+(default ~25k tokens). Our default `max_output_bytes` (262 144 ≈ 64k tokens)
+is larger, so emitting it by default would let *more* into context. Instead,
+emit the hint only for tools that set `context_budget.per_tool.<name>.inline_large: true`,
+using that tool's byte cap (≤ 500 000). No efficiency credit is claimed for it.
 
 **D-4. Measure.** Extend `benchmarks/` to report tokens for
 `tools/list` + instructions for a representative agent before and after
-D-1..D-3; record the numbers in `docs/guides/benchmarks.md`.
+D-1..D-2, in both eager modes; record the numbers in
+`docs/guides/benchmarks.md`.
 
 ## Phase B — Built-in tool security
 
@@ -172,20 +183,30 @@ sandbox:
    targets, evaluate the deepest existing ancestor).
 3. Reject unless the result is within an `allowed_dirs` entry (each entry also
    symlink-resolved at startup).
-Error text names the allowed dirs so the model can self-correct. Applied in
+Error text names the allowed dirs so the model can self-correct.
+
+**Resolving `.`:** relative `allowed_dirs` entries resolve against the process
+working directory at `serve-mcp` startup, which is whatever the runtime launches
+the server with. If an entry resolves to `/` or to `$HOME`, the server logs a
+warning to stderr and `abby doctor` flags it. To make project-scope installs
+predictable, C4 sets `cwd` to the project root for Codex and Gemini entries
+(both support it); Claude Code launches project servers in the project root. Applied in
 `read_file`, `write_file`, `edit_file`, `glob` (root and every match), `grep`
 (root and every file). `allowed_dirs` is server config, per the spec's Roots
 deprecation guidance.
 
 **B2. `run_command` allowlist (fixes D4).** The substring denylist is deleted.
-- `bash: restricted` (default): the trimmed command must equal an
-  `allow_commands` entry or start with it followed by a space. A trailing
-  ` *` on an entry permits arbitrary following arguments **including** shell
-  metacharacters; without it, commands containing `;`, `&`, `|`, `` ` ``,
-  `$(`, `>`, `<`, or newline are rejected. Empty `allow_commands` → the tool
-  refuses every call with a message explaining how to enable it.
-- `bash: unrestricted`: today's behavior; `abby build` prints a warning and
-  `--describe` reports it.
+- `bash: restricted` (default): **no shell.** The command string is split into
+  argv with POSIX shell-words rules (quotes honored; unquoted `;`, `&`, `|`,
+  `` ` ``, `$(`, `>`, `<`, newline are a parse error rather than a filtered
+  substring) and executed directly with `exec.CommandContext(argv[0], argv[1:]...)`.
+  Allowlist entries are also argv: `go test` matches argv beginning
+  `["go","test"]` with no extra arguments; `make *` matches `["make", …any]`.
+  Because there is no shell, `*` means "any arguments", never "any shell".
+  Empty `allow_commands` → the tool refuses every call with a message
+  explaining how to enable it.
+- `bash: unrestricted`: today's `sh -c` behavior; `abby build` prints a
+  warning and `--describe` reports it.
 - Existing agents declaring `tools: Bash` without `sandbox:` get restricted
   mode with an empty allowlist — this is the documented breaking change.
 
@@ -193,9 +214,19 @@ deprecation guidance.
 `HandlerCtx func(ctx context.Context, input map[string]any) (string, error)`
 to `tools.Definition` alongside `Handler` (non-breaking). The executor prefers
 `HandlerCtx`, wraps it with the executor timeout, and passes the MCP request
-context. All builtins migrate to `HandlerCtx`. `run_command` uses
-`exec.CommandContext(ctx, …)` so cancellation kills the process group; the
-model's `timeout` is clamped to `max_command_timeout`.
+context. All builtins migrate to `HandlerCtx`. Subprocesses (CLI tools and
+`run_command`) set `SysProcAttr.Setpgid = true` and a custom `cmd.Cancel` that
+signals the whole process group (`CommandContext` alone kills only the direct
+child).
+
+**Timeout precedence (single rule):**
+- Every tool: effective limit = executor timeout (default 30s).
+- `run_command` only: effective limit = `min(model-requested timeout or 30s, max_command_timeout)`,
+  and the executor's outer wrapper for `run_command` uses
+  `max(executor timeout, max_command_timeout)` so the cap is reachable.
+- C4 runtime timeouts derive from the **largest** effective limit across the
+  agent's tools, plus a 10s margin, so the runtime never kills a call the
+  server would allow.
 
 **B4. Bounded capture (fixes D6).** CLI and `run_command` stdout/stderr are
 captured through a limited writer at `CommandPolicy.MaxOutputBytes`; excess is
@@ -240,12 +271,12 @@ against each CLI's `--help` in the plan's first task.
 config directory exists (`~/.claude/`, `~/.codex/`, `~/.gemini/`). Never
 inferred from `$HOME` existing.
 
-**C4. Richer entries.** `ServerEntry` gains `Env map[string]string` and
-`Timeout time.Duration` (derived from the agent's tool timeout + margin).
-Per runtime:
+**C4. Richer entries.** `ServerEntry` gains `Env map[string]string`,
+`Cwd string` (project root for project scope; empty for user scope), and
+`Timeout time.Duration` (per the B3 precedence rule). Per runtime:
 - Claude: `type: "stdio"`, `env`, `timeout` (ms).
-- Codex: `env`, `startup_timeout_sec`, `tool_timeout_sec`.
-- Gemini: `env`, `timeout` (ms). `trust` is never set.
+- Codex: `env`, `cwd`, `startup_timeout_sec`, `tool_timeout_sec`.
+- Gemini: `env`, `cwd`, `timeout` (ms). `trust` is never set.
 
 **C5. Mandatory checksums (fixes D9).** `abby install` fails when the release
 has no checksum asset, the asset download fails, or it lacks an entry for the
@@ -298,14 +329,16 @@ TDD per task; ≥80% coverage on every changed package.
 
 1. `tools: Bash` now requires `sandbox.allow_commands` (or
    `sandbox.bash: unrestricted`).
-2. File tools are confined to the working directory unless
+2. File tools are confined to the server's working directory unless
    `sandbox.allowed_dirs` says otherwise.
-3. `get_instructions` is gone unless `legacy_instructions_tool: true`.
+3. `get_instructions` is registered only when `eager_instructions` is false (the default).
 4. `search_tools` / lazy loading removed.
 5. `abby install` requires SHA256SUMS (`--insecure-skip-checksum` to bypass).
 6. Claude Code user-scope entries now land in `~/.claude.json` (or via
    `claude mcp add`); stale `~/.claude/mcp.json` entries written by older
    versions are reported by `abby doctor` with a removal hint.
+7. Restricted `run_command` no longer uses a shell: pipes, redirects and
+   chaining require `sandbox.bash: unrestricted`.
 
 ## Phasing
 
