@@ -717,7 +717,7 @@ func TestBridgeHandshakeLogsLoaderError(t *testing.T) {
 func TestBridgeMemoryTemplateRejectsTraversalKeys(t *testing.T) {
 	parent := t.TempDir()
 	storeDir := filepath.Join(parent, "store")
-	if err := os.WriteFile(filepath.Join(parent, "secret"), []byte("SECRET"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(parent, "secret.md"), []byte("SECRET"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	store, err := memory.NewFileStoreAt(storeDir, memory.Limits{})
@@ -732,6 +732,7 @@ func TestBridgeMemoryTemplateRejectsTraversalKeys(t *testing.T) {
 	for _, uri := range []string{
 		"memory://test-agent/../secret",
 		"memory://test-agent/a/b",
+		// %2e%2e%2fsecret is a literal key (not URL-decoded), so it fails because the file doesn't exist.
 		"memory://test-agent/%2e%2e%2fsecret",
 		"memory://test-agent/..",
 	} {
