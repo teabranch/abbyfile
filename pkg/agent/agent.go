@@ -10,6 +10,7 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -48,10 +49,12 @@ type Agent struct {
 
 	configPath string // override config.yaml path (for testing)
 
-	budget  tools.ContextBudget
-	sandbox sandbox.Config
+	budget          tools.ContextBudget
+	sandbox         sandbox.Config
+	compiledSandbox sandbox.Config // a.sandbox as compiled, before config.yaml overrides; effectiveSandbox's first fallback
 
 	logger *slog.Logger
+	stderr io.Writer // defaults to os.Stderr; overridable in tests to capture fallback messages
 }
 
 // New creates a new Agent with the given options.
@@ -64,6 +67,11 @@ func New(opts ...Option) (*Agent, error) {
 	for _, opt := range opts {
 		opt(a)
 	}
+	// Snapshot the compiled-in sandbox (WithSandbox, or sandbox.Default() if
+	// unset) before config.yaml overrides are applied below, so an invalid
+	// runtime override can fall back to it instead of silently widening
+	// access to sandbox.Default().
+	a.compiledSandbox = a.sandbox
 
 	if a.name == "" {
 		return nil, fmt.Errorf("agent name is required (use WithName)")
@@ -77,6 +85,9 @@ func New(opts ...Option) (*Agent, error) {
 
 	if a.logger == nil {
 		a.logger = slog.New(slog.NewTextHandler(os.Stderr, nil))
+	}
+	if a.stderr == nil {
+		a.stderr = os.Stderr
 	}
 
 	if a.lazyToolLoading {
@@ -224,29 +235,41 @@ func (a *Agent) buildSandbox() (*sandbox.Sandbox, error) {
 }
 
 // effectiveSandbox resolves the sandbox Execute should use. If the
-// configured sandbox fails to build — e.g. a hand-edited config.yaml (or one
-// written before validation caught a value like sandbox.allowed_dirs: [""])
-// left it invalid — it prints a warning and falls back to sandbox.Default()
-// so the agent keeps working, confined to the working directory, instead of
-// every invocation exiting 1 until the user edits the file by hand. It
-// returns an error only if the default sandbox also fails to build (e.g.
-// the working directory is unresolvable).
+// configured sandbox (compiled defaults plus any config.yaml override) fails
+// to build — e.g. a hand-edited config.yaml (or one written before
+// validation caught a value like sandbox.allowed_dirs: [""]) left it
+// invalid — it prints a warning and falls back to the compiled-in sandbox
+// (WithSandbox's value, or sandbox.Default() if the agent declared none),
+// so an invalid *runtime* override degrades to what the binary shipped
+// with rather than silently widening access to sandbox.Default(). Only if
+// the compiled sandbox is itself unbuildable does it fall further back to
+// sandbox.Default(). It returns an error only if all three fail (e.g. the
+// working directory is unresolvable); the caller should print that as the
+// single final error line, since this method has already reported each
+// intermediate fallback.
 func (a *Agent) effectiveSandbox() (*sandbox.Sandbox, error) {
 	sb, err := a.buildSandbox()
 	if err == nil {
 		return sb, nil
 	}
-	fmt.Fprintf(os.Stderr, "Error: invalid sandbox config: %v; falling back to the default sandbox (run \"%s config reset sandbox\" to clear the override)\n", err, a.name)
+	fmt.Fprintf(a.stderr, "Error: invalid sandbox config: %v; falling back to the compiled sandbox (run \"%s config reset sandbox\" to clear the override)\n", err, a.name)
 
 	cwd, cwdErr := os.Getwd()
 	if cwdErr != nil {
 		return nil, fmt.Errorf("resolving working directory: %w", cwdErr)
 	}
-	fallback, fallbackErr := sandbox.New(sandbox.Default(), cwd, tools.SpillDir(a.name))
-	if fallbackErr != nil {
-		return nil, fmt.Errorf("building default sandbox: %w", fallbackErr)
+
+	compiled, compiledErr := sandbox.New(a.compiledSandbox, cwd, tools.SpillDir(a.name))
+	if compiledErr == nil {
+		return compiled, nil
 	}
-	return fallback, nil
+	fmt.Fprintf(a.stderr, "Error: compiled sandbox is also invalid: %v; falling back to the default sandbox\n", compiledErr)
+
+	def, defErr := sandbox.New(sandbox.Default(), cwd, tools.SpillDir(a.name))
+	if defErr != nil {
+		return nil, fmt.Errorf("no usable sandbox: effective, compiled, and default configurations all failed to build (default: %w)", defErr)
+	}
+	return def, nil
 }
 
 // sandboxedToolDefs returns the tool definitions with run_command's
@@ -268,7 +291,9 @@ func (a *Agent) sandboxedToolDefs(sb *sandbox.Sandbox) []*tools.Definition {
 func (a *Agent) Execute() int {
 	sb, err := a.effectiveSandbox()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: invalid sandbox config: %v\n", err)
+		// effectiveSandbox has already reported each intermediate fallback
+		// to stderr; this is the single final line for the all-fail case.
+		fmt.Fprintf(a.stderr, "Error: %v\n", err)
 		return 1
 	}
 

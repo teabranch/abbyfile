@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -87,6 +88,8 @@ func TestEffectiveSandbox_FallsBackOnInvalidOverride(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := newTestAgent(t, WithConfigPath(cfgPath))
+	var stderr bytes.Buffer
+	a.stderr = &stderr
 
 	// buildSandbox (no fallback) must fail on the invalid override.
 	if _, err := a.buildSandbox(); err == nil {
@@ -97,6 +100,9 @@ func TestEffectiveSandbox_FallsBackOnInvalidOverride(t *testing.T) {
 	if err != nil {
 		t.Fatalf("effectiveSandbox should fall back, not error: %v", err)
 	}
+	if !strings.Contains(stderr.String(), "falling back to the compiled sandbox") {
+		t.Errorf("stderr = %q, want a message about falling back to the compiled sandbox", stderr.String())
+	}
 	want := sandbox.Default().Normalize()
 	got := sb.Config()
 	if got.Bash != want.Bash || len(got.AllowCommands) != 0 || got.MaxCommandTimeout != want.MaxCommandTimeout {
@@ -104,5 +110,54 @@ func TestEffectiveSandbox_FallsBackOnInvalidOverride(t *testing.T) {
 	}
 	if len(sb.AllowedDirs()) == 0 {
 		t.Fatal("fallback sandbox must still confine to the working directory")
+	}
+}
+
+// Fix round 2: a generated agent's compiled-in sandbox (WithSandbox) can be
+// narrower than sandbox.Default() (e.g. AllowedDirs: ["data"]). If a
+// config.yaml override makes the *effective* sandbox invalid,
+// effectiveSandbox must fall back to that compiled sandbox — not silently
+// widen access to sandbox.Default()'s AllowedDirs: ["."].
+func TestEffectiveSandbox_FallsBackToCompiledNotDefault(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	// A hand-edited config.yaml with an invalid bash value. It does not
+	// touch allowed_dirs, so the compiled AllowedDirs: ["data"] would
+	// otherwise still be in a.sandbox — but the whole effective sandbox is
+	// invalid because of bash, so buildSandbox() must fail wholesale.
+	if err := os.WriteFile(cfgPath, []byte("sandbox:\n  bash: yolo\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a := newTestAgent(t, WithConfigPath(cfgPath), WithSandbox(sandbox.Config{AllowedDirs: []string{"data"}}))
+	var stderr bytes.Buffer
+	a.stderr = &stderr
+
+	if _, err := a.buildSandbox(); err == nil {
+		t.Fatal("buildSandbox should fail on an invalid sandbox.bash override")
+	}
+
+	sb, err := a.effectiveSandbox()
+	if err != nil {
+		t.Fatalf("effectiveSandbox should fall back to the compiled sandbox, not error: %v", err)
+	}
+	if !strings.Contains(stderr.String(), "falling back to the compiled sandbox") {
+		t.Errorf("stderr = %q, want a message about falling back to the compiled sandbox", stderr.String())
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolvedCwd, err := filepath.EvalSymlinks(cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantDir := filepath.Join(resolvedCwd, "data")
+
+	got := sb.AllowedDirs()
+	if len(got) != 1 || got[0] != wantDir {
+		t.Fatalf("fallback AllowedDirs = %v, want [%s] (the compiled sandbox, not the working directory)", got, wantDir)
+	}
+	if got[0] == resolvedCwd {
+		t.Fatal("fallback must not widen to the working directory (sandbox.Default())")
 	}
 }
