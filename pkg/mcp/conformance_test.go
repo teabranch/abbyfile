@@ -9,6 +9,7 @@ import (
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	agentmcp "github.com/teabranch/abbyfile/pkg/mcp"
+	"github.com/teabranch/abbyfile/pkg/memory"
 	"github.com/teabranch/abbyfile/pkg/tools"
 )
 
@@ -64,20 +65,99 @@ func TestDualEra(t *testing.T) { // Review Focus #5 covers the 2025-06-18 row
 	}
 }
 
-func TestToolsListInvariantAcrossConnections(t *testing.T) {
-	a := startBridgeEra(t, eraConfig(t), "")
-	b := startBridgeEra(t, eraConfig(t), "")
-	la, _ := a.ListTools(context.Background(), nil)
-	lb, _ := b.ListTools(context.Background(), nil)
-	ja, _ := json.Marshal(la.Tools)
-	jb, _ := json.Marshal(lb.Tools)
+// TestListsInvariantAcrossConnections is spec A4: two independent connections
+// to the same binary must see byte-identical tools/list, prompts/list, and
+// resources/list results, in sorted order. A memory-enabled config is used so
+// resources/list is non-empty too (memory-context prompt, memory resources).
+func TestListsInvariantAcrossConnections(t *testing.T) {
+	listsConfig := func(t *testing.T) agentmcp.BridgeConfig {
+		t.Helper()
+		store, err := memory.NewFileStoreAt(t.TempDir(), memory.Limits{})
+		if err != nil {
+			t.Fatalf("creating file store: %v", err)
+		}
+		mgr := memory.NewManager(store)
+		if err := mgr.Set("k", "v"); err != nil {
+			t.Fatalf("writing memory key: %v", err)
+		}
+		cfg := eraConfig(t)
+		cfg.Memory = mgr
+		return cfg
+	}
+
+	a := startBridgeEra(t, listsConfig(t), "")
+	b := startBridgeEra(t, listsConfig(t), "")
+	ctx := context.Background()
+
+	la, err := a.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lb, err := b.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ja, err := json.Marshal(la.Tools)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jb, err := json.Marshal(lb.Tools)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if string(ja) != string(jb) {
-		t.Fatalf("tools/list varies per connection")
+		t.Fatalf("tools/list varies per connection:\n%s\nvs\n%s", ja, jb)
 	}
 	for i := 1; i < len(la.Tools); i++ {
 		if la.Tools[i-1].Name > la.Tools[i].Name {
 			t.Fatalf("tools not sorted: %q before %q", la.Tools[i-1].Name, la.Tools[i].Name)
 		}
+	}
+
+	pa, err := a.ListPrompts(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pb, err := b.ListPrompts(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pa.Prompts) == 0 {
+		t.Fatal("prompts/list is empty; nothing to compare")
+	}
+	jpa, err := json.Marshal(pa.Prompts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jpb, err := json.Marshal(pb.Prompts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(jpa) != string(jpb) {
+		t.Fatalf("prompts/list varies per connection:\n%s\nvs\n%s", jpa, jpb)
+	}
+
+	ra, err := a.ListResources(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rb, err := b.ListResources(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ra.Resources) == 0 {
+		t.Fatal("resources/list is empty; nothing to compare")
+	}
+	jra, err := json.Marshal(ra.Resources)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jrb, err := json.Marshal(rb.Resources)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(jra) != string(jrb) {
+		t.Fatalf("resources/list varies per connection:\n%s\nvs\n%s", jra, jrb)
 	}
 }
 
