@@ -70,6 +70,7 @@ func (b *Bridge) ServeTransport(ctx context.Context, transport gomcp.Transport) 
 		Version: b.cfg.Version,
 	}, &gomcp.ServerOptions{
 		Instructions: instructions,
+		SetCacheable: setCacheable,
 	})
 
 	if b.cfg.LazyToolLoading {
@@ -267,6 +268,7 @@ func (b *Bridge) addMemoryResources(server *gomcp.Server) {
 		}
 		data, _ := json.Marshal(keys)
 		return &gomcp.ReadResourceResult{
+			Cacheable: gomcp.Cacheable{TTLMs: 0, CacheScope: "private"},
 			Contents: []*gomcp.ResourceContents{{
 				URI:      indexURI,
 				MIMEType: "application/json",
@@ -296,6 +298,7 @@ func (b *Bridge) addMemoryResources(server *gomcp.Server) {
 		}
 
 		return &gomcp.ReadResourceResult{
+			Cacheable: gomcp.Cacheable{TTLMs: 0, CacheScope: "private"},
 			Contents: []*gomcp.ResourceContents{{
 				URI:      req.Params.URI,
 				MIMEType: "text/plain",
