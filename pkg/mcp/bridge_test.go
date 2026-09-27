@@ -687,3 +687,27 @@ func TestBridgeInlineLargeIgnoredWarnsWhenUnlimited(t *testing.T) {
 		t.Errorf("expected an 'inline_large ignored' warning in the log, got: %q", logBuf.String())
 	}
 }
+
+// TestBridgeHandshakeLogsLoaderError covers M6: handshakeInstructions used to
+// silently swallow a Loader.Load() error, yielding an empty eager handshake
+// with no get_instructions fallback and no diagnostic. A loader pointed at a
+// path missing from its embed.FS reproduces the failure cheaply.
+func TestBridgeHandshakeLogsLoaderError(t *testing.T) {
+	r := tools.NewRegistry()
+	badLoader := prompt.NewLoader("test-agent", testPromptFS, "testdata/does-not-exist.md")
+
+	var logBuf bytes.Buffer
+	startBridgeWithConfig(t, agentmcp.BridgeConfig{
+		Name:              "test-agent",
+		Version:           "v0.1.0",
+		Registry:          r,
+		Executor:          tools.NewExecutor(30*time.Second, nil),
+		Loader:            badLoader,
+		Logger:            slog.New(slog.NewTextHandler(&logBuf, nil)),
+		EagerInstructions: true,
+	})
+
+	if !strings.Contains(logBuf.String(), "loading instructions for handshake") {
+		t.Errorf("expected a handshake loader-error log, got: %q", logBuf.String())
+	}
+}

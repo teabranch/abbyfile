@@ -346,7 +346,10 @@ const instructionsStub = "Call the `get_instructions` tool to load your full ins
 // EagerInstructions is false, it returns the role line plus instructionsStub;
 // get_instructions serves the full prompt on demand.
 func (b *Bridge) handshakeInstructions() string {
-	full, _ := b.cfg.Loader.Load()
+	full, err := b.cfg.Loader.Load()
+	if err != nil {
+		b.logger.Error("loading instructions for handshake", "error", err)
+	}
 	full = b.appendModelHint(full)
 	if b.cfg.EagerInstructions {
 		return full
