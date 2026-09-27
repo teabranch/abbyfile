@@ -49,9 +49,10 @@ type Agent struct {
 
 	configPath string // override config.yaml path (for testing)
 
-	budget          tools.ContextBudget
-	sandbox         sandbox.Config
-	compiledSandbox sandbox.Config // a.sandbox as compiled, before config.yaml overrides; effectiveSandbox's first fallback
+	budget            tools.ContextBudget
+	sandbox           sandbox.Config
+	compiledSandbox   sandbox.Config // a.sandbox as compiled, before config.yaml overrides; effectiveSandbox's first fallback
+	sandboxOverridden bool           // true once applyConfigOverrides applies a sandbox: field from config.yaml; distinguishes "compiled sandbox is broken" from "the override broke it" in effectiveSandbox
 
 	logger *slog.Logger
 	stderr io.Writer // defaults to os.Stderr; overridable in tests to capture fallback messages
@@ -197,6 +198,9 @@ func (a *Agent) applyConfigOverrides(cfg *config.Config) {
 	}
 	if cfg.Sandbox != nil {
 		so := cfg.Sandbox
+		if so.AllowedDirs != nil || so.Bash != nil || so.AllowCommands != nil || so.MaxCommandTimeout != nil {
+			a.sandboxOverridden = true
+		}
 		if so.AllowedDirs != nil {
 			a.sandbox.AllowedDirs = *so.AllowedDirs
 		}
@@ -238,38 +242,46 @@ func (a *Agent) buildSandbox() (*sandbox.Sandbox, error) {
 // configured sandbox (compiled defaults plus any config.yaml override) fails
 // to build — e.g. a hand-edited config.yaml (or one written before
 // validation caught a value like sandbox.allowed_dirs: [""]) left it
-// invalid — it prints a warning and falls back to the compiled-in sandbox
-// (WithSandbox's value, or sandbox.Default() if the agent declared none),
-// so an invalid *runtime* override degrades to what the binary shipped
-// with rather than silently widening access to sandbox.Default(). Only if
-// the compiled sandbox is itself unbuildable does it fall further back to
-// sandbox.Default(). It returns an error only if all three fail (e.g. the
-// working directory is unresolvable); the caller should print that as the
-// single final error line, since this method has already reported each
-// intermediate fallback.
+// invalid — it prints a warning to stderr and falls back.
+//
+// When a config.yaml sandbox override is what applied (a.sandboxOverridden),
+// it retries the compiled-in sandbox (WithSandbox's value, or
+// sandbox.Default() if the agent declared none) with a "config reset
+// sandbox" hint, so an invalid *runtime* override degrades to what the
+// binary shipped with rather than silently widening access. Without an
+// override, the effective sandbox already IS the compiled one, so that
+// retry would fail identically and is skipped.
+//
+// If the compiled sandbox is itself unbuildable (with or without an
+// override), tier 3 is sandbox.DenyAll(): no allowed directories, no
+// allowed commands. File and command tools are disabled until the compiled
+// sandbox (or the override) is fixed, but the CLI itself stays usable, so
+// this method always returns err=nil once buildSandbox has failed; it never
+// widens access to sandbox.Default() as a fallback.
 func (a *Agent) effectiveSandbox() (*sandbox.Sandbox, error) {
 	sb, err := a.buildSandbox()
 	if err == nil {
 		return sb, nil
 	}
+
+	if !a.sandboxOverridden {
+		fmt.Fprintf(a.stderr, "Error: compiled sandbox is invalid: %v; file and command tools are disabled until this is fixed\n", err)
+		return sandbox.DenyAll(), nil
+	}
+
 	fmt.Fprintf(a.stderr, "Error: invalid sandbox config: %v; falling back to the compiled sandbox (run \"%s config reset sandbox\" to clear the override)\n", err, a.name)
 
 	cwd, cwdErr := os.Getwd()
-	if cwdErr != nil {
-		return nil, fmt.Errorf("resolving working directory: %w", cwdErr)
+	compiledErr := cwdErr
+	if cwdErr == nil {
+		var compiled *sandbox.Sandbox
+		compiled, compiledErr = sandbox.New(a.compiledSandbox, cwd, tools.SpillDir(a.name))
+		if compiledErr == nil {
+			return compiled, nil
+		}
 	}
-
-	compiled, compiledErr := sandbox.New(a.compiledSandbox, cwd, tools.SpillDir(a.name))
-	if compiledErr == nil {
-		return compiled, nil
-	}
-	fmt.Fprintf(a.stderr, "Error: compiled sandbox is also invalid: %v; falling back to the default sandbox\n", compiledErr)
-
-	def, defErr := sandbox.New(sandbox.Default(), cwd, tools.SpillDir(a.name))
-	if defErr != nil {
-		return nil, fmt.Errorf("no usable sandbox: effective, compiled, and default configurations all failed to build (default: %w)", defErr)
-	}
-	return def, nil
+	fmt.Fprintf(a.stderr, "Error: compiled sandbox is also invalid: %v; file and command tools are disabled until this is fixed\n", compiledErr)
+	return sandbox.DenyAll(), nil
 }
 
 // sandboxedToolDefs returns the tool definitions with run_command's
