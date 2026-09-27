@@ -23,15 +23,17 @@ Example tool listing for an agent with `tools: Read, Write` and memory enabled:
 
 ### Server Instructions
 
-The system prompt is returned as the MCP server's `instructions` field by `server/discover` (MCP 2026-07-28) or `initialize` (legacy clients on 2025-11-25/2025-06-18). MCP clients that support server instructions receive the prompt automatically.
+The handshake (`server/discover` for MCP 2026-07-28, or `initialize` for legacy clients on 2025-11-25/2025-06-18) always sets the MCP server's `instructions` field, but what it carries depends on `eager_instructions`. When `eager_instructions: true`, it carries the full system prompt. By default (`eager_instructions: false`), it carries a short stub instead, telling the model to call the `get_instructions` tool to load the full prompt on demand. See [Context Budget](context-budget.md#instructions-behavior-eager_instructions) for the full behavior and how to change it.
 
-If a model hint is configured (via the agent definition or a config override), a `## Model Preference` section is appended to the instructions, e.g.:
+If a model hint is configured (via the agent definition or a config override), a `## Model Preference` section is appended to the full prompt, e.g.:
 
 ```
 ## Model Preference
 
 This agent was designed for model: claude-opus-4-6
 ```
+
+In eager mode this hint is sent directly in the handshake, as part of the full prompt. In the default (non-eager) mode, the handshake stub doesn't carry it — it's included in the text returned by the `get_instructions` tool instead.
 
 This is informational — the runtime decides which model to use.
 
