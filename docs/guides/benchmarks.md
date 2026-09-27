@@ -118,6 +118,31 @@ Savings (cumulative tokens avoided):
 
 Over 20 turns: GitHub MCP costs 1,100,000T cumulative. Abbyfile costs 33,620T. **33x reduction.**
 
+### Per-session handshake cost (v0.10.0, Phase D)
+
+What a client pays before the first tool call: `tools/list` schemas plus the
+server `instructions` actually delivered by `server/discover` / `initialize`.
+Representative agent: all 6 builtins + memory (5 tools) = 11 tools, with
+`benchmarks/testdata/system.md` as the system prompt. The Tools column also
+counts `get_instructions` whenever the bridge registers it: the before rows
+show 12 tools in both modes because the pre-Phase-D bridge always registered
+`get_instructions` regardless of `eager_instructions`. The after rows show
+12 tools when `eager_instructions=false` (the stub points at
+`get_instructions`) and 11 when `true` — `get_instructions` is gone from that
+row's `tools/list` (D-2).
+Measured with `go test ./benchmarks/ -run TestHandshakeContextCost -v` (bytes/4 estimate).
+
+| Build | `eager_instructions` | Tools | tools/list | Instructions | Total |
+|---|---|---|---|---|---|
+| v0.9.x (before) | false | 12 | ~1191 | ~26 | ~1217 |
+| v0.9.x (before) | true | 12 | ~1191 | ~845 | ~2036 |
+| v0.10.0 (after) | false | 12 | ~1177 | ~24 | ~1201 |
+| v0.10.0 (after) | true | 11 | ~1113 | ~845 | ~1958 |
+
+- **Lazy loading removal (D-1):** no change in these numbers. `search_tools` was never wired into `serve-mcp`, so no shipped agent used it; removing it fixes uncallable tools rather than saving context.
+- **`get_instructions` (D-2):** eager agents drop one tool schema from every `tools/list` (~1191 → ~1113 tokens, −78; total ~2036 → ~1958, −78). For non-eager agents the stub and the tool description changed wording, so the size shifts slightly too (tools/list ~1191 → ~1177, −14; total ~1217 → ~1201, −16). Their stub now tells the model to call the tool.
+- **`inline_large` (D-3):** opt-in, and it raises how much output stays inline. No saving is claimed.
+
 ### Claude Code Baseline Analysis
 
 Claude Code itself consumes context before any MCP servers are loaded. These are manual estimates from session transcripts — not live-validated (we can't send Claude Code's internal tool schemas to count_tokens). The bytes/4 heuristic underestimates by ~31%, so actual baseline is likely higher.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type memorySink struct {
@@ -19,7 +20,10 @@ func NewMemorySink(agentName string, set func(key, value string) error) SpillSin
 }
 
 func (s *memorySink) Put(key, value string) (string, error) {
-	fullKey := key + "-" + shortHash(value)
+	// Memory keys are flat file names (memory.validateKey rejects path
+	// separators), so flatten the shaper's "spill/<tool>" key.
+	flat := strings.NewReplacer("/", "-", `\`, "-").Replace(key)
+	fullKey := flat + "-" + shortHash(value)
 	if err := s.set(fullKey, value); err != nil {
 		return "", fmt.Errorf("spill to memory: %w", err)
 	}

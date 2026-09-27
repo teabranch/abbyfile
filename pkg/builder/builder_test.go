@@ -380,3 +380,54 @@ func TestGenerateSource_NoCustomTools(t *testing.T) {
 		t.Error("main.go should not import tools package without custom tools")
 	}
 }
+
+func TestGenerateSource_PerToolInlineLarge(t *testing.T) {
+	dir := t.TempDir()
+	def := &definition.AgentDef{
+		Name: "p", Version: "0.0.1", Description: "d", Tools: []string{"Bash"},
+		PromptBody: "body",
+		ContextBudget: &definition.ContextBudgetDef{
+			PerTool: map[string]definition.ContextBudgetDef{
+				"run_command": {InlineLarge: true},
+			},
+		},
+	}
+	if err := GenerateSource(dir, def, "v0.9.1", ""); err != nil {
+		t.Fatalf("GenerateSource: %v", err)
+	}
+	src, err := os.ReadFile(filepath.Join(dir, "main.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(src), "InlineLarge: true") {
+		t.Fatalf("generated main.go lacks InlineLarge: true\n%s", src)
+	}
+	if _, err := parser.ParseFile(token.NewFileSet(), "main.go", src, parser.AllErrors); err != nil {
+		t.Fatalf("generated main.go is not valid Go: %v\n%s", err, src)
+	}
+}
+
+// Agents that don't opt in must not reference the field at all, so they
+// still compile against an abbyfile module that predates it.
+func TestGenerateSource_PerToolWithoutInlineLarge_OmitsField(t *testing.T) {
+	dir := t.TempDir()
+	def := &definition.AgentDef{
+		Name: "p", Version: "0.0.1", Description: "d", Tools: []string{"Bash"},
+		PromptBody: "body",
+		ContextBudget: &definition.ContextBudgetDef{
+			PerTool: map[string]definition.ContextBudgetDef{
+				"run_command": {OnOverflow: "spill"},
+			},
+		},
+	}
+	if err := GenerateSource(dir, def, "v0.9.1", ""); err != nil {
+		t.Fatalf("GenerateSource: %v", err)
+	}
+	src, err := os.ReadFile(filepath.Join(dir, "main.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(src), "InlineLarge") {
+		t.Fatalf("generated main.go must not mention InlineLarge when unset\n%s", src)
+	}
+}

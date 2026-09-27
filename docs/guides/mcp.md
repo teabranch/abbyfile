@@ -14,24 +14,26 @@ When you run `./my-agent serve-mcp`, the MCP server registers:
 
 ### Tools
 
-Every tool registered via `WithTools()` plus the automatically registered memory tools (if memory is enabled). Additionally, a `get_instructions` tool is always registered for backward compatibility.
+Every tool registered via `WithTools()` plus the automatically registered memory tools (if memory is enabled). Additionally, a `get_instructions` tool is registered when `eager_instructions` is false (the default); see [Context Budget](context-budget.md#instructions-behavior-eager_instructions).
 
 Example tool listing for an agent with `tools: Read, Write` and memory enabled:
 - `read_file`, `write_file` -- builtin tools
 - `memory_read`, `memory_write`, `memory_list`, `memory_delete` -- memory tools
-- `get_instructions` -- returns the system prompt
+- `get_instructions` -- returns the system prompt (non-eager agents only)
 
 ### Server Instructions
 
-The system prompt is returned as the MCP server's `instructions` field by `server/discover` (MCP 2026-07-28) or `initialize` (legacy clients on 2025-11-25/2025-06-18). MCP clients that support server instructions receive the prompt automatically.
+The handshake (`server/discover` for MCP 2026-07-28, or `initialize` for legacy clients on 2025-11-25/2025-06-18) always sets the MCP server's `instructions` field, but what it carries depends on `eager_instructions`. When `eager_instructions: true`, it carries the full system prompt. By default (`eager_instructions: false`), it carries a short stub instead, telling the model to call the `get_instructions` tool to load the full prompt on demand. See [Context Budget](context-budget.md#instructions-behavior-eager_instructions) for the full behavior and how to change it.
 
-If a model hint is configured (via the agent definition or a config override), a `## Model Preference` section is appended to the instructions, e.g.:
+If a model hint is configured (via the agent definition or a config override), a `## Model Preference` section is appended to the full prompt, e.g.:
 
 ```
 ## Model Preference
 
 This agent was designed for model: claude-opus-4-6
 ```
+
+In eager mode this hint is sent directly in the handshake, as part of the full prompt. In the default (non-eager) mode, the handshake stub doesn't carry it — it's included in the text returned by the `get_instructions` tool instead.
 
 This is informational — the runtime decides which model to use.
 
@@ -58,7 +60,7 @@ picks the version; no configuration is needed.
   hour (`ttlMs: 3600000`, `cacheScope: public`). Memory reads are never
   cached (`ttlMs: 0`, `cacheScope: private`).
 - Tools that declare an `outputSchema` return `structuredContent`, plus a
-  JSON text copy. Their output must be one JSON value within the tool's
+  JSON text copy. Their output must be one non-null JSON value within the tool's
   `max_output_bytes`; structured output is never truncated.
 - Tool names must match `^[A-Za-z0-9_.-]{1,128}$`.
 

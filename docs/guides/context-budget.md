@@ -63,7 +63,7 @@ You are a build/test runner...
 | `tail_lines` | int | Lines kept from the bottom of the output under `head-tail`/`spill`. |
 | `summary_lines` | int | Caps the return-protocol summary emitted for sub-agent output (Layer A only — see [`--subagent`](#the---subagent-flag)). |
 | `eager_instructions` | bool | Whether the full system prompt is injected eagerly at the MCP handshake. `false` sends a short stub instead (see [Instructions Behavior](#instructions-behavior-eager_instructions)). |
-| `per_tool` | map | Sparse per-tool overrides, keyed by MCP tool name (e.g. `run_command`, `read_file`). Any field left unset inherits from the base budget. Only `max_output_lines`, `max_output_bytes`, `on_overflow`, `head_lines`, and `tail_lines` are honored per-tool; `summary_lines` and `eager_instructions` only apply at the base-budget level. |
+| `per_tool` | map | Sparse per-tool overrides, keyed by MCP tool name (e.g. `run_command`, `read_file`). Any field left unset inherits from the base budget. Only `max_output_lines`, `max_output_bytes`, `on_overflow`, `head_lines`, `tail_lines`, and `inline_large` are honored per-tool; `summary_lines` and `eager_instructions` only apply at the base-budget level. |
 
 Validation happens at parse time (`pkg/definition/agent.go`'s `validateContextBudget`): `on_overflow` must be one of the three known strategies (or empty, which falls back to the default), and all numeric fields must be non-negative. This applies to both the base block and every `per_tool` entry. An invalid value fails `abby build` immediately. At `config set` time (see [Consumer Overrides](#consumer-overrides)), `on_overflow` is re-validated against the known strategies, but numeric fields are only checked for parseability — a negative value written via `config set` is not rejected there, so prefer setting limits in frontmatter where the non-negativity rule is enforced.
 
@@ -84,7 +84,7 @@ The assembled preview is then hard-truncated to `max_output_bytes` as a backstop
 Same head-tail preview, but the *full* raw output is persisted via a `SpillSink` first, and the preview is appended with a pointer:
 
 ```
-Full output saved to memory://my-agent/spill/run_command. Fetch it if you need the elided detail.
+Full output saved to memory://my-agent/spill-run_command-3f2a9c1b7e4d. Fetch it if you need the elided detail.
 ```
 
 Nothing is lost — the agent (or a human) can fetch the full content later. Use this for tools where the elided detail sometimes actually matters (verbose diffs, full log dumps) and losing it would hurt more than the extra round-trip to fetch it back.
@@ -95,6 +95,10 @@ Two sink implementations are wired automatically based on whether memory is enab
 - **Temp-file** (`tools.NewTempFileSink`) — when memory is disabled, spills land under `~/.abbyfile/<name>/spill/` and are addressable as `file://` URIs.
 
 If a spill write fails (or no sink is available), the shaper never drops the cap silently — it degrades to `head-tail` and annotates the marker with `(spill unavailable — output truncated)`.
+
+**Accumulation.** Every distinct overflowing output writes a new key, `spill-<tool>-<hash>` (content-addressed by a hash of the raw output), into the same store as the agent's own `memory_write`/`memory_read` tools — nothing currently evicts or rotates these keys. If the agent sets capacity limits via `agent.WithMemoryLimits(memory.Limits{...})` (see [Memory Guide](./memory.md#limits-configuration)), accumulated spill keys count toward `MaxKeys`/`MaxTotalBytes` alongside the agent's own writes, and enough spill traffic can make a later `memory_write` call fail once a limit is reached. A spill whose value is itself larger than `MaxValueBytes` fails to write and falls back to the `head-tail` degrade path described above, on that call only.
+
+If you use `on_overflow: spill` together with memory limits, consider also setting a `TTL` (`memory.Limits{TTL: 72 * time.Hour}` at build time, or the equivalent `ttl` duration string, e.g. `"72h"`, under `memory_limits:` in `~/.abbyfile/<name>/config.yaml` at runtime — `config set` does not yet expose `memory_limits.*` fields, so a runtime override means hand-editing that file) so old entries expire. This only marks a key as expired for `Read`/`memory_read` (`pkg/memory/store.go`'s `checkExpired`); nothing currently deletes the underlying file or excludes it from `Keys()`, so it does **not** shrink the `MaxKeys`/`MaxTotalBytes` accounting and does not by itself stop spill accumulation from reaching those limits. Dedicated eviction/rotation for spill keys is a tracked follow-up, not implemented in this release.
 
 ### `passthrough`
 
@@ -174,17 +178,37 @@ The summary cap (`≤25-line` above) comes from the agent's effective `summary_l
 
 ## Instructions Behavior (`eager_instructions`)
 
-By default (`eager_instructions: false`), the MCP handshake does **not** send the full system prompt as the server's `instructions`. Instead it sends a short stub:
+By default (`eager_instructions: false`), the MCP handshake (`server/discover`, or `initialize` for older clients) does **not** send the full system prompt as the server's `instructions`. It sends a short stub:
 
 ```
 <description or agent name>
 
-Full instructions are available via the `system` prompt or the `get_instructions` tool.
+Call the `get_instructions` tool to load your full instructions before acting.
 ```
 
-The full prompt is unchanged and still reachable on demand through the existing channels — the `system` MCP prompt template and the `get_instructions` tool both still return the complete text. This just avoids paying for the full prompt's tokens on every session handshake when the runtime may never need it.
+In this mode the agent registers a `get_instructions` tool that returns the full prompt (plus the model hint, if any). The `system` MCP prompt also returns it, but prompts are user-invoked (slash commands in Claude Code), so the model reaches the prompt through the tool.
 
-Set `eager_instructions: true` (in frontmatter, or via `config set context_budget.eager_instructions true`) to restore the previous behavior and inject the full prompt eagerly at handshake time — useful for agents whose instructions are short enough that the stub indirection isn't worth it, or where you want the prompt visible without an extra tool round-trip.
+Set `eager_instructions: true` (in frontmatter, or with `config set context_budget.eager_instructions true`) to send the full prompt in the handshake. `get_instructions` is then **not** registered, since it would only duplicate the handshake and cost context on every turn. This suits agents with short instructions.
+
+Changing this value changes `tools/list`. Servers read config only at start-up, and clients may cache `tools/list` for up to an hour. So after `config set`, restart the runtime session (for example, restart Claude Code) so that it re-lists tools.
+
+## Large inline results (`inline_large`, Claude Code)
+
+Claude Code keeps an MCP tool result inline up to about 25k tokens (`MAX_MCP_OUTPUT_TOKENS`). Larger results are saved to a file and replaced with a pointer. For a tool whose large output you want kept inline, opt in per tool:
+
+```yaml
+context_budget:
+  per_tool:
+    run_command:
+      inline_large: true
+      max_output_bytes: 300000
+```
+
+The agent then advertises `_meta["anthropic/maxResultSizeChars"]` on that tool's definition, set to the tool's effective `max_output_bytes`. Claude Code only ever *raises* its threshold for it. The hint puts **more** into context, so it is off by default and exists purely as an escape hatch.
+
+Rules: `inline_large` is valid only under `per_tool`. The effective cap must be between 1 and 500000; `abby build` rejects anything else. If a runtime `config set context_budget.max_output_bytes` later raises the cap, the hint is clamped to 500000. If it sets the cap to 0 (unlimited), the hint is dropped and a warning is logged.
+
+Because the hint value is derived from the runtime `max_output_bytes`, a `config set context_budget.max_output_bytes` also changes `tools/list` (the advertised `anthropic/maxResultSizeChars` changes or disappears). The same caveat as [`eager_instructions`](#instructions-behavior-eager_instructions) applies: restart the runtime session (for example, restart Claude Code) after the `config set` so it re-lists tools instead of using a cached list.
 
 ## Which Strategy for Which Tool
 

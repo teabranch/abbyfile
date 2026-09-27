@@ -1,8 +1,11 @@
 package agent
 
 import (
+	"bytes"
 	"embed"
+	"log/slog"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/teabranch/abbyfile/pkg/config"
@@ -137,5 +140,22 @@ func TestApplyConfigOverrides_ContextBudget(t *testing.T) {
 	// Untouched fields keep the shipped default.
 	if a.budget.HeadLines != 100 {
 		t.Fatalf("HeadLines = %d, want default 100", a.budget.HeadLines)
+	}
+}
+
+func TestWithLazyToolLoading_DeprecatedWarns(t *testing.T) { // Review Focus #3
+	var buf bytes.Buffer
+	_, err := New(
+		WithName("test"), WithVersion("1.0.0"),
+		WithPromptFS(testFS, "testdata/system.md"),
+		WithConfigPath(filepath.Join(t.TempDir(), "config.yaml")),
+		WithLogger(slog.New(slog.NewTextHandler(&buf, nil))),
+		WithLazyToolLoading(true),
+	)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if !strings.Contains(buf.String(), "WithLazyToolLoading is deprecated") {
+		t.Errorf("expected deprecation warning, log was: %q", buf.String())
 	}
 }

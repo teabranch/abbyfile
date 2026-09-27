@@ -242,3 +242,47 @@ func TestValidateCustomToolsRejectsSpace(t *testing.T) {
 		t.Fatalf("err = %v, want custom_tools[0] in error", err)
 	}
 }
+
+func inlineLargeMD(budgetYAML string) string {
+	return "---\nname: my-agent\n---\n\n---\ndescription: \"test\"\ntools: Read, Bash\ncontext_budget:\n" + budgetYAML + "---\n\nBody."
+}
+
+func TestParseAgentMD_InlineLarge_PerTool(t *testing.T) {
+	def, err := ParseAgentMD(writeTempAgent(t, inlineLargeMD("  per_tool:\n    run_command:\n      inline_large: true\n      max_output_bytes: 300000\n")))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if !def.ContextBudget.PerTool["run_command"].InlineLarge {
+		t.Fatalf("inline_large not parsed: %+v", def.ContextBudget.PerTool)
+	}
+}
+
+func TestParseAgentMD_InlineLarge_InheritsDefaultCap(t *testing.T) {
+	// No max_output_bytes anywhere → effective cap is the 262144 default: valid.
+	if _, err := ParseAgentMD(writeTempAgent(t, inlineLargeMD("  per_tool:\n    run_command:\n      inline_large: true\n"))); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+}
+
+func TestParseAgentMD_InlineLarge_BaseLevelRejected(t *testing.T) { // Review Focus #5
+	_, err := ParseAgentMD(writeTempAgent(t, inlineLargeMD("  inline_large: true\n")))
+	if err == nil || !strings.Contains(err.Error(), "per_tool") {
+		t.Fatalf("want error pointing at per_tool, got %v", err)
+	}
+}
+
+func TestParseAgentMD_InlineLarge_CapBounds(t *testing.T) { // Review Focus #4
+	cases := map[string]string{
+		"per-tool above ceiling": "  per_tool:\n    run_command:\n      inline_large: true\n      max_output_bytes: 600000\n",
+		"inherited unlimited":    "  max_output_bytes: 0\n  per_tool:\n    run_command:\n      inline_large: true\n",
+		"inherited above":        "  max_output_bytes: 900000\n  per_tool:\n    run_command:\n      inline_large: true\n",
+	}
+	for name, yml := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := ParseAgentMD(writeTempAgent(t, inlineLargeMD(yml)))
+			if err == nil || !strings.Contains(err.Error(), "run_command") || !strings.Contains(err.Error(), "500000") {
+				t.Fatalf("want error naming run_command and 500000, got %v", err)
+			}
+		})
+	}
+}

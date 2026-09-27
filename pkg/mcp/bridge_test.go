@@ -1,9 +1,11 @@
 package mcp_test
 
 import (
+	"bytes"
 	"context"
 	"embed"
 	"fmt"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -464,111 +466,51 @@ func TestBridgeMemoryContextPrompt(t *testing.T) {
 	}
 }
 
-func TestBridgeLazyToolLoadingSearchTools(t *testing.T) {
+func TestBridgeLazyToolLoadingIgnored(t *testing.T) { // Review Focus #3
 	registry := tools.NewRegistry()
-	_ = registry.Register(tools.BuiltinTool(
-		"echo",
-		"Echo back the input message",
-		map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"message": map[string]any{"type": "string"},
-			},
-		},
+	_ = registry.Register(tools.BuiltinTool("echo", "Echo back the input message",
+		map[string]any{"type": "object", "properties": map[string]any{"message": map[string]any{"type": "string"}}},
 		func(input map[string]any) (string, error) {
 			msg, _ := input["message"].(string)
 			return "echo: " + msg, nil
-		},
-	))
-	_ = registry.Register(tools.BuiltinTool(
-		"file_read",
-		"Read a file from disk",
-		map[string]any{"type": "object", "properties": map[string]any{}},
-		func(input map[string]any) (string, error) { return "content", nil },
-	))
+		}))
 
+	var logBuf bytes.Buffer
 	session, _ := startBridgeWithConfig(t, agentmcp.BridgeConfig{
 		Name:            "test-agent",
 		Version:         "v0.1.0",
 		Registry:        registry,
 		Executor:        tools.NewExecutor(30*time.Second, nil),
 		Loader:          newTestLoader(t),
+		Logger:          slog.New(slog.NewTextHandler(&logBuf, nil)),
 		LazyToolLoading: true,
 	})
 	ctx := context.Background()
 
-	// List tools — in lazy mode should only see search_tools + get_instructions = 2.
-	listResult, err := session.ListTools(ctx, nil)
+	list, err := session.ListTools(ctx, nil)
 	if err != nil {
 		t.Fatalf("list tools: %v", err)
 	}
-	if len(listResult.Tools) != 2 {
-		names := make([]string, len(listResult.Tools))
-		for i, tool := range listResult.Tools {
-			names[i] = tool.Name
-		}
-		t.Fatalf("expected 2 tools in lazy mode, got %d: %v", len(listResult.Tools), names)
+	names := map[string]bool{}
+	for _, tool := range list.Tools {
+		names[tool.Name] = true
+	}
+	if names["search_tools"] {
+		t.Error("search_tools must not be registered")
+	}
+	if !names["echo"] {
+		t.Errorf("echo must be listed even with LazyToolLoading set; got %v", names)
 	}
 
-	var foundSearch, foundInstructions bool
-	for _, tool := range listResult.Tools {
-		switch tool.Name {
-		case "search_tools":
-			foundSearch = true
-		case "get_instructions":
-			foundInstructions = true
-		}
+	res, err := session.CallTool(ctx, &gomcp.CallToolParams{Name: "echo", Arguments: map[string]any{"message": "hi"}})
+	if err != nil || res.IsError {
+		t.Fatalf("echo call: err=%v isError=%v", err, res != nil && res.IsError)
 	}
-	if !foundSearch {
-		t.Error("search_tools not found in lazy mode")
+	if got := extractText(res); got != "echo: hi" {
+		t.Errorf("echo = %q", got)
 	}
-	if !foundInstructions {
-		t.Error("get_instructions not found in lazy mode")
-	}
-
-	// Call search_tools with a query matching "echo".
-	result, err := session.CallTool(ctx, &gomcp.CallToolParams{
-		Name:      "search_tools",
-		Arguments: map[string]any{"query": "echo"},
-	})
-	if err != nil {
-		t.Fatalf("call search_tools: %v", err)
-	}
-	if result.IsError {
-		t.Fatalf("search_tools returned error: %s", extractText(result))
-	}
-	text := extractText(result)
-	if !strings.Contains(text, "echo") {
-		t.Errorf("search result should contain 'echo', got %q", text)
-	}
-	if strings.Contains(text, "file_read") {
-		t.Errorf("search result should not contain 'file_read' for query 'echo', got %q", text)
-	}
-
-	// Call search_tools with a query matching by description.
-	result2, err := session.CallTool(ctx, &gomcp.CallToolParams{
-		Name:      "search_tools",
-		Arguments: map[string]any{"query": "file"},
-	})
-	if err != nil {
-		t.Fatalf("call search_tools (file): %v", err)
-	}
-	text2 := extractText(result2)
-	if !strings.Contains(text2, "file_read") {
-		t.Errorf("search result should contain 'file_read', got %q", text2)
-	}
-
-	// Call search_tools with no matches.
-	result3, err := session.CallTool(ctx, &gomcp.CallToolParams{
-		Name:      "search_tools",
-		Arguments: map[string]any{"query": "nonexistent_xyz"},
-	})
-	if err != nil {
-		t.Fatalf("call search_tools (no match): %v", err)
-	}
-	text3 := extractText(result3)
-	if !strings.Contains(text3, "No tools matched") {
-		t.Errorf("expected 'No tools matched' message, got %q", text3)
+	if !strings.Contains(logBuf.String(), "LazyToolLoading is deprecated") {
+		t.Errorf("expected deprecation warning, log was: %q", logBuf.String())
 	}
 }
 
@@ -671,4 +613,101 @@ func extractText(result *gomcp.CallToolResult) string {
 		}
 	}
 	return ""
+}
+
+func TestBridgeResultSizeHintMeta(t *testing.T) {
+	r := tools.NewRegistry()
+	noop := func(map[string]any) (string, error) { return "", nil }
+	for _, name := range []string{"big", "plain"} {
+		_ = r.Register(tools.BuiltinTool(name, name, map[string]any{"type": "object"}, noop))
+	}
+	b := tools.DefaultContextBudget()
+	b.PerTool = map[string]tools.ContextBudget{"big": {InlineLarge: true, MaxOutputBytes: 300000}}
+
+	session, _ := startBridgeWithConfig(t, agentmcp.BridgeConfig{
+		Name: "test-agent", Version: "v0.1.0", Registry: r,
+		Executor: tools.NewExecutor(30*time.Second, nil, tools.WithContextBudget(b, nil)),
+		Loader:   newTestLoader(t),
+	})
+	list, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range list.Tools {
+		got, has := tool.Meta["anthropic/maxResultSizeChars"]
+		switch tool.Name {
+		case "big":
+			if n, ok := got.(float64); !ok || n != 300000 {
+				t.Errorf("big _meta = %#v, want anthropic/maxResultSizeChars=300000", tool.Meta)
+			}
+		default:
+			if has {
+				t.Errorf("%s must not carry maxResultSizeChars: %#v", tool.Name, tool.Meta)
+			}
+		}
+	}
+}
+
+// TestBridgeInlineLargeIgnoredWarnsWhenUnlimited covers M5: a tool that opts
+// into inline_large under a base budget with an unlimited (0) MaxOutputBytes
+// must not advertise anthropic/maxResultSizeChars (there's no cap to hint),
+// and addTool must log a warning explaining why the opt-in was ignored.
+func TestBridgeInlineLargeIgnoredWarnsWhenUnlimited(t *testing.T) {
+	r := tools.NewRegistry()
+	noop := func(map[string]any) (string, error) { return "", nil }
+	_ = r.Register(tools.BuiltinTool("t", "t", map[string]any{"type": "object"}, noop))
+
+	b := tools.ContextBudget{
+		MaxOutputBytes: 0, // unlimited at the base level.
+		OnOverflow:     tools.OverflowHeadTail,
+		PerTool:        map[string]tools.ContextBudget{"t": {InlineLarge: true}},
+	}
+
+	var logBuf bytes.Buffer
+	session, _ := startBridgeWithConfig(t, agentmcp.BridgeConfig{
+		Name: "test-agent", Version: "v0.1.0", Registry: r,
+		Executor: tools.NewExecutor(30*time.Second, nil, tools.WithContextBudget(b, nil)),
+		Loader:   newTestLoader(t),
+		Logger:   slog.New(slog.NewTextHandler(&logBuf, nil)),
+	})
+
+	list, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range list.Tools {
+		if tool.Name != "t" {
+			continue
+		}
+		if _, has := tool.Meta["anthropic/maxResultSizeChars"]; has {
+			t.Errorf("t must not carry maxResultSizeChars when unlimited: %#v", tool.Meta)
+		}
+	}
+	if !strings.Contains(logBuf.String(), "inline_large ignored") {
+		t.Errorf("expected an 'inline_large ignored' warning in the log, got: %q", logBuf.String())
+	}
+}
+
+// TestBridgeHandshakeLogsLoaderError covers M6: handshakeInstructions used to
+// silently swallow a Loader.Load() error, yielding an empty eager handshake
+// with no get_instructions fallback and no diagnostic. A loader pointed at a
+// path missing from its embed.FS reproduces the failure cheaply.
+func TestBridgeHandshakeLogsLoaderError(t *testing.T) {
+	r := tools.NewRegistry()
+	badLoader := prompt.NewLoader("test-agent", testPromptFS, "testdata/does-not-exist.md")
+
+	var logBuf bytes.Buffer
+	startBridgeWithConfig(t, agentmcp.BridgeConfig{
+		Name:              "test-agent",
+		Version:           "v0.1.0",
+		Registry:          r,
+		Executor:          tools.NewExecutor(30*time.Second, nil),
+		Loader:            badLoader,
+		Logger:            slog.New(slog.NewTextHandler(&logBuf, nil)),
+		EagerInstructions: true,
+	})
+
+	if !strings.Contains(logBuf.String(), "loading instructions for handshake") {
+		t.Errorf("expected a handshake loader-error log, got: %q", logBuf.String())
+	}
 }

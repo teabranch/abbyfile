@@ -20,23 +20,32 @@ import (
 
 // BridgeConfig holds everything the MCP bridge needs to expose an agent.
 type BridgeConfig struct {
-	Name            string
-	Version         string
-	Description     string
-	Model           string // model hint/recommendation for the runtime
-	Registry        *tools.Registry
-	Executor        *tools.Executor
-	Loader          *prompt.Loader
-	Memory          *memory.Manager // nil if memory is disabled
-	Logger          *slog.Logger    // nil disables logging
-	LazyToolLoading bool            // when true, only register search_tools meta-tool initially
+	Name        string
+	Version     string
+	Description string
+	Model       string // model hint/recommendation for the runtime
+	Registry    *tools.Registry
+	Executor    *tools.Executor
+	Loader      *prompt.Loader
+	Memory      *memory.Manager // nil if memory is disabled
+	Logger      *slog.Logger    // nil disables logging
 
-	// EagerInstructions, when true, requests that the bridge include full
-	// custom instructions in the MCP handshake rather than requiring a
-	// separate get_instructions call. Wired here in Task 6; consumed by the
-	// bridge's instruction-injection logic in Task 7.
+	// Deprecated: lazy tool loading was removed in v0.10.0. It listed tools
+	// it never registered, and MCP 2026-07-28 requires a tools/list that
+	// does not change per connection. The field is ignored; setting it
+	// logs a warning. It will be removed in a future release.
+	LazyToolLoading bool
+
+	// EagerInstructions, when true, sends the full custom instructions in the
+	// handshake (server/discover or initialize) and does not register
+	// get_instructions. When false (the default), the handshake carries a
+	// short stub and get_instructions serves the full text on demand.
 	EagerInstructions bool
 }
+
+// metaMaxResultSizeChars is the Claude Code tool-definition _meta key that
+// raises a tool's inline-result threshold (https://code.claude.com/docs/en/mcp.md).
+const metaMaxResultSizeChars = "anthropic/maxResultSizeChars"
 
 // Bridge translates an abbyfile tools.Registry into an MCP server.
 type Bridge struct {
@@ -80,16 +89,17 @@ func (b *Bridge) ServeTransport(ctx context.Context, transport gomcp.Transport) 
 	})
 
 	if b.cfg.LazyToolLoading {
-		// In lazy mode, only register the search_tools meta-tool and
-		// get_instructions initially. Clients discover tools via search.
-		b.addSearchToolsTool(server)
-		b.addGetInstructionsTool(server)
-	} else {
-		// Register each abbyfile tool as an MCP tool.
-		for _, def := range b.cfg.Registry.All() {
-			b.addTool(server, def)
-		}
-		// Register the special get_instructions tool (backward compatibility).
+		b.logger.Warn("BridgeConfig.LazyToolLoading is deprecated and ignored; all tools are registered")
+	}
+
+	// Register each abbyfile tool as an MCP tool.
+	for _, def := range b.cfg.Registry.All() {
+		b.addTool(server, def)
+	}
+	// A non-eager handshake carries only a stub pointing at get_instructions,
+	// so the tool must exist. An eager handshake already carries the full
+	// text, so the tool would only cost context.
+	if !b.cfg.EagerInstructions {
 		b.addGetInstructionsTool(server)
 	}
 
@@ -131,6 +141,12 @@ func (b *Bridge) addTool(server *gomcp.Server, def *tools.Definition) {
 		}
 	}
 
+	if chars, requested := b.cfg.Executor.ResultSizeHint(def.Name); chars > 0 {
+		tool.Meta = gomcp.Meta{metaMaxResultSizeChars: chars}
+	} else if requested {
+		b.logger.Warn("inline_large ignored: tool's max_output_bytes is unlimited", "tool", def.Name)
+	}
+
 	// Capture def for the closure.
 	d := def
 	server.AddTool(tool, func(ctx context.Context, req *gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
@@ -169,11 +185,11 @@ func (b *Bridge) addTool(server *gomcp.Server, def *tools.Definition) {
 }
 
 // addGetInstructionsTool registers the get_instructions tool that returns
-// the agent's system prompt. Kept for backward compatibility.
+// the agent's full instructions. Only registered when EagerInstructions is false.
 func (b *Bridge) addGetInstructionsTool(server *gomcp.Server) {
 	tool := &gomcp.Tool{
 		Name:        "get_instructions",
-		Description: "Get the agent's system prompt / custom instructions. Deprecated: use server instructions (handshake) or the 'system' prompt instead.",
+		Description: "Load this agent's full instructions (system prompt). Call this before acting.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
 		Annotations: &gomcp.ToolAnnotations{
 			ReadOnlyHint:   true,
@@ -190,65 +206,6 @@ func (b *Bridge) addGetInstructionsTool(server *gomcp.Server) {
 		text = b.appendModelHint(text)
 		return &gomcp.CallToolResult{
 			Content: []gomcp.Content{&gomcp.TextContent{Text: text}},
-		}, nil
-	})
-}
-
-// addSearchToolsTool registers a search_tools meta-tool that lets clients
-// discover available tools by searching name and description. Used in lazy
-// tool loading mode.
-func (b *Bridge) addSearchToolsTool(server *gomcp.Server) {
-	tool := &gomcp.Tool{
-		Name:        "search_tools",
-		Description: "Search available tools by name or description. Returns matching tool names and descriptions.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"Substring to match against tool names and descriptions"}},"required":["query"]}`),
-		Annotations: &gomcp.ToolAnnotations{
-			ReadOnlyHint:   true,
-			IdempotentHint: true,
-			Title:          "Search Tools",
-		},
-	}
-
-	server.AddTool(tool, func(ctx context.Context, req *gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
-		var input map[string]any
-		if len(req.Params.Arguments) > 0 {
-			if err := json.Unmarshal(req.Params.Arguments, &input); err != nil {
-				return errorResult(fmt.Sprintf("invalid arguments: %v", err)), nil
-			}
-		}
-
-		query, _ := input["query"].(string)
-		if query == "" {
-			return errorResult("missing required parameter: query"), nil
-		}
-
-		queryLower := strings.ToLower(query)
-		type toolMatch struct {
-			Name        string `json:"name"`
-			Description string `json:"description"`
-		}
-		var matches []toolMatch
-
-		for _, def := range b.cfg.Registry.All() {
-			nameLower := strings.ToLower(def.Name)
-			descLower := strings.ToLower(def.Description)
-			if strings.Contains(nameLower, queryLower) || strings.Contains(descLower, queryLower) {
-				matches = append(matches, toolMatch{
-					Name:        def.Name,
-					Description: def.Description,
-				})
-			}
-		}
-
-		if len(matches) == 0 {
-			return &gomcp.CallToolResult{
-				Content: []gomcp.Content{&gomcp.TextContent{Text: "No tools matched query: " + query}},
-			}, nil
-		}
-
-		data, _ := json.Marshal(matches)
-		return &gomcp.CallToolResult{
-			Content: []gomcp.Content{&gomcp.TextContent{Text: string(data)}},
 		}, nil
 	})
 }
@@ -381,11 +338,18 @@ func (b *Bridge) addPrompts(server *gomcp.Server) {
 	}
 }
 
+// instructionsStub is appended to the role line in a non-eager handshake.
+// It must name only tools that are registered in that mode.
+const instructionsStub = "Call the `get_instructions` tool to load your full instructions before acting."
+
 // handshakeInstructions returns what the MCP handshake advertises. When
-// EagerInstructions is false, it returns a short stub and keeps the full
-// prompt available on demand via the `system` prompt / get_instructions tool.
+// EagerInstructions is false, it returns the role line plus instructionsStub;
+// get_instructions serves the full prompt on demand.
 func (b *Bridge) handshakeInstructions() string {
-	full, _ := b.cfg.Loader.Load()
+	full, err := b.cfg.Loader.Load()
+	if err != nil {
+		b.logger.Error("loading instructions for handshake", "error", err)
+	}
 	full = b.appendModelHint(full)
 	if b.cfg.EagerInstructions {
 		return full
@@ -394,7 +358,7 @@ func (b *Bridge) handshakeInstructions() string {
 	if role == "" {
 		role = b.cfg.Name
 	}
-	return role + "\n\nFull instructions are available via the `system` prompt or the `get_instructions` tool."
+	return role + "\n\n" + instructionsStub
 }
 
 // appendModelHint appends a model preference section to instructions if a model is configured.

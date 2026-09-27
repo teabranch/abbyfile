@@ -41,14 +41,18 @@ type ContextBudgetDef struct {
 	// semantics) can be distinguished from an omitted field (meaning
 	// "inherit/use the shipped default"). A nil pointer means omitted;
 	// a non-nil pointer to 0 means unlimited.
-	MaxOutputLines    *int                        `yaml:"max_output_lines"`
-	MaxOutputBytes    *int64                      `yaml:"max_output_bytes"`
-	OnOverflow        string                      `yaml:"on_overflow"`
-	HeadLines         int                         `yaml:"head_lines"`
-	TailLines         int                         `yaml:"tail_lines"`
-	SummaryLines      int                         `yaml:"summary_lines"`
-	EagerInstructions *bool                       `yaml:"eager_instructions"`
-	PerTool           map[string]ContextBudgetDef `yaml:"per_tool"`
+	MaxOutputLines    *int   `yaml:"max_output_lines"`
+	MaxOutputBytes    *int64 `yaml:"max_output_bytes"`
+	OnOverflow        string `yaml:"on_overflow"`
+	HeadLines         int    `yaml:"head_lines"`
+	TailLines         int    `yaml:"tail_lines"`
+	SummaryLines      int    `yaml:"summary_lines"`
+	EagerInstructions *bool  `yaml:"eager_instructions"`
+	// InlineLarge (per_tool only) asks Claude Code to keep larger results of
+	// this tool inline, via _meta["anthropic/maxResultSizeChars"] set to the
+	// tool's effective byte cap. Rejected at the base level.
+	InlineLarge bool                        `yaml:"inline_large"`
+	PerTool     map[string]ContextBudgetDef `yaml:"per_tool"`
 }
 
 // AgentDef is the parsed definition of a single agent, combining
@@ -316,6 +320,13 @@ func validateSkills(skills []SkillDef) error {
 	return nil
 }
 
+// Mirrors tools.DefaultContextBudget().MaxOutputBytes and
+// tools.MaxResultSizeCharsCeiling; pkg/definition must not import pkg/tools.
+const (
+	defaultMaxOutputBytes     = 262144
+	maxResultSizeCharsCeiling = 500000
+)
+
 // validateContextBudget checks a context_budget block for legal values.
 func validateContextBudget(cb *ContextBudgetDef) error {
 	if cb == nil {
@@ -337,11 +348,37 @@ func validateContextBudget(cb *ContextBudgetDef) error {
 	if err := check(cb); err != nil {
 		return err
 	}
+	if cb.InlineLarge {
+		return fmt.Errorf("context_budget: inline_large is only valid under per_tool.<tool name>")
+	}
 	for name, pt := range cb.PerTool {
 		ptCopy := pt
 		if err := check(&ptCopy); err != nil {
 			return fmt.Errorf("context_budget.per_tool[%q]: %w", name, err)
 		}
+		if pt.InlineLarge {
+			if err := checkInlineLargeCap(name, cb, pt); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// checkInlineLargeCap resolves the tool's effective byte cap the way
+// tools.ContextBudget.effectiveFor does (a per-tool 0 inherits the base)
+// and requires 1..maxResultSizeCharsCeiling.
+func checkInlineLargeCap(name string, base *ContextBudgetDef, pt ContextBudgetDef) error {
+	var limit int64 = defaultMaxOutputBytes
+	if base.MaxOutputBytes != nil {
+		limit = *base.MaxOutputBytes
+	}
+	if pt.MaxOutputBytes != nil && *pt.MaxOutputBytes != 0 {
+		limit = *pt.MaxOutputBytes
+	}
+	if limit <= 0 || limit > maxResultSizeCharsCeiling {
+		return fmt.Errorf("context_budget.per_tool[%q]: inline_large needs an effective max_output_bytes between 1 and %d (got %d; 0 means unlimited)",
+			name, maxResultSizeCharsCeiling, limit)
 	}
 	return nil
 }

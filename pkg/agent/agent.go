@@ -39,7 +39,7 @@ type Agent struct {
 	commandPolicy *tools.CommandPolicy
 	executionHook tools.ExecutionHook
 
-	lazyToolLoading bool
+	lazyToolLoading bool // deprecated: only triggers a warning
 
 	configPath string // override config.yaml path (for testing)
 
@@ -70,6 +70,10 @@ func New(opts ...Option) (*Agent, error) {
 
 	if a.logger == nil {
 		a.logger = slog.New(slog.NewTextHandler(os.Stderr, nil))
+	}
+
+	if a.lazyToolLoading {
+		a.logger.Warn("WithLazyToolLoading is deprecated and has no effect; all tools are registered")
 	}
 
 	// Load runtime config overrides (after compiled defaults are set).

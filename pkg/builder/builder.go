@@ -60,6 +60,7 @@ type budgetData struct {
 	TailLines         int
 	SummaryLines      int
 	EagerInstructions bool
+	InlineLarge       bool
 	PerTool           map[string]budgetData
 }
 
@@ -126,9 +127,10 @@ func buildBudgetData(cb *definition.ContextBudgetDef) *budgetData {
 		bd.PerTool = make(map[string]budgetData, len(cb.PerTool))
 		for name, pt := range cb.PerTool {
 			ptData := budgetData{
-				OnOverflow: pt.OnOverflow,
-				HeadLines:  pt.HeadLines,
-				TailLines:  pt.TailLines,
+				OnOverflow:  pt.OnOverflow,
+				HeadLines:   pt.HeadLines,
+				TailLines:   pt.TailLines,
+				InlineLarge: pt.InlineLarge,
 			}
 			if pt.MaxOutputLines != nil {
 				ptData.MaxOutputLines = *pt.MaxOutputLines
@@ -136,12 +138,10 @@ func buildBudgetData(cb *definition.ContextBudgetDef) *budgetData {
 			if pt.MaxOutputBytes != nil {
 				ptData.MaxOutputBytes = *pt.MaxOutputBytes
 			}
-			// SummaryLines and EagerInstructions are intentionally not
-			// set here: the per-tool template block (and
-			// tools.ContextBudget.effectiveFor's merge) never renders
-			// or consumes them for per-tool overrides, so populating
-			// them would be dead code. Only the base budget's
-			// SummaryLines/EagerInstructions are used.
+			// SummaryLines and EagerInstructions are intentionally not set
+			// here: the per-tool template block renders only
+			// MaxOutputLines, MaxOutputBytes, OnOverflow, HeadLines,
+			// TailLines and InlineLarge.
 			//
 			// Per-tool scalars (including OnOverflow) are intentionally
 			// left at their zero value ("" for OnOverflow, 0 for the

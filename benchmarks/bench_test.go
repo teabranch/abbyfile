@@ -236,7 +236,7 @@ func TestRedundancyAudit(t *testing.T) {
 	t.Logf("  ServerOptions.Instructions (handshake): ~%d tokens (delivered once)", payload.PromptTokens)
 	t.Logf("  get_instructions tool (schema overhead): ~%d tokens (per ListTools)", getInstrTokens)
 	t.Logf("  system prompt template (GetPrompt):      ~%d tokens (on-demand)", payload.PromptTokens)
-	t.Logf("  Note: get_instructions is kept for backward compatibility; real cost is schema only")
+	t.Logf("  Note: get_instructions is registered only when eager_instructions is false; its cost is schema only")
 }
 
 // --- Test: Comparison With Article ---

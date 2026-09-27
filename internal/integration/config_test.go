@@ -245,3 +245,45 @@ func TestServeMCPModelHint(t *testing.T) {
 		t.Errorf("get_instructions should contain 'Model Preference' header, got: %s", text)
 	}
 }
+
+func TestServeMCPEagerInstructionsOverride(t *testing.T) { // Review Focus #2
+	tmpHome := t.TempDir()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, binaryPath, "config", "set", "context_budget.eager_instructions", "true")
+	cmd.Env = append(os.Environ(), "HOME="+tmpHome)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("config set: %v\n%s", err, out)
+	}
+
+	mcpCmd := exec.CommandContext(ctx, binaryPath, "serve-mcp")
+	mcpCmd.Env = append(os.Environ(), "HOME="+tmpHome)
+	client := gomcp.NewClient(&gomcp.Implementation{Name: "eager-integration-test", Version: "v0.1.0"}, nil)
+	session, err := client.Connect(ctx, &gomcp.CommandTransport{Command: mcpCmd}, nil)
+	if err != nil {
+		t.Fatalf("connecting to serve-mcp: %v", err)
+	}
+	defer session.Close()
+
+	list, err := session.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatalf("list tools: %v", err)
+	}
+	for _, tool := range list.Tools {
+		if tool.Name == "get_instructions" {
+			t.Error("get_instructions must be absent when eager_instructions is overridden to true")
+		}
+	}
+	instr := session.InitializeResult().Instructions
+	if strings.Contains(instr, "Call the `get_instructions` tool") {
+		t.Errorf("eager override still sent the stub: %q", instr)
+	}
+	// The test-agent's prompt (set inline in agent_test.go's TestMain) is
+	// short, so a byte-length floor would be a false signal here. Assert on
+	// a distinctive sentence from that prompt instead, per the brief's
+	// fallback for this case.
+	if !strings.Contains(instr, "You are a test agent built with the Abbyfile framework") {
+		t.Errorf("eager instructions look truncated or missing the full prompt: %q", instr)
+	}
+}

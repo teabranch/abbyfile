@@ -20,7 +20,7 @@ Abbyfile packages agent logic as a compiled Go binary. Claude Code remains the L
 ## Prerequisites
 
 - **Claude Code** (the LLM runtime that loads and runs agents)
-- **Go 1.24+** (only needed for `go install` or building from source)
+- **Go 1.26+** (only needed for `go install` or building from source)
 
 ## Step 1: Install the CLI
 

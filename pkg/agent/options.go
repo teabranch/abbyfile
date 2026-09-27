@@ -77,9 +77,11 @@ func WithLogger(logger *slog.Logger) Option {
 	return func(a *Agent) { a.logger = logger }
 }
 
-// WithLazyToolLoading enables lazy tool loading via the search_tools meta-tool.
-// When enabled, the MCP server only registers search_tools initially;
-// clients discover tools by searching.
+// WithLazyToolLoading is kept for source compatibility only.
+//
+// Deprecated: lazy tool loading was removed in v0.10.0; every tool is always
+// registered. Passing true logs a warning. It will be removed in a future
+// release.
 func WithLazyToolLoading(enabled bool) Option {
 	return func(a *Agent) { a.lazyToolLoading = enabled }
 }

@@ -142,7 +142,7 @@ If you need to inject context from memory into the prompt, the MCP bridge expose
 
 ## What Go version is required?
 
-Go 1.24 or later. The `go.mod` specifies `go 1.24.0`.
+Go 1.26 or later. The `go.mod` specifies `go 1.26.0`.
 
 ## How do I add the agent to an existing project?
 
