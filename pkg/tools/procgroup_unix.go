@@ -10,6 +10,16 @@ import (
 	"time"
 )
 
+// KillProcessGroup reaps any processes the tool left behind in its group;
+// call after Wait returns. It sends SIGKILL to the group and ignores ESRCH
+// (the group is already gone) — there is nothing else to report or do.
+func KillProcessGroup(cmd *exec.Cmd) {
+	if cmd.Process == nil {
+		return
+	}
+	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+}
+
 // waitDelay bounds how long Wait blocks on inherited pipes after a kill.
 const waitDelay = 2 * time.Second
 

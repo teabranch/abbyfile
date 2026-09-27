@@ -46,15 +46,55 @@ func readPid(t *testing.T, path string) int {
 }
 
 // Review Focus #5.
+//
+// The elapsed-time assertion is load-bearing: without process-group kill,
+// cmd.Wait blocks on the stdout/stderr pipes the orphaned "sleep 60"
+// grandchild still holds open until it exits on its own (~60s), then
+// waitGone would trivially pass because the grandchild is finally gone. The
+// wall-clock check catches that: a correct process-group kill returns in
+// ~300ms (the executor timeout), well under the 1.5s ceiling.
 func TestExecutorCLIKillsProcessGroup(t *testing.T) {
 	pidFile := filepath.Join(t.TempDir(), "pid")
 	def := &Definition{
 		Name: "spawner", Command: "sh",
 		Args: []string{"-c", "sleep 60 & echo $! > " + pidFile + "; wait"},
 	}
+	start := time.Now()
 	_, err := NewExecutor(300*time.Millisecond, nil).RunRaw(context.Background(), def, nil)
+	elapsed := time.Since(start)
 	if err == nil || !strings.Contains(err.Error(), "timed out") {
 		t.Fatalf("err = %v, want timeout", err)
+	}
+	if elapsed > 1500*time.Millisecond {
+		t.Fatalf("RunRaw took %s; process-group kill must return promptly (~300ms), not wait for the orphaned grandchild to exit on its own", elapsed)
+	}
+	waitGone(t, readPid(t, pidFile))
+}
+
+// TestExecutorCLIReapsGrandchildOnNormalExit covers the case where the
+// direct child exits normally (not via context cancellation) while a
+// background grandchild keeps stdout/stderr open. cmd.Cancel never runs, so
+// only an explicit KillProcessGroup call after Wait returns reaps the
+// grandchild; without it, cmd.Wait would return exec.ErrWaitDelay after the
+// process group's WaitDelay elapses and the command would be misreported as
+// failed even though it succeeded.
+func TestExecutorCLIReapsGrandchildOnNormalExit(t *testing.T) {
+	pidFile := filepath.Join(t.TempDir(), "pid")
+	def := &Definition{
+		Name: "spawner", Command: "sh",
+		Args: []string{"-c", "sleep 60 & echo $! > " + pidFile + "; echo done"},
+	}
+	start := time.Now()
+	got, err := NewExecutor(10*time.Second, nil).RunRaw(context.Background(), def, nil)
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("RunRaw err = %v, want nil (child exited successfully)", err)
+	}
+	if got != "done" {
+		t.Fatalf("RunRaw = %q, want %q", got, "done")
+	}
+	if elapsed > 5*time.Second {
+		t.Fatalf("RunRaw took %s, want < 5s", elapsed)
 	}
 	waitGone(t, readPid(t, pidFile))
 }

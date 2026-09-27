@@ -149,23 +149,38 @@ func (e *Executor) RunRaw(ctx context.Context, def *Definition, input map[string
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 
-	if err := cmd.Run(); err != nil {
+	runErr := cmd.Run()
+	// Reap anything the tool left behind in its process group (a background
+	// grandchild the direct child didn't wait for) regardless of how Run
+	// returned. Cancellation-triggered kills are handled by
+	// ConfigureProcessGroup's cmd.Cancel; this covers the normal-exit path,
+	// where cmd.Cancel never runs.
+	KillProcessGroup(cmd)
+
+	if runErr != nil && errors.Is(runErr, exec.ErrWaitDelay) && cmd.ProcessState != nil && cmd.ProcessState.Success() && ctx.Err() == nil {
+		// The direct child exited successfully; WaitDelay force-closed the
+		// pipes because a grandchild (now reaped above) was still holding
+		// them open. The command itself did not fail.
+		runErr = nil
+	}
+
+	if runErr != nil {
 		duration := time.Since(start)
 		if e.hook != nil {
-			e.hook(def.Name, duration, err)
+			e.hook(def.Name, duration, runErr)
 		}
 		if ctx.Err() == context.DeadlineExceeded {
 			e.logger.Warn("tool timed out", "tool", def.Name, "timeout", e.timeout, "duration", duration)
 			return "", fmt.Errorf("tool %q timed out after %s", def.Name, e.timeout)
 		}
-		if errors.Is(err, exec.ErrNotFound) {
+		if errors.Is(runErr, exec.ErrNotFound) {
 			e.logger.Error("CLI tool command not found", "tool", def.Name, "command", def.Command)
 			return "", fmt.Errorf("tool %q: command %q not found in PATH", def.Name, def.Command)
 		}
 		// Include stderr in the error for debugging
 		errMsg := stderr.String()
 		if errMsg == "" {
-			errMsg = err.Error()
+			errMsg = runErr.Error()
 		}
 		trimmed := strings.TrimSpace(errMsg)
 		shapedErrMsg := e.Shape(def.Name, trimmed)
