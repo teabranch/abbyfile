@@ -605,6 +605,47 @@ func TestBridgeNoModelHintWhenEmpty(t *testing.T) {
 	}
 }
 
+func TestStructuredOutputEndToEnd(t *testing.T) {
+	r := tools.NewRegistry()
+	def := tools.BuiltinTool("stats", "stats", map[string]any{"type": "object"},
+		func(map[string]any) (string, error) { return "{\"count\":3}\n", nil })
+	def.OutputSchema = map[string]any{"type": "object", "properties": map[string]any{"count": map[string]any{"type": "integer"}}}
+	_ = r.Register(def)
+
+	session, _ := startBridge(t, r)
+	res, err := session.CallTool(context.Background(), &gomcp.CallToolParams{Name: "stats"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.IsError {
+		t.Fatalf("isError: %+v", res.Content)
+	}
+	m, ok := res.StructuredContent.(map[string]any)
+	if !ok || m["count"] != float64(3) {
+		t.Fatalf("structuredContent = %#v", res.StructuredContent)
+	}
+}
+
+func TestStructuredOutputToolFailure(t *testing.T) { // Review Focus #4
+	r := tools.NewRegistry()
+	def := tools.BuiltinTool("broken", "broken", map[string]any{"type": "object"},
+		func(map[string]any) (string, error) { return "", fmt.Errorf("boom") })
+	def.OutputSchema = map[string]any{"type": "object"}
+	_ = r.Register(def)
+
+	session, _ := startBridge(t, r)
+	res, err := session.CallTool(context.Background(), &gomcp.CallToolParams{Name: "broken"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.IsError || res.StructuredContent != nil {
+		t.Fatalf("want plain isError, got isError=%v structured=%#v", res.IsError, res.StructuredContent)
+	}
+	if tc, _ := res.Content[0].(*gomcp.TextContent); tc == nil || !strings.Contains(tc.Text, "boom") {
+		t.Fatalf("error text = %+v", res.Content)
+	}
+}
+
 func extractText(result *gomcp.CallToolResult) string {
 	for _, c := range result.Content {
 		if tc, ok := c.(*gomcp.TextContent); ok {

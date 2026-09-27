@@ -140,6 +140,15 @@ func (b *Bridge) addTool(server *gomcp.Server, def *tools.Definition) {
 			return errorResult(fmt.Sprintf("invalid input: %v", err)), nil
 		}
 
+		if d.OutputSchema != nil {
+			raw, err := b.cfg.Executor.RunRaw(ctx, d, input)
+			if err != nil {
+				b.logger.Error("tool call failed", "tool", d.Name, "error", err)
+				return errorResult(err.Error()), nil
+			}
+			return structuredResult(d.Name, raw, b.cfg.Executor.MaxOutputBytes(d.Name)), nil
+		}
+
 		result, err := b.cfg.Executor.Run(ctx, d, input)
 		if err != nil {
 			b.logger.Error("tool call failed", "tool", d.Name, "error", err)
