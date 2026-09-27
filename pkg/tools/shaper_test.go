@@ -139,6 +139,31 @@ func TestShape_DegradeFinalOutputRespectsByteCap(t *testing.T) {
 	}
 }
 
+// TestShape_DegradeNoteSurvivesByteCap guards against I1 for the degrade path
+// (no sink / spill failed): the "(spill unavailable — output truncated)" note
+// must survive the byte-cap backstop rather than being cut off because the
+// preview alone already filled the cap.
+func TestShape_DegradeNoteSurvivesByteCap(t *testing.T) {
+	b := ContextBudget{
+		MaxOutputBytes: 1000,
+		OnOverflow:     OverflowSpill,
+		HeadLines:      100,
+		TailLines:      40,
+	}
+	raw := strings.Repeat("x", 5000) // one huge line, well past the byte cap.
+
+	res := b.Shape("t", raw, nil) // nil sink forces the degrade path.
+	if !res.Shaped {
+		t.Fatal("expected shaped")
+	}
+	if int64(len(res.Output)) > b.MaxOutputBytes {
+		t.Fatalf("output %d bytes exceeds cap %d", len(res.Output), b.MaxOutputBytes)
+	}
+	if !strings.Contains(res.Output, "spill unavailable") {
+		t.Fatalf("output must contain the degrade note when cap > len(suffix); got: %q", res.Output)
+	}
+}
+
 func TestShape_TruncationProducesValidUTF8(t *testing.T) {
 	var lines []string
 	for i := 0; i < 30; i++ {

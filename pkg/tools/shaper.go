@@ -124,13 +124,14 @@ func (b ContextBudget) Shape(toolName, raw string, sink SpillSink) ShapeResult {
 			key := fmt.Sprintf("spill/%s", toolName)
 			if uri, err := sink.Put(key, raw); err == nil {
 				res.SpillURI = uri
-				res.Output = truncateBytes(preview+fmt.Sprintf("\n\nFull output saved to %s. Fetch it if you need the elided detail.", uri), eff.MaxOutputBytes)
+				suffix := fmt.Sprintf("\n\nFull output saved to %s. Fetch it if you need the elided detail.", uri)
+				res.Output = appendCappedSuffix(preview, suffix, eff.MaxOutputBytes)
 				res.Shaped = true
 				return res
 			}
 		}
 		// Degrade to head-tail when no sink or spill failed.
-		res.Output = truncateBytes(preview+"\n(spill unavailable — output truncated)", eff.MaxOutputBytes)
+		res.Output = appendCappedSuffix(preview, "\n(spill unavailable — output truncated)", eff.MaxOutputBytes)
 		res.Strategy = OverflowHeadTail
 		res.Shaped = true
 		return res
@@ -140,6 +141,27 @@ func (b ContextBudget) Shape(toolName, raw string, sink SpillSink) ShapeResult {
 		res.Shaped = true
 		return res
 	}
+}
+
+// appendCappedSuffix appends suffix (a spill pointer or a "spill unavailable"
+// degrade note) to preview, truncating preview as needed so the combined
+// result never exceeds maxBytes. The suffix takes priority over preview
+// content when the two conflict: a pointer to the full output is more useful
+// than a few more bytes of a preview that's already been elided (I1). When
+// maxBytes leaves no room for preview alongside the full suffix (maxBytes <=
+// len(suffix)), preview is dropped entirely and the suffix itself is
+// truncated to fit — a partial pointer still beats a preview with no pointer
+// at all. maxBytes <= 0 means unlimited: preview and suffix are concatenated
+// unchanged.
+func appendCappedSuffix(preview, suffix string, maxBytes int64) string {
+	if maxBytes <= 0 {
+		return preview + suffix
+	}
+	suffixLen := int64(len(suffix))
+	if maxBytes <= suffixLen {
+		return truncateBytes(suffix, maxBytes)
+	}
+	return truncateBytes(preview, maxBytes-suffixLen) + suffix
 }
 
 // truncateBytes returns s limited to at most maxBytes bytes without splitting
