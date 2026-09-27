@@ -1,13 +1,17 @@
 package config
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/teabranch/abbyfile/pkg/fsutil"
+	"github.com/teabranch/abbyfile/pkg/sandbox"
 	"gopkg.in/yaml.v3"
 )
 
@@ -144,6 +148,43 @@ func WriteFieldTo(path, field, value string) error {
 		}
 		ensureBudget(cfg)
 		cfg.ContextBudget.EagerInstructions = &b
+	case "sandbox.allowed_dirs":
+		dirs, err := ParseList(value)
+		if err != nil {
+			return fmt.Errorf("sandbox.allowed_dirs: %w", err)
+		}
+		if len(dirs) == 0 {
+			return fmt.Errorf(`sandbox.allowed_dirs needs at least one directory (use "." for the working directory)`)
+		}
+		ensureSandbox(cfg)
+		cfg.Sandbox.AllowedDirs = &dirs
+	case "sandbox.bash":
+		if value != string(sandbox.BashRestricted) && value != string(sandbox.BashUnrestricted) {
+			return fmt.Errorf("sandbox.bash must be restricted or unrestricted")
+		}
+		ensureSandbox(cfg)
+		v := value
+		cfg.Sandbox.Bash = &v
+	case "sandbox.allow_commands":
+		cmds, err := ParseList(value)
+		if err != nil {
+			return fmt.Errorf("sandbox.allow_commands: %w", err)
+		}
+		for _, c := range cmds {
+			if _, err := sandbox.ParseAllowEntry(c); err != nil {
+				return fmt.Errorf("sandbox.%w", err)
+			}
+		}
+		ensureSandbox(cfg)
+		cfg.Sandbox.AllowCommands = &cmds
+	case "sandbox.max_command_timeout":
+		d, err := time.ParseDuration(value)
+		if err != nil || d <= 0 {
+			return fmt.Errorf("sandbox.max_command_timeout must be a positive duration such as 120s")
+		}
+		ensureSandbox(cfg)
+		v := value
+		cfg.Sandbox.MaxCommandTimeout = &v
 	default:
 		return fmt.Errorf("unsupported config field: %s (use Write for complex fields)", field)
 	}
@@ -180,6 +221,8 @@ func ResetFieldTo(path, field string) error {
 		cfg.CommandPolicy = nil
 	case "context_budget":
 		cfg.ContextBudget = nil
+	case "sandbox":
+		cfg.Sandbox = nil
 	default:
 		return fmt.Errorf("unsupported config field: %s", field)
 	}
@@ -200,5 +243,36 @@ func ResetFieldTo(path, field string) error {
 func ensureBudget(cfg *Config) {
 	if cfg.ContextBudget == nil {
 		cfg.ContextBudget = &ContextBudgetOverride{}
+	}
+}
+
+// ParseList parses a config-set list value: a JSON array (use it when an
+// entry contains a comma) or a comma-separated list. Blank items are
+// dropped; an empty string yields an empty, non-nil list.
+func ParseList(value string) ([]string, error) {
+	v := strings.TrimSpace(value)
+	if strings.HasPrefix(v, "[") {
+		var out []string
+		if err := json.Unmarshal([]byte(v), &out); err != nil {
+			return nil, fmt.Errorf("invalid JSON list: %w", err)
+		}
+		if out == nil {
+			out = []string{}
+		}
+		return out, nil
+	}
+	out := []string{}
+	for _, part := range strings.Split(v, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out, nil
+}
+
+// ensureSandbox lazily creates cfg.Sandbox, preserving existing fields.
+func ensureSandbox(cfg *Config) {
+	if cfg.Sandbox == nil {
+		cfg.Sandbox = &SandboxOverride{}
 	}
 }

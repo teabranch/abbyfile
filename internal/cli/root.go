@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/teabranch/abbyfile/pkg/memory"
 	"github.com/teabranch/abbyfile/pkg/prompt"
+	"github.com/teabranch/abbyfile/pkg/sandbox"
 	"github.com/teabranch/abbyfile/pkg/tools"
 )
 
@@ -28,6 +29,16 @@ type AgentManifest struct {
 	MemoryLimits   *memory.Limits       `json:"memoryLimits,omitempty"`
 	ToolTimeout    string               `json:"toolTimeout,omitempty"`
 	CommandPolicy  *tools.CommandPolicy `json:"commandPolicy,omitempty"`
+	Sandbox        *SandboxManifest     `json:"sandbox,omitempty"`
+}
+
+// SandboxManifest reports the effective sandbox in --describe.
+type SandboxManifest struct {
+	AllowedDirs       []string `json:"allowedDirs"`
+	Bash              string   `json:"bash"`
+	AllowCommands     []string `json:"allowCommands"`
+	MaxCommandTimeout string   `json:"maxCommandTimeout"`
+	Warnings          []string `json:"warnings,omitempty"`
 }
 
 // ToolManifestEntry describes a single tool in the manifest.
@@ -54,6 +65,7 @@ type Options struct {
 	CommandPolicy     *tools.CommandPolicy
 	Logger            *slog.Logger
 	EagerInstructions bool
+	Sandbox           *sandbox.Sandbox
 }
 
 // NewRootCommand creates the root Cobra command for an agent binary.
@@ -93,7 +105,9 @@ func NewRootCommand(opts Options) *cobra.Command {
 	return cmd
 }
 
-func printManifest(cmd *cobra.Command, opts Options) error {
+// buildManifest assembles the agent manifest from opts. It tolerates a nil
+// Loader and a nil Registry so it can be exercised without a full CLI setup.
+func buildManifest(opts Options) AgentManifest {
 	manifest := AgentManifest{
 		SchemaVersion: "v1",
 		Name:          opts.Name,
@@ -109,21 +123,42 @@ func printManifest(cmd *cobra.Command, opts Options) error {
 	}
 
 	// Compute prompt checksum.
-	if p, err := opts.Loader.Load(); err == nil {
-		h := sha256.Sum256([]byte(p))
-		manifest.PromptChecksum = hex.EncodeToString(h[:])
+	if opts.Loader != nil {
+		if p, err := opts.Loader.Load(); err == nil {
+			h := sha256.Sum256([]byte(p))
+			manifest.PromptChecksum = hex.EncodeToString(h[:])
+		}
 	}
 
-	for _, def := range opts.Registry.All() {
-		manifest.Tools = append(manifest.Tools, ToolManifestEntry{
-			Name:         def.Name,
-			Description:  def.Description,
-			Builtin:      def.Builtin,
-			InputSchema:  def.InputSchema,
-			OutputSchema: def.OutputSchema,
-			Annotations:  def.Annotations,
-		})
+	if opts.Registry != nil {
+		for _, def := range opts.Registry.All() {
+			manifest.Tools = append(manifest.Tools, ToolManifestEntry{
+				Name:         def.Name,
+				Description:  def.Description,
+				Builtin:      def.Builtin,
+				InputSchema:  def.InputSchema,
+				OutputSchema: def.OutputSchema,
+				Annotations:  def.Annotations,
+			})
+		}
 	}
+
+	if opts.Sandbox != nil {
+		c := opts.Sandbox.Config()
+		manifest.Sandbox = &SandboxManifest{
+			AllowedDirs:       opts.Sandbox.AllowedDirs(),
+			Bash:              string(c.Bash),
+			AllowCommands:     append([]string{}, c.AllowCommands...),
+			MaxCommandTimeout: c.MaxCommandTimeout.String(),
+			Warnings:          opts.Sandbox.Warnings(),
+		}
+	}
+
+	return manifest
+}
+
+func printManifest(cmd *cobra.Command, opts Options) error {
+	manifest := buildManifest(opts)
 
 	data, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {

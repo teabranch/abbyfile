@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"context"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -34,7 +36,11 @@ func NewServeMCPCommand(name, version, description, model string, registry *tool
 				Logger:            logger,
 				EagerInstructions: eagerInstructions,
 			})
-			return bridge.Serve(cmd.Context())
+			err := bridge.Serve(cmd.Context())
+			if errors.Is(err, context.Canceled) {
+				return nil // SIGINT/SIGTERM: clean shutdown
+			}
+			return err
 		},
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/teabranch/abbyfile/pkg/memory"
+	"github.com/teabranch/abbyfile/pkg/sandbox"
 	"github.com/teabranch/abbyfile/pkg/tools"
 )
 
@@ -95,4 +96,11 @@ func WithConfigPath(path string) Option {
 // WithContextBudget sets the compiled-in context budget for the agent.
 func WithContextBudget(b tools.ContextBudget) Option {
 	return func(a *Agent) { a.budget = b }
+}
+
+// WithSandbox sets the compiled-in sandbox for built-in tools. Without it
+// the agent uses sandbox.Default(): file tools confined to the working
+// directory and run_command refusing every call.
+func WithSandbox(cfg sandbox.Config) Option {
+	return func(a *Agent) { a.sandbox = cfg }
 }

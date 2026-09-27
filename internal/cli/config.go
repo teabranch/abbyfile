@@ -1,11 +1,15 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/teabranch/abbyfile/pkg/config"
+	"github.com/teabranch/abbyfile/pkg/sandbox"
 )
 
 // CompiledDefaults captures the compiled-in values before config overrides are applied.
@@ -17,6 +21,7 @@ type CompiledDefaults struct {
 	MaxOutputBytes    int64
 	OnOverflow        string
 	EagerInstructions bool
+	Sandbox           sandbox.Config
 }
 
 // NewConfigCommand creates the `config` subcommand for inspecting and
@@ -68,6 +73,12 @@ func newConfigSetCommand(name string) *cobra.Command {
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "%s = %s (override saved)\n", field, value)
+			if strings.HasPrefix(field, "sandbox.") {
+				if w := sandboxSetWarning(field, value); w != "" {
+					fmt.Fprintln(cmd.ErrOrStderr(), "warning: "+w)
+				}
+				fmt.Fprintln(cmd.OutOrStdout(), "Restart the runtime session (e.g. Claude Code) so running agents pick this up.")
+			}
 			return nil
 		},
 	}
@@ -103,6 +114,61 @@ func newConfigPathCommand(name string) *cobra.Command {
 			return nil
 		},
 	}
+}
+
+type sandboxField struct{ key, value, source string }
+
+// sandboxFields returns the effective sandbox.* values and their source.
+func sandboxFields(cfg *config.Config, defaults CompiledDefaults) []sandboxField {
+	d := defaults.Sandbox.Normalize()
+	var so config.SandboxOverride
+	if cfg.Sandbox != nil {
+		so = *cfg.Sandbox
+	}
+	src := func(set bool) string {
+		if set {
+			return "override"
+		}
+		return "compiled"
+	}
+	list := func(v []string) string {
+		b, _ := json.Marshal(append([]string{}, v...))
+		return string(b)
+	}
+	dirs, bash, cmds, timeout := d.AllowedDirs, string(d.Bash), d.AllowCommands, d.MaxCommandTimeout.String()
+	if so.AllowedDirs != nil {
+		dirs = *so.AllowedDirs
+	}
+	if so.Bash != nil {
+		bash = *so.Bash
+	}
+	if so.AllowCommands != nil {
+		cmds = *so.AllowCommands
+	}
+	if so.MaxCommandTimeout != nil {
+		timeout = *so.MaxCommandTimeout
+	}
+	return []sandboxField{
+		{"sandbox.allowed_dirs", list(dirs), src(so.AllowedDirs != nil)},
+		{"sandbox.bash", bash, src(so.Bash != nil)},
+		{"sandbox.allow_commands", list(cmds), src(so.AllowCommands != nil)},
+		{"sandbox.max_command_timeout", timeout, src(so.MaxCommandTimeout != nil)},
+	}
+}
+
+// sandboxSetWarning returns a warning for risky sandbox values, or "".
+func sandboxSetWarning(field, value string) string {
+	switch field {
+	case "sandbox.bash":
+		if value == string(sandbox.BashUnrestricted) {
+			return "run_command will run any shell command with your user's permissions"
+		}
+	case "sandbox.allowed_dirs":
+		if dirs, err := config.ParseList(value); err == nil && slices.Contains(dirs, "/") {
+			return "allowed_dirs includes / — file tools can reach the whole filesystem"
+		}
+	}
+	return ""
 }
 
 // printField prints a single field's effective value.
@@ -159,8 +225,14 @@ func printField(cmd *cobra.Command, field string, cfg *config.Config, defaults C
 			source = "override"
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "%t (%s)\n", val, source)
+	case "sandbox.allowed_dirs", "sandbox.bash", "sandbox.allow_commands", "sandbox.max_command_timeout":
+		for _, f := range sandboxFields(cfg, defaults) {
+			if f.key == field {
+				fmt.Fprintf(cmd.OutOrStdout(), "%s (%s)\n", f.value, f.source)
+			}
+		}
 	default:
-		return fmt.Errorf("unknown field: %s (supported: model, tool_timeout, context_budget.max_output_lines, context_budget.max_output_bytes, context_budget.on_overflow, context_budget.eager_instructions)", field)
+		return fmt.Errorf("unknown field: %s (supported: model, tool_timeout, context_budget.max_output_lines, context_budget.max_output_bytes, context_budget.on_overflow, context_budget.eager_instructions, sandbox.allowed_dirs, sandbox.bash, sandbox.allow_commands, sandbox.max_command_timeout)", field)
 	}
 	return nil
 }
@@ -228,6 +300,10 @@ func printAllFields(cmd *cobra.Command, cfg *config.Config, defaults CompiledDef
 		eagerSource = "override"
 	}
 	fmt.Fprintf(w, "context_budget.eager_instructions: %t (%s)\n", eagerVal, eagerSource)
+
+	for _, f := range sandboxFields(cfg, defaults) {
+		fmt.Fprintf(w, "%s: %s (%s)\n", f.key, f.value, f.source)
+	}
 
 	// memory_limits
 	if cfg.MemoryLimits != nil {

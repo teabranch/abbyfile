@@ -3,6 +3,8 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -350,5 +352,87 @@ func TestWriteField_ContextBudget_InvalidStrategy(t *testing.T) {
 	path := dir + "/config.yaml"
 	if err := WriteFieldTo(path, "context_budget.on_overflow", "bogus"); err == nil {
 		t.Fatal("expected error for invalid on_overflow value")
+	}
+}
+
+func TestWriteFieldSandbox(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	steps := []struct{ field, value string }{
+		{"sandbox.allowed_dirs", ".,/tmp/work"},
+		{"sandbox.bash", "unrestricted"},
+		{"sandbox.allow_commands", `["go test *","echo a,b"]`},
+		{"sandbox.max_command_timeout", "45s"},
+	}
+	for _, s := range steps {
+		if err := WriteFieldTo(path, s.field, s.value); err != nil {
+			t.Fatalf("%s: %v", s.field, err)
+		}
+	}
+	cfg, err := LoadFrom(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sb := cfg.Sandbox
+	if sb == nil || !reflect.DeepEqual(*sb.AllowedDirs, []string{".", "/tmp/work"}) || *sb.Bash != "unrestricted" ||
+		!reflect.DeepEqual(*sb.AllowCommands, []string{"go test *", "echo a,b"}) || *sb.MaxCommandTimeout != "45s" {
+		t.Fatalf("Sandbox = %+v", sb)
+	}
+	if cfg.IsZero() {
+		t.Fatal("IsZero must consider Sandbox")
+	}
+}
+
+func TestWriteFieldSandbox_EmptyAllowCommandsRoundTrips(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := WriteFieldTo(path, "sandbox.allow_commands", ""); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := LoadFrom(path)
+	if cfg.Sandbox == nil || cfg.Sandbox.AllowCommands == nil || len(*cfg.Sandbox.AllowCommands) != 0 {
+		t.Fatalf("empty allow_commands must round-trip as an explicit empty list, got %+v", cfg.Sandbox)
+	}
+}
+
+func TestWriteFieldSandbox_Invalid(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	for field, value := range map[string]string{
+		"sandbox.allowed_dirs":        "",
+		"sandbox.bash":                "yolo",
+		"sandbox.allow_commands":      "go test | tee",
+		"sandbox.max_command_timeout": "0s",
+	} {
+		if err := WriteFieldTo(path, field, value); err == nil || !strings.Contains(err.Error(), field) {
+			t.Errorf("%s=%q: err = %v, want error naming the field", field, value, err)
+		}
+	}
+}
+
+func TestResetSandbox(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := WriteFieldTo(path, "sandbox.bash", "unrestricted"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ResetFieldTo(path, "sandbox"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("resetting the only field must delete the file")
+	}
+}
+
+func TestParseList(t *testing.T) {
+	for in, want := range map[string][]string{
+		"":             {},
+		"a, b ,,c":     {"a", "b", "c"},
+		`["x, y","z"]`: {"x, y", "z"},
+		`[]`:           {},
+	} {
+		got, err := ParseList(in)
+		if err != nil || !reflect.DeepEqual(got, want) {
+			t.Errorf("ParseList(%q) = %#v, %v; want %#v", in, got, err, want)
+		}
+	}
+	if _, err := ParseList(`[broken`); err == nil {
+		t.Error("broken JSON must fail")
 	}
 }

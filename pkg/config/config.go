@@ -11,6 +11,15 @@ type Config struct {
 	MemoryLimits  *MemoryLimitsOverride  `yaml:"memory_limits,omitempty"`
 	CommandPolicy *CommandPolicyOverride `yaml:"command_policy,omitempty"`
 	ContextBudget *ContextBudgetOverride `yaml:"context_budget,omitempty"`
+	Sandbox       *SandboxOverride       `yaml:"sandbox,omitempty"`
+}
+
+// SandboxOverride holds optional overrides for the sandbox: block.
+type SandboxOverride struct {
+	AllowedDirs       *[]string `yaml:"allowed_dirs,omitempty"`
+	Bash              *string   `yaml:"bash,omitempty"`
+	AllowCommands     *[]string `yaml:"allow_commands,omitempty"`
+	MaxCommandTimeout *string   `yaml:"max_command_timeout,omitempty"` // duration string, e.g. "120s"
 }
 
 // MemoryLimitsOverride holds optional overrides for memory capacity limits.
@@ -41,5 +50,5 @@ type ContextBudgetOverride struct {
 
 // IsZero returns true if no fields are set (all nil).
 func (c *Config) IsZero() bool {
-	return c.Model == nil && c.ToolTimeout == nil && c.MemoryLimits == nil && c.CommandPolicy == nil && c.ContextBudget == nil
+	return c.Model == nil && c.ToolTimeout == nil && c.MemoryLimits == nil && c.CommandPolicy == nil && c.ContextBudget == nil && c.Sandbox == nil
 }
