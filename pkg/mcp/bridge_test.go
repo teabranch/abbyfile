@@ -57,6 +57,24 @@ func startBridgeWithConfig(t *testing.T, cfg agentmcp.BridgeConfig) (session *go
 	return sess, cancelFn
 }
 
+// startBridgeEra is startBridgeWithConfig with an explicit client protocol
+// version ("" = SDK latest, i.e. 2026-07-28 via server/discover).
+func startBridgeEra(t *testing.T, cfg agentmcp.BridgeConfig, protocolVersion string) *gomcp.ClientSession {
+	t.Helper()
+	bridge := agentmcp.NewBridge(cfg)
+	serverTransport, clientTransport := gomcp.NewInMemoryTransports()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	go func() { _ = bridge.ServeTransport(ctx, serverTransport) }()
+	client := gomcp.NewClient(&gomcp.Implementation{Name: "era-client", Version: "v0.1.0"}, nil)
+	sess, err := client.Connect(ctx, clientTransport, &gomcp.ClientSessionOptions{ProtocolVersion: protocolVersion})
+	if err != nil {
+		cancel()
+		t.Fatalf("connect (%q): %v", protocolVersion, err)
+	}
+	t.Cleanup(func() { sess.Close(); cancel() })
+	return sess
+}
+
 // startBridge creates and starts a bridge with the given registry, returning
 // a connected client session. Delegates to startBridgeWithConfig.
 func startBridge(t *testing.T, registry *tools.Registry) (session *gomcp.ClientSession, cancel context.CancelFunc) {
@@ -602,6 +620,47 @@ func TestBridgeNoModelHintWhenEmpty(t *testing.T) {
 	text := extractText(result)
 	if strings.Contains(text, "Model Preference") {
 		t.Errorf("instructions should NOT contain model hint when model is empty, got: %s", text)
+	}
+}
+
+func TestStructuredOutputEndToEnd(t *testing.T) {
+	r := tools.NewRegistry()
+	def := tools.BuiltinTool("stats", "stats", map[string]any{"type": "object"},
+		func(map[string]any) (string, error) { return "{\"count\":3}\n", nil })
+	def.OutputSchema = map[string]any{"type": "object", "properties": map[string]any{"count": map[string]any{"type": "integer"}}}
+	_ = r.Register(def)
+
+	session, _ := startBridge(t, r)
+	res, err := session.CallTool(context.Background(), &gomcp.CallToolParams{Name: "stats"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.IsError {
+		t.Fatalf("isError: %+v", res.Content)
+	}
+	m, ok := res.StructuredContent.(map[string]any)
+	if !ok || m["count"] != float64(3) {
+		t.Fatalf("structuredContent = %#v", res.StructuredContent)
+	}
+}
+
+func TestStructuredOutputToolFailure(t *testing.T) { // Review Focus #4
+	r := tools.NewRegistry()
+	def := tools.BuiltinTool("broken", "broken", map[string]any{"type": "object"},
+		func(map[string]any) (string, error) { return "", fmt.Errorf("boom") })
+	def.OutputSchema = map[string]any{"type": "object"}
+	_ = r.Register(def)
+
+	session, _ := startBridge(t, r)
+	res, err := session.CallTool(context.Background(), &gomcp.CallToolParams{Name: "broken"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.IsError || res.StructuredContent != nil {
+		t.Fatalf("want plain isError, got isError=%v structured=%#v", res.IsError, res.StructuredContent)
+	}
+	if tc, _ := res.Content[0].(*gomcp.TextContent); tc == nil || !strings.Contains(tc.Text, "boom") {
+		t.Fatalf("error text = %+v", res.Content)
 	}
 }
 

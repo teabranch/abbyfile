@@ -1,0 +1,59 @@
+[
+  {
+    "annotations": {
+      "idempotentHint": true,
+      "readOnlyHint": true,
+      "title": "Alpha"
+    },
+    "description": "Alpha tool",
+    "inputSchema": {
+      "properties": {
+        "q": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "name": "alpha"
+  },
+  {
+    "description": "Beta tool",
+    "inputSchema": {
+      "type": "object"
+    },
+    "name": "beta",
+    "outputSchema": {
+      "properties": {
+        "n": {
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "annotations": {
+      "idempotentHint": false,
+      "readOnlyHint": false,
+      "title": "Gamma"
+    },
+    "description": "Gamma tool",
+    "inputSchema": {
+      "type": "object"
+    },
+    "name": "gamma"
+  },
+  {
+    "annotations": {
+      "idempotentHint": true,
+      "readOnlyHint": true,
+      "title": "Get Instructions"
+    },
+    "description": "Get the agent's system prompt / custom instructions. Deprecated: use server instructions (handshake) or the 'system' prompt instead.",
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "name": "get_instructions"
+  }
+]

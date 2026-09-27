@@ -70,6 +70,13 @@ func (b *Bridge) ServeTransport(ctx context.Context, transport gomcp.Transport) 
 		Version: b.cfg.Version,
 	}, &gomcp.ServerOptions{
 		Instructions: instructions,
+		SetCacheable: setCacheable,
+		// Capabilities overrides go-sdk's default of advertising the
+		// deprecated (SEP-2577) logging capability. An empty, non-nil
+		// struct suppresses Logging while leaving Tools/Prompts/Resources
+		// to be filled in by Server.capabilities() when those features are
+		// actually registered (see server.go's capabilities()).
+		Capabilities: &gomcp.ServerCapabilities{},
 	})
 
 	if b.cfg.LazyToolLoading {
@@ -100,7 +107,7 @@ func (b *Bridge) ServeTransport(ctx context.Context, transport gomcp.Transport) 
 
 // addTool registers a single abbyfile tool definition as an MCP tool.
 func (b *Bridge) addTool(server *gomcp.Server, def *tools.Definition) {
-	schema := schemaToRaw(def.InputSchema)
+	schema := inputSchemaToRaw(def.InputSchema)
 
 	tool := &gomcp.Tool{
 		Name:        def.Name,
@@ -138,6 +145,15 @@ func (b *Bridge) addTool(server *gomcp.Server, def *tools.Definition) {
 
 		if err := d.ValidateInput(input); err != nil {
 			return errorResult(fmt.Sprintf("invalid input: %v", err)), nil
+		}
+
+		if d.OutputSchema != nil {
+			raw, err := b.cfg.Executor.RunRaw(ctx, d, input)
+			if err != nil {
+				b.logger.Error("tool call failed", "tool", d.Name, "error", err)
+				return errorResult(err.Error()), nil
+			}
+			return structuredResult(d.Name, raw, b.cfg.Executor.MaxOutputBytes(d.Name)), nil
 		}
 
 		result, err := b.cfg.Executor.Run(ctx, d, input)
@@ -258,6 +274,7 @@ func (b *Bridge) addMemoryResources(server *gomcp.Server) {
 		}
 		data, _ := json.Marshal(keys)
 		return &gomcp.ReadResourceResult{
+			Cacheable: gomcp.Cacheable{TTLMs: 0, CacheScope: "private"},
 			Contents: []*gomcp.ResourceContents{{
 				URI:      indexURI,
 				MIMEType: "application/json",
@@ -287,6 +304,7 @@ func (b *Bridge) addMemoryResources(server *gomcp.Server) {
 		}
 
 		return &gomcp.ReadResourceResult{
+			Cacheable: gomcp.Cacheable{TTLMs: 0, CacheScope: "private"},
 			Contents: []*gomcp.ResourceContents{{
 				URI:      req.Params.URI,
 				MIMEType: "text/plain",
@@ -409,4 +427,27 @@ func schemaToRaw(schema any) json.RawMessage {
 		return json.RawMessage(`{"type":"object","properties":{}}`)
 	}
 	return data
+}
+
+// inputSchemaToRaw is schemaToRaw plus a guarantee that the top-level schema
+// declares "type":"object". It normalizes any non-"object" top-level type —
+// missing, null, a different scalar (e.g. "string"), or a union like
+// ["object","null"] — to "object". go-sdk v1.8.0's AddTool panics unless the
+// decoded top-level "type" is exactly the string "object", and frontmatter
+// authors routinely omit or mis-specify it.
+func inputSchemaToRaw(schema any) json.RawMessage {
+	raw := schemaToRaw(schema)
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil || m == nil {
+		return json.RawMessage(`{"type":"object","properties":{}}`)
+	}
+	if typ, ok := m["type"]; ok && typ == "object" {
+		return raw
+	}
+	m["type"] = "object"
+	out, err := json.Marshal(m)
+	if err != nil {
+		return json.RawMessage(`{"type":"object","properties":{}}`)
+	}
+	return out
 }

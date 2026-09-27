@@ -58,8 +58,8 @@ func NewRegistry() *Registry {
 
 // Register adds a tool to the registry.
 func (r *Registry) Register(def *Definition) error {
-	if def.Name == "" {
-		return fmt.Errorf("tool name cannot be empty")
+	if err := ValidateToolName(def.Name); err != nil {
+		return err
 	}
 	if _, exists := r.tools[def.Name]; exists {
 		return fmt.Errorf("tool %q already registered", def.Name)

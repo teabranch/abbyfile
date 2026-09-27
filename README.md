@@ -11,7 +11,7 @@
   <a href="https://github.com/teabranch/abbyfile/actions/workflows/ci.yml"><img src="https://github.com/teabranch/abbyfile/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/teabranch/abbyfile/releases"><img src="https://img.shields.io/github/v/release/teabranch/abbyfile" alt="Release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/teabranch/abbyfile" alt="License"></a>
-  <img src="https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go&logoColor=white" alt="Go 1.22+">
+  <img src="https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white" alt="Go 1.26+">
 </p>
 
 --- Build, version, and distribute focused agents as standalone binaries — with MCP auto-discovery for Claude Code, Codex, and Gemini CLI.

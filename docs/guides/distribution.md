@@ -13,7 +13,7 @@ Abbyfile agents compile to standalone binaries. The distribution layer handles t
 Before you can build or install agents, you need the `abby` CLI itself:
 
 ```bash
-# Go users (requires Go 1.24+)
+# Go users (requires Go 1.26+)
 go install github.com/teabranch/abbyfile/cmd/abby@latest
 
 # Pre-built binary (macOS / Linux)
