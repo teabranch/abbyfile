@@ -339,6 +339,9 @@ TDD per task; ≥80% coverage on every changed package.
    versions are reported by `abby doctor` with a removal hint.
 7. Restricted `run_command` no longer uses a shell: pipes, redirects and
    chaining require `sandbox.bash: unrestricted`.
+8. Tool names must match `^[A-Za-z0-9_.-]{1,128}$` (MCP SEP-986);
+   `tools.Registry.Register` now fails (and the agent exits) instead of the
+   SDK only logging a warning.
 
 ## Phasing
 
