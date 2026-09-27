@@ -1,24 +1,26 @@
 package builtins
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
 
+	"github.com/teabranch/abbyfile/pkg/sandbox"
 	"github.com/teabranch/abbyfile/pkg/tools"
 )
 
 // EditFileTool returns a tool definition for find-and-replace editing.
 func EditFileTool() *tools.Definition {
-	return tools.BuiltinTool(
+	return tools.BuiltinToolCtx(
 		"edit_file",
-		"Edit a file by replacing an exact string match with new content",
+		"Edit a file by replacing one exact, unique string match. Paths outside the allowed directories are refused.",
 		map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"path": map[string]any{
 					"type":        "string",
-					"description": "Absolute path to the file to edit",
+					"description": "Path to the file to edit",
 				},
 				"old_string": map[string]any{
 					"type":        "string",
@@ -33,12 +35,12 @@ func EditFileTool() *tools.Definition {
 		},
 		handleEditFile,
 	).WithAnnotations(&tools.Annotations{
-		DestructiveHint: tools.BoolPtr(false),
+		DestructiveHint: tools.BoolPtr(true),
 		Title:           "Edit File",
 	})
 }
 
-func handleEditFile(input map[string]any) (string, error) {
+func handleEditFile(ctx context.Context, input map[string]any) (string, error) {
 	path, ok := input["path"].(string)
 	if !ok {
 		return "", fmt.Errorf("missing required parameter: path")
@@ -52,12 +54,17 @@ func handleEditFile(input map[string]any) (string, error) {
 		return "", fmt.Errorf("missing required parameter: new_string")
 	}
 
-	info, err := os.Stat(path)
+	resolved, err := sandbox.FromContext(ctx).Resolve(path, sandbox.Write)
+	if err != nil {
+		return "", err
+	}
+
+	info, err := os.Stat(resolved)
 	if err != nil {
 		return "", fmt.Errorf("stat file: %w", err)
 	}
 
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(resolved)
 	if err != nil {
 		return "", fmt.Errorf("reading file: %w", err)
 	}
@@ -72,7 +79,7 @@ func handleEditFile(input map[string]any) (string, error) {
 	}
 
 	content = strings.Replace(content, oldStr, newStr, 1)
-	if err := os.WriteFile(path, []byte(content), info.Mode().Perm()); err != nil {
+	if err := os.WriteFile(resolved, []byte(content), info.Mode().Perm()); err != nil {
 		return "", fmt.Errorf("writing file: %w", err)
 	}
 	return fmt.Sprintf("Edited %s", path), nil

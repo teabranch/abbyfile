@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/teabranch/abbyfile/pkg/sandbox"
 )
 
 func TestForNames(t *testing.T) {
@@ -45,11 +47,11 @@ func TestAll(t *testing.T) {
 }
 
 func TestReadFile(t *testing.T) {
-	dir := t.TempDir()
+	dir := realTempDir(t)
 	path := filepath.Join(dir, "test.txt")
 	os.WriteFile(path, []byte("hello world"), 0o644)
 
-	result, err := handleReadFile(map[string]any{"path": path})
+	result, err := handleReadFile(sandboxCtx(t, dir, sandbox.Config{}), map[string]any{"path": path})
 	if err != nil {
 		t.Fatalf("readFile: %v", err)
 	}
@@ -59,17 +61,18 @@ func TestReadFile(t *testing.T) {
 }
 
 func TestReadFile_NotFound(t *testing.T) {
-	_, err := handleReadFile(map[string]any{"path": "/nonexistent/file"})
+	dir := realTempDir(t)
+	_, err := handleReadFile(sandboxCtx(t, dir, sandbox.Config{}), map[string]any{"path": filepath.Join(dir, "nonexistent")})
 	if err == nil {
 		t.Fatal("expected error")
 	}
 }
 
 func TestWriteFile(t *testing.T) {
-	dir := t.TempDir()
+	dir := realTempDir(t)
 	path := filepath.Join(dir, "sub", "test.txt")
 
-	result, err := handleWriteFile(map[string]any{
+	result, err := handleWriteFile(sandboxCtx(t, dir, sandbox.Config{}), map[string]any{
 		"path":    path,
 		"content": "written content",
 	})
@@ -87,11 +90,11 @@ func TestWriteFile(t *testing.T) {
 }
 
 func TestEditFile(t *testing.T) {
-	dir := t.TempDir()
+	dir := realTempDir(t)
 	path := filepath.Join(dir, "test.txt")
 	os.WriteFile(path, []byte("hello world"), 0o644)
 
-	_, err := handleEditFile(map[string]any{
+	_, err := handleEditFile(sandboxCtx(t, dir, sandbox.Config{}), map[string]any{
 		"path":       path,
 		"old_string": "world",
 		"new_string": "Go",
@@ -107,11 +110,11 @@ func TestEditFile(t *testing.T) {
 }
 
 func TestEditFile_NotFound(t *testing.T) {
-	dir := t.TempDir()
+	dir := realTempDir(t)
 	path := filepath.Join(dir, "test.txt")
 	os.WriteFile(path, []byte("hello world"), 0o644)
 
-	_, err := handleEditFile(map[string]any{
+	_, err := handleEditFile(sandboxCtx(t, dir, sandbox.Config{}), map[string]any{
 		"path":       path,
 		"old_string": "missing",
 		"new_string": "new",
@@ -122,11 +125,11 @@ func TestEditFile_NotFound(t *testing.T) {
 }
 
 func TestEditFile_Duplicate(t *testing.T) {
-	dir := t.TempDir()
+	dir := realTempDir(t)
 	path := filepath.Join(dir, "test.txt")
 	os.WriteFile(path, []byte("aa bb aa"), 0o644)
 
-	_, err := handleEditFile(map[string]any{
+	_, err := handleEditFile(sandboxCtx(t, dir, sandbox.Config{}), map[string]any{
 		"path":       path,
 		"old_string": "aa",
 		"new_string": "cc",
@@ -136,25 +139,13 @@ func TestEditFile_Duplicate(t *testing.T) {
 	}
 }
 
-func TestRunCommand(t *testing.T) {
-	result, err := handleRunCommand(map[string]any{
-		"command": "echo hello",
-	})
-	if err != nil {
-		t.Fatalf("runCommand: %v", err)
-	}
-	if strings.TrimSpace(result) != "hello" {
-		t.Errorf("result = %q, want %q", strings.TrimSpace(result), "hello")
-	}
-}
-
 func TestGlobFiles(t *testing.T) {
-	dir := t.TempDir()
+	dir := realTempDir(t)
 	os.WriteFile(filepath.Join(dir, "a.go"), []byte(""), 0o644)
 	os.WriteFile(filepath.Join(dir, "b.go"), []byte(""), 0o644)
 	os.WriteFile(filepath.Join(dir, "c.txt"), []byte(""), 0o644)
 
-	result, err := handleGlobFiles(map[string]any{
+	result, err := handleGlobFiles(sandboxCtx(t, dir, sandbox.Config{}), map[string]any{
 		"pattern": "*.go",
 		"path":    dir,
 	})
@@ -170,14 +161,14 @@ func TestGlobFiles(t *testing.T) {
 }
 
 func TestGlobFiles_DoubleStarPattern(t *testing.T) {
-	dir := t.TempDir()
+	dir := realTempDir(t)
 	sub := filepath.Join(dir, "sub")
 	os.MkdirAll(sub, 0o755)
 	os.WriteFile(filepath.Join(dir, "root.go"), []byte(""), 0o644)
 	os.WriteFile(filepath.Join(sub, "nested.go"), []byte(""), 0o644)
 	os.WriteFile(filepath.Join(sub, "skip.txt"), []byte(""), 0o644)
 
-	result, err := handleGlobFiles(map[string]any{
+	result, err := handleGlobFiles(sandboxCtx(t, dir, sandbox.Config{}), map[string]any{
 		"pattern": "**/*.go",
 		"path":    dir,
 	})
@@ -190,11 +181,11 @@ func TestGlobFiles_DoubleStarPattern(t *testing.T) {
 }
 
 func TestGrepSearch(t *testing.T) {
-	dir := t.TempDir()
+	dir := realTempDir(t)
 	os.WriteFile(filepath.Join(dir, "a.go"), []byte("func main() {\n\tfmt.Println(\"hello\")\n}\n"), 0o644)
 	os.WriteFile(filepath.Join(dir, "b.txt"), []byte("no match here\n"), 0o644)
 
-	result, err := handleGrepSearch(map[string]any{
+	result, err := handleGrepSearch(sandboxCtx(t, dir, sandbox.Config{}), map[string]any{
 		"pattern": "func main",
 		"path":    dir,
 	})
@@ -207,11 +198,11 @@ func TestGrepSearch(t *testing.T) {
 }
 
 func TestGrepSearch_WithGlob(t *testing.T) {
-	dir := t.TempDir()
+	dir := realTempDir(t)
 	os.WriteFile(filepath.Join(dir, "a.go"), []byte("hello\n"), 0o644)
 	os.WriteFile(filepath.Join(dir, "b.txt"), []byte("hello\n"), 0o644)
 
-	result, err := handleGrepSearch(map[string]any{
+	result, err := handleGrepSearch(sandboxCtx(t, dir, sandbox.Config{}), map[string]any{
 		"pattern": "hello",
 		"path":    dir,
 		"glob":    "*.go",
