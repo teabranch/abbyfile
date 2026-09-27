@@ -6,6 +6,8 @@ import (
 	"embed"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -709,5 +711,41 @@ func TestBridgeHandshakeLogsLoaderError(t *testing.T) {
 
 	if !strings.Contains(logBuf.String(), "loading instructions for handshake") {
 		t.Errorf("expected a handshake loader-error log, got: %q", logBuf.String())
+	}
+}
+
+func TestBridgeMemoryTemplateRejectsTraversalKeys(t *testing.T) {
+	parent := t.TempDir()
+	storeDir := filepath.Join(parent, "store")
+	if err := os.WriteFile(filepath.Join(parent, "secret"), []byte("SECRET"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := memory.NewFileStoreAt(storeDir, memory.Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, _ := startBridgeWithConfig(t, agentmcp.BridgeConfig{
+		Name: "test-agent", Version: "v0.1.0", Registry: tools.NewRegistry(),
+		Executor: tools.NewExecutor(30*time.Second, nil), Loader: newTestLoader(t),
+		Memory: memory.NewManager(store),
+	})
+	for _, uri := range []string{
+		"memory://test-agent/../secret",
+		"memory://test-agent/a/b",
+		"memory://test-agent/%2e%2e%2fsecret",
+		"memory://test-agent/..",
+	} {
+		res, err := session.ReadResource(context.Background(), &gomcp.ReadResourceParams{URI: uri})
+		if err == nil {
+			t.Errorf("ReadResource(%q) succeeded: %+v", uri, res)
+			continue
+		}
+		if res != nil {
+			for _, c := range res.Contents {
+				if strings.Contains(c.Text, "SECRET") {
+					t.Fatalf("ReadResource(%q) leaked a file outside the store", uri)
+				}
+			}
+		}
 	}
 }
