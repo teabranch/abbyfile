@@ -60,7 +60,7 @@ func runUpdate(name string) error {
 	defer cancel()
 
 	var all []appliedChange
-	updated := 0
+	updated, failed := 0, 0
 	for _, entry := range entries {
 		if name != "" && entry.Name != name {
 			continue
@@ -76,12 +76,14 @@ func runUpdate(name string) error {
 		ref, err := github.ParseRef(entry.Source)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s: could not parse source %q: %v\n", entry.Name, entry.Source, err)
+			failed++
 			continue
 		}
 
 		release, err := client.LatestRelease(ctx, ref)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s: could not check for updates: %v\n", entry.Name, err)
+			failed++
 			continue
 		}
 
@@ -89,6 +91,7 @@ func runUpdate(name string) error {
 		cmp, err := github.CompareVersions(entry.Version, latestVersion)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s: version comparison error: %v\n", entry.Name, err)
+			failed++
 			continue
 		}
 
@@ -124,6 +127,7 @@ func runUpdate(name string) error {
 		all = append(all, applied...)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s: update failed: %v\n", entry.Name, err)
+			failed++
 			continue
 		}
 		updated++
@@ -137,6 +141,9 @@ func runUpdate(name string) error {
 		}
 	}
 
+	if failed > 0 {
+		return fmt.Errorf("%d agent(s) failed to update", failed)
+	}
 	if updated == 0 {
 		fmt.Println("All agents are up to date.")
 	}

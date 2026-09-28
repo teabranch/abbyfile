@@ -319,7 +319,7 @@ abby update my-agent
 my-agent: installed from local build, skipping (use 'abby build && abby install my-agent' to update)
 ```
 
-`update` re-installs from the newer release using the same mandatory checksum verification as `abby install` (there is no `--insecure-skip-checksum` for `update`), replaces the binary in place at its existing path, and refreshes each runtime's `command` path and timeout — while leaving any existing `env` untouched, the same as a reinstall. It prints the same runtime-config summary table as install/uninstall, but has neither a `--dry-run` nor a `--config-method` flag — `ABBY_CONFIG_METHOD` is the only way to change its config method. A per-agent failure (for example a release with no checksum asset) is reported on stderr and that agent is skipped; it doesn't stop the rest of the batch or change `update`'s own exit code.
+`update` re-installs from the newer release using the same mandatory checksum verification as `abby install` (there is no `--insecure-skip-checksum` for `update`), replaces the binary in place at its existing path, and refreshes each runtime's `command` path and timeout — while leaving any existing `env` untouched, the same as a reinstall. It prints the same runtime-config summary table as install/uninstall, but has neither a `--dry-run` nor a `--config-method` flag — `ABBY_CONFIG_METHOD` is the only way to change its config method. A per-agent failure (for example a release with no checksum asset) is reported on stderr and that agent is skipped; the rest of the batch still runs, and `update` then exits non-zero with `N agent(s) failed to update`.
 
 ## Listing Installed Agents
 
