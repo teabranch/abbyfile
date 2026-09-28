@@ -26,7 +26,17 @@ func parseJSONObject(data []byte) (jsonObject, error) {
 		return jsonObject{}, nil
 	}
 	if !json.Valid(data) {
-		return nil, fmt.Errorf("not valid JSON (comments and trailing commas are not supported)")
+		// Provide a more accurate error message
+		if bytes.Contains(data, []byte("//")) || bytes.Contains(data, []byte("/*")) ||
+			bytes.Contains(data, []byte(",}")) || bytes.Contains(data, []byte(",]")) {
+			return nil, fmt.Errorf("not valid JSON (comments and trailing commas are not supported)")
+		}
+		// Try to unmarshal to get a better error
+		var tmp any
+		if err := json.Unmarshal(data, &tmp); err != nil {
+			return nil, fmt.Errorf("%w", err)
+		}
+		return nil, fmt.Errorf("not valid JSON")
 	}
 	dec := json.NewDecoder(bytes.NewReader(data))
 	tok, err := dec.Token()
@@ -36,13 +46,18 @@ func parseJSONObject(data []byte) (jsonObject, error) {
 	if d, ok := tok.(json.Delim); !ok || d != '{' {
 		return nil, fmt.Errorf("top level is not a JSON object")
 	}
-	var o jsonObject
+	o := jsonObject{} // Initialize as non-nil empty slice, not nil
+	seen := make(map[string]bool)
 	for dec.More() {
 		kt, err := dec.Token()
 		if err != nil {
 			return nil, err
 		}
 		key, _ := kt.(string)
+		if seen[key] {
+			return nil, fmt.Errorf("duplicate key %q (abby refuses to edit files with duplicate keys; remove one)", key)
+		}
+		seen[key] = true
 		var v json.RawMessage
 		if err := dec.Decode(&v); err != nil {
 			return nil, err
@@ -97,8 +112,14 @@ func (o jsonObject) compact() ([]byte, error) {
 		if i > 0 {
 			b.WriteByte(',')
 		}
-		k, _ := json.Marshal(f.Key)
-		b.Write(k)
+		// Use Encoder with SetEscapeHTML(false) to preserve key characters like <, >, &
+		var keyBuf bytes.Buffer
+		enc := json.NewEncoder(&keyBuf)
+		enc.SetEscapeHTML(false)
+		enc.Encode(f.Key)
+		// Remove the trailing newline added by Encode
+		keyBytes := bytes.TrimSuffix(keyBuf.Bytes(), []byte("\n"))
+		b.Write(keyBytes)
 		b.WriteByte(':')
 		b.Write(f.Value)
 	}
