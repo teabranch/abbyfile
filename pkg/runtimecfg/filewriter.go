@@ -65,7 +65,8 @@ func (w *writer) addEdit(name string, e ServerEntry) edit {
 			if err != nil {
 				return nil, "", "", false, err
 			}
-			return out, renderTOMLPreview(name, before), renderTOMLPreview(name, after), true, nil
+			beforeStr, afterStr := renderTOMLPreview(name, before), renderTOMLPreview(name, after)
+			return out, beforeStr, afterStr, beforeStr != afterStr, nil
 		}
 	}
 	return func(data []byte) ([]byte, string, string, bool, error) {
@@ -73,7 +74,8 @@ func (w *writer) addEdit(name string, e ServerEntry) edit {
 		if err != nil {
 			return nil, "", "", false, err
 		}
-		return out, renderJSONPreview(before), renderJSONPreview(after), true, nil
+		beforeStr, afterStr := renderJSONPreview(before), renderJSONPreview(after)
+		return out, beforeStr, afterStr, beforeStr != afterStr, nil
 	}
 }
 

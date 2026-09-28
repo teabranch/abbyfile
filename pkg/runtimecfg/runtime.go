@@ -109,8 +109,12 @@ type CommandRunner func(ctx context.Context, name string, args ...string) (stdou
 // Options configures writers. Zero values use real PATH lookup, a real
 // process runner, MethodAuto and the current directory as project root.
 type Options struct {
-	Method      Method
-	ProjectRoot string // absolute; project-scope configs live here ("" = os.Getwd())
+	Method Method
+	// ProjectRoot is absolute; project-scope configs live here. "" means the
+	// process's working directory at For/Detect/Resolve time (resolved once,
+	// by normalized(), not re-read later), not necessarily the directory the
+	// Options value was constructed in.
+	ProjectRoot string
 	LookPath    func(string) (string, error)
 	Run         CommandRunner
 }

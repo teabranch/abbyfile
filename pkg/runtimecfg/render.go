@@ -86,9 +86,13 @@ func entryFromJSON(o jsonObject) ServerEntry {
 		json.Unmarshal(v, &e.Cwd)
 	}
 	if v, ok := o.get("timeout"); ok {
-		var ms int64
+		// A JSON number unmarshals into float64 whether or not it has a
+		// fractional part (encoding/json rejects unmarshaling a literal like
+		// 1500.0 straight into an int64), so read as float64 and ceil to a
+		// whole millisecond; a hand-edited "timeout": 1500.7 rounds up.
+		var ms float64
 		if json.Unmarshal(v, &ms) == nil {
-			e.Timeout = time.Duration(ms) * time.Millisecond
+			e.Timeout = time.Duration(math.Ceil(ms)) * time.Millisecond
 		}
 	}
 	return e
@@ -114,8 +118,14 @@ func entryFromTOML(m map[string]any) ServerEntry {
 		}
 	}
 	e.Cwd, _ = m["cwd"].(string)
-	if s, ok := m["tool_timeout_sec"].(int64); ok {
+	// The TOML decoder gives an integer literal as int64 and a literal with
+	// a decimal point (e.g. a hand-edited 120.5) as float64; accept both,
+	// ceiling a float to a whole second.
+	switch s := m["tool_timeout_sec"].(type) {
+	case int64:
 		e.Timeout = time.Duration(s) * time.Second
+	case float64:
+		e.Timeout = time.Duration(math.Ceil(s)) * time.Second
 	}
 	return e
 }

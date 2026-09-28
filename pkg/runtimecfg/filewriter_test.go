@@ -2,6 +2,7 @@ package runtimecfg
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -227,18 +228,133 @@ func TestPlanRemove(t *testing.T) {
 	_ = d
 }
 
-func TestApplyReplansOnceOnConcurrentWrite(t *testing.T) {
+// concurrentEdit returns an edit that merges "agent" into path's mcpServers
+// object and — as a side effect — writes fresh, distinct content directly to
+// path each time it is invoked from inside Change.Apply's retry loop (never
+// on fileChange's initial planning call), simulating another process racing
+// abby's write in the window between fsutil.ReadSnapshot and Commit. When
+// always is false, only the first apply attempt races (one concurrent
+// write, absorbed by one re-plan); when true, every attempt races, so
+// Commit can never succeed. Writing distinct content each time (via the
+// call counter) matters: Commit compares bytes, so rewriting identical
+// content would not look like a concurrent change.
+func concurrentEdit(t *testing.T, path string, always bool) edit {
+	t.Helper()
+	calls := 0
+	return func(data []byte) ([]byte, string, string, bool, error) {
+		calls++
+		if calls > 1 && (always || calls == 2) {
+			content := fmt.Sprintf(`{"mcpServers":{"someone-%d":{"command":"x"}}}`, calls)
+			if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		out, before, after, err := upsertJSONServer(data, "agent", ownedJSON(ClaudeCode, entry()))
+		if err != nil {
+			return nil, "", "", false, err
+		}
+		return out, renderJSONPreview(before), renderJSONPreview(after), true, nil
+	}
+}
+
+// Review Focus #1: the previous version of this test wrote the "concurrent"
+// change BEFORE calling Apply, so fileChange's very first ReadSnapshot
+// (inside the apply loop) already saw it — Commit never observed a change
+// between ITS read and ITS write, so fsutil.ErrChangedOnDisk, and the retry
+// branch that handles it, were never exercised. concurrentEdit above races
+// the write into the actual read-modify-write window instead. Disabling the
+// retry (changing `attempt == 0` to `false` in filewriter.go) makes
+// TestApplyReplansOnceOnConcurrentWrite_SingleConflict fail, as expected.
+// Review Focus #2: addEdit used to hard-code changed=true, so re-adding an
+// already-registered, unchanged entry was never a Noop; Task 6's summary
+// would misreport "Updated" for a no-op.
+func TestPlanAddIdempotentIsNoop(t *testing.T) {
+	chdirTemp(t)
+	w := For(ClaudeCode, fileOpts)
+	c1, err := w.PlanAdd(ScopeProject, "agent", entry())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c1.Noop {
+		t.Fatal("first PlanAdd must not be a no-op")
+	}
+	if _, err := c1.Apply(); err != nil {
+		t.Fatal(err)
+	}
+	c2, err := w.PlanAdd(ScopeProject, "agent", entry())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c2.Noop {
+		t.Errorf("second identical PlanAdd must be a no-op, Preview=%q", c2.Preview)
+	}
+}
+
+// Same idempotence check for the TOML (Codex) writer, whose "before" (map
+// decoded from the file) and "after" (freshly built by ownedTOML) hold
+// slightly different Go types for equal content (e.g. []any vs []string
+// args) — rendering, not deep-equal, is what must agree.
+func TestPlanAddIdempotentIsNoopCodex(t *testing.T) {
+	chdirTemp(t)
+	w := For(Codex, fileOpts)
+	c1, err := w.PlanAdd(ScopeProject, "agent", entry())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c1.Noop {
+		t.Fatal("first PlanAdd must not be a no-op")
+	}
+	if _, err := c1.Apply(); err != nil {
+		t.Fatal(err)
+	}
+	c2, err := w.PlanAdd(ScopeProject, "agent", entry())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c2.Noop {
+		t.Errorf("second identical PlanAdd must be a no-op, Preview=%q", c2.Preview)
+	}
+}
+
+func TestApplyReplansOnceOnConcurrentWrite_SingleConflict(t *testing.T) {
 	d := chdirTemp(t)
 	p := filepath.Join(d, ".mcp.json")
 	os.WriteFile(p, []byte(`{"mcpServers":{}}`), 0o600)
-	c, _ := For(ClaudeCode, fileOpts).PlanAdd(ScopeProject, "agent", entry())
-	os.WriteFile(p, []byte(`{"mcpServers":{"someone":{"command":"x"}}}`), 0o600)
+
+	w := For(ClaudeCode, fileOpts).(*writer)
+	c, err := w.fileChange(ScopeProject, "agent", false, concurrentEdit(t, p, false))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := c.Apply(); err != nil {
 		t.Fatalf("one concurrent change must be absorbed by re-planning: %v", err)
 	}
 	b, _ := os.ReadFile(p)
-	if !strings.Contains(string(b), "someone") || !strings.Contains(string(b), "agent") {
+	if !strings.Contains(string(b), "someone-") || !strings.Contains(string(b), "agent") {
 		t.Errorf("re-plan lost data: %s", b)
+	}
+}
+
+func TestApplyReplansOnceOnConcurrentWrite_RepeatedConflictFails(t *testing.T) {
+	d := chdirTemp(t)
+	p := filepath.Join(d, ".mcp.json")
+	os.WriteFile(p, []byte(`{"mcpServers":{}}`), 0o600)
+
+	w := For(ClaudeCode, fileOpts).(*writer)
+	c, err := w.fileChange(ScopeProject, "agent", false, concurrentEdit(t, p, true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.Apply()
+	if err == nil {
+		t.Fatal("a concurrent write on every attempt must fail, not silently drop data")
+	}
+	if !strings.Contains(err.Error(), p) || !strings.Contains(err.Error(), "retry") {
+		t.Errorf("err = %v, want it to name %s and say retry", err, p)
+	}
+	b, _ := os.ReadFile(p)
+	if strings.Contains(string(b), "agent") || !strings.Contains(string(b), "someone-") {
+		t.Errorf("file must hold only the other writer's content, got: %s", b)
 	}
 }
 
