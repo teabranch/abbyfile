@@ -30,10 +30,10 @@ func TestDiagnoseAgentHealthy(t *testing.T) {
 	c, _ := w.PlanAdd(runtimecfg.ScopeProject, "agent", runtimecfg.ServerEntry{Command: bin, Args: []string{"serve-mcp"}, Timeout: 40 * time.Second})
 	c.Apply()
 	deps := doctorDeps{
-		describe: func(string) (*agentManifest, error) {
+		describe: func(string, string) (*agentManifest, error) {
 			return &agentManifest{Name: "agent", Version: "1.0.0", Sandbox: &manifestSandbox{Bash: "restricted", AllowCommands: []string{"go test ./..."}, AllowedDirs: []string{d}}}, nil
 		},
-		handshake: func(_ context.Context, _, pv string) (string, error) {
+		handshake: func(_ context.Context, _, _, pv string) (string, error) {
 			if pv == "" {
 				return "2026-07-28", nil
 			}
@@ -63,11 +63,13 @@ func TestDiagnoseAgentProblems(t *testing.T) {
 	c, _ := w.PlanAdd(runtimecfg.ScopeProject, "agent", runtimecfg.ServerEntry{Command: "/elsewhere/agent", Args: []string{"serve-mcp"}, Timeout: 20 * time.Second})
 	c.Apply()
 	deps := doctorDeps{
-		describe: func(string) (*agentManifest, error) {
+		describe: func(string, string) (*agentManifest, error) {
 			return &agentManifest{Name: "agent", ToolTimeout: "30s", Sandbox: &manifestSandbox{Bash: "unrestricted", Warnings: []string{"sandbox.bash is unrestricted"}}}, nil
 		},
-		handshake: func(context.Context, string, string) (string, error) { return "", errors.New("connection closed") },
-		writers:   []runtimecfg.ConfigWriter{w},
+		handshake: func(context.Context, string, string, string) (string, error) {
+			return "", errors.New("connection closed")
+		},
+		writers: []runtimecfg.ConfigWriter{w},
 	}
 	cs := diagnoseAgent(registry.Entry{Name: "agent", Path: bin, Scope: "local"}, deps)
 	s := textOf(cs)
@@ -87,6 +89,46 @@ func TestDiagnoseAgentProblems(t *testing.T) {
 		if !strings.Contains(s, want) {
 			t.Errorf("missing %q:\n%s", want, s)
 		}
+	}
+}
+
+// Fix round 1 (controller ruling): diagnoseAgent must run --describe and the
+// MCP handshake in the agent's own project root, not doctor's cwd, so a
+// sandbox with a relative allowedDirs entry (e.g. ".") reports the project
+// it's installed in rather than wherever `abby doctor` was invoked from.
+func TestDiagnoseAgentPassesProjectRootAsDir(t *testing.T) {
+	d := chdir(t)
+	binDir := filepath.Join(d, ".abbyfile", "bin")
+	os.MkdirAll(binDir, 0o755)
+	bin := filepath.Join(binDir, "agent")
+	os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755)
+
+	var describeDir, handshakeDir string
+	deps := doctorDeps{
+		describe: func(_, dir string) (*agentManifest, error) {
+			describeDir = dir
+			return &agentManifest{Name: "agent"}, nil
+		},
+		handshake: func(_ context.Context, _, dir, pv string) (string, error) {
+			handshakeDir = dir
+			return "2026-07-28", nil
+		},
+	}
+	diagnoseAgent(registry.Entry{Name: "agent", Path: bin, Scope: "local"}, deps)
+	if describeDir != d || handshakeDir != d {
+		t.Errorf("local entry: describeDir=%q handshakeDir=%q, want %q", describeDir, handshakeDir, d)
+	}
+
+	// A global entry (or any layout projectRootFor doesn't recognise) has no
+	// project root: dir must be "" so the spawned process just inherits
+	// doctor's own cwd, as it did before this fix.
+	describeDir, handshakeDir = "not-called", "not-called"
+	globalBin := filepath.Join(d, "usr-local-bin", "agent")
+	os.MkdirAll(filepath.Dir(globalBin), 0o755)
+	os.WriteFile(globalBin, []byte("#!/bin/sh\n"), 0o755)
+	diagnoseAgent(registry.Entry{Name: "agent", Path: globalBin, Scope: "global"}, deps)
+	if describeDir != "" || handshakeDir != "" {
+		t.Errorf("global entry: describeDir=%q handshakeDir=%q, want \"\"", describeDir, handshakeDir)
 	}
 }
 

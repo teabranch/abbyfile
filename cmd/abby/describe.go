@@ -62,10 +62,22 @@ func runtimeTimeout(m *agentManifest) time.Duration {
 // describeAgent runs a binary with --describe and parses the JSON manifest.
 // Used to verify a downloaded binary is a valid agent.
 func describeAgent(binaryPath string) (*agentManifest, error) {
+	return describeAgentIn(binaryPath, "")
+}
+
+// describeAgentIn is describeAgent, but runs the binary with its working
+// directory set to dir (when non-empty). doctor uses this to run --describe
+// in the agent's own project root, rather than doctor's own cwd, so a
+// sandbox with a relative allowedDirs entry (e.g. ".") reports the project's
+// directory instead of wherever `abby doctor` happened to be invoked from.
+func describeAgentIn(binaryPath, dir string) (*agentManifest, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, binaryPath, "--describe")
+	if dir != "" {
+		cmd.Dir = dir
+	}
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("running --describe on %s: %w", binaryPath, err)

@@ -17,9 +17,29 @@ func TestDoctorFromElsewhere(t *testing.T) {
 	if out, err := abbyIn(t, dir, env, "install", "--runtime", "claude-code", "test-agent"); err != nil {
 		t.Fatalf("install: %v\n%s", err, out)
 	}
-	out, err := abbyIn(t, t.TempDir(), env, "doctor", "--runtime", "claude-code", "test-agent")
+	elsewhere := t.TempDir()
+	out, err := abbyIn(t, elsewhere, env, "doctor", "--runtime", "claude-code", "test-agent")
 	if err != nil || !strings.Contains(out, filepath.Join(dir, ".mcp.json")) {
 		t.Fatalf("doctor from elsewhere: %v\n%s", err, out)
+	}
+	// Fix round 1 (controller ruling): --describe and the MCP handshake must
+	// run in the agent's own project root (dir, the install directory), not
+	// in the directory `abby doctor` was invoked from (elsewhere, above) —
+	// otherwise a sandbox with a relative allowedDirs entry (default ["."])
+	// would report the wrong directory. Assert the resolved, absolute
+	// project directory appears in the sandbox check, and the ad hoc
+	// directory doctor ran from does not. dir is resolved through symlinks
+	// (as the spawned agent's own os.Getwd() reports it, e.g. macOS
+	// /var -> /private/var) to compare like with like.
+	resolvedDir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatalf("resolving %s: %v", dir, err)
+	}
+	if !strings.Contains(out, "allowed_dirs="+resolvedDir) {
+		t.Errorf("doctor from elsewhere: sandbox allowed_dirs must resolve against the install's project root %q:\n%s", resolvedDir, out)
+	}
+	if resolvedElsewhere, err := filepath.EvalSymlinks(elsewhere); err == nil && strings.Contains(out, "allowed_dirs="+resolvedElsewhere) {
+		t.Errorf("doctor from elsewhere: sandbox allowed_dirs must not be the directory doctor ran from (%s):\n%s", resolvedElsewhere, out)
 	}
 }
 

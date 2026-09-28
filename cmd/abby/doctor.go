@@ -36,8 +36,8 @@ const legacyEraVersion = "2025-11-25"
 const doctorHandshakeTimeout = 10 * time.Second
 
 type doctorDeps struct {
-	describe   func(bin string) (*agentManifest, error)
-	handshake  func(ctx context.Context, bin, protocolVersion string) (string, error)
+	describe   func(bin, dir string) (*agentManifest, error)
+	handshake  func(ctx context.Context, bin, dir, protocolVersion string) (string, error)
 	writers    []runtimecfg.ConfigWriter
 	legacyPath func() (string, error)
 }
@@ -68,7 +68,7 @@ func newDoctorCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			deps := doctorDeps{describe: describeAgent, handshake: mcpHandshake, legacyPath: runtimecfg.LegacyClaudePath}
+			deps := doctorDeps{describe: describeAgentIn, handshake: mcpHandshake, legacyPath: runtimecfg.LegacyClaudePath}
 			_ = writers // validates --runtime early
 			failed := false
 			for _, e := range entries {
@@ -124,9 +124,17 @@ func diagnoseAgent(e registry.Entry, d doctorDeps) []check {
 	}
 	cs = append(cs, check{statusOK, "binary " + e.Path})
 
+	// dir is the agent's own project root (its install directory, from the
+	// registry entry's layout), so --describe and the MCP handshake run
+	// there rather than in doctor's own cwd: a sandbox with a relative
+	// allowedDirs entry (e.g. ".") must report the project's directory, not
+	// wherever `abby doctor` happened to be invoked from. "" (global/unknown
+	// layouts) leaves the spawned process's cwd unset.
+	dir := projectRootFor(e)
+
 	var m *agentManifest
 	if d.describe != nil {
-		if m, err = d.describe(e.Path); err != nil {
+		if m, err = d.describe(e.Path, dir); err != nil {
 			cs = append(cs, check{statusFail, fmt.Sprintf("--describe failed: %v", err)})
 		} else if m.Sandbox != nil {
 			sb := m.Sandbox
@@ -144,7 +152,7 @@ func diagnoseAgent(e registry.Entry, d doctorDeps) []check {
 	if d.handshake != nil {
 		for _, pv := range []string{"", legacyEraVersion} {
 			ctx, cancel := context.WithTimeout(context.Background(), doctorHandshakeTimeout)
-			got, err := d.handshake(ctx, e.Path, pv)
+			got, err := d.handshake(ctx, e.Path, dir, pv)
 			cancel()
 			label := "server/discover"
 			if pv != "" {
@@ -229,10 +237,16 @@ func printChecks(w io.Writer, title string, cs []check) (failed bool) {
 	return failed
 }
 
-// mcpHandshake connects to `bin serve-mcp` and returns the negotiated protocol version.
-func mcpHandshake(ctx context.Context, bin, protocolVersion string) (string, error) {
+// mcpHandshake connects to `bin serve-mcp` — run with its working directory
+// set to dir when non-empty, so a sandbox with a relative allowedDirs entry
+// resolves against the agent's own project root, not doctor's cwd — and
+// returns the negotiated protocol version.
+func mcpHandshake(ctx context.Context, bin, dir, protocolVersion string) (string, error) {
 	client := gomcp.NewClient(&gomcp.Implementation{Name: "abby-doctor", Version: cliVersion}, nil)
 	cmd := exec.Command(bin, "serve-mcp")
+	if dir != "" {
+		cmd.Dir = dir
+	}
 	cmd.Stderr = io.Discard // the agent's own startup logs would clutter doctor output
 	sess, err := client.Connect(ctx, &gomcp.CommandTransport{Command: cmd}, &gomcp.ClientSessionOptions{ProtocolVersion: protocolVersion})
 	if err != nil {
