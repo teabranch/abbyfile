@@ -46,6 +46,13 @@ func TestParseRef(t *testing.T) {
 			input:   "github.com/only-owner",
 			wantErr: true,
 		},
+		// Final review I-4: the agent name becomes a file name; reject
+		// anything that isn't a valid agent name.
+		{input: "github.com/owner/repo/-x", wantErr: true},
+		{input: "github.com/owner/repo/..", wantErr: true},
+		{input: "github.com/owner/repo/a/b", wantErr: true},
+		{input: "github.com/owner/repo/a.b@1.0.0", wantErr: true},
+		{input: "github.com/owner/..", wantErr: true},
 	}
 
 	for _, tt := range tests {
@@ -410,5 +417,55 @@ func TestGetWithAuthHeader(t *testing.T) {
 	_, _ = c.GetRelease(context.Background(), ref)
 	if gotAuth != "token ghp_test123" {
 		t.Errorf("Authorization = %q, want %q", gotAuth, "token ghp_test123")
+	}
+}
+
+// Final review I-4: tag-derived names that aren't valid agent names are
+// skipped with a warning, never returned.
+func TestListAgentsSkipsInvalidNames(t *testing.T) {
+	releases := []Release{
+		{TagName: "good/v1.0.0"},
+		{TagName: "../evil/v1.0.0"},
+		{TagName: "-x/v1.0.0"},
+	}
+	releasesJSON, _ := json.Marshal(releases)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(releasesJSON)
+	}))
+	defer srv.Close()
+
+	var warn strings.Builder
+	old := warnOut
+	warnOut = &warn
+	defer func() { warnOut = old }()
+
+	c := &Client{HTTPClient: srv.Client(), BaseURL: srv.URL}
+	agents, err := c.ListAgents(context.Background(), "owner", "repo")
+	if err != nil {
+		t.Fatalf("ListAgents: %v", err)
+	}
+	if len(agents) != 1 || agents[0] != "good" {
+		t.Errorf("agents = %v, want [good]", agents)
+	}
+	for _, bad := range []string{"../evil", "-x"} {
+		if !strings.Contains(warn.String(), bad) {
+			t.Errorf("no warning for %q: %s", bad, warn.String())
+		}
+	}
+}
+
+func TestListAgentsErrorsWhenNoValidNames(t *testing.T) {
+	releasesJSON, _ := json.Marshal([]Release{{TagName: "../evil/v1.0.0"}})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(releasesJSON)
+	}))
+	defer srv.Close()
+	old := warnOut
+	warnOut = io.Discard
+	defer func() { warnOut = old }()
+
+	c := &Client{HTTPClient: srv.Client(), BaseURL: srv.URL}
+	if agents, err := c.ListAgents(context.Background(), "owner", "repo"); err == nil {
+		t.Errorf("expected an error, got %v", agents)
 	}
 }

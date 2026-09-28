@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -22,6 +23,17 @@ type ReleaseRef struct {
 	Agent   string // agent name (may differ from repo)
 	Version string // specific version or "" for latest
 }
+
+// validAgentName matches the agent names abby accepts (the same pattern as
+// pkg/definition). A remote agent name becomes an installed file name, so a
+// name like ".." or "-x" must never get that far.
+var validAgentName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
+
+// ValidAgentName reports whether name is an acceptable agent name.
+func ValidAgentName(name string) bool { return validAgentName.MatchString(name) }
+
+// warnOut receives warnings about skipped releases; tests replace it.
+var warnOut io.Writer = os.Stderr
 
 // Release describes a GitHub release.
 type Release struct {
@@ -95,6 +107,9 @@ func ParseRef(ref string) (ReleaseRef, error) {
 		r.Agent = parts[2]
 	} else {
 		r.Agent = parts[1] // default agent name = repo name
+	}
+	if !ValidAgentName(r.Agent) {
+		return ReleaseRef{}, fmt.Errorf("invalid agent name %q in %q: must match %s", r.Agent, ref, validAgentName)
 	}
 	return r, nil
 }
@@ -238,12 +253,19 @@ func (c *Client) ListAgents(ctx context.Context, owner, repo string) ([]string, 
 	}
 
 	if len(seen) == 0 && hasPlainVersion {
-		return []string{repo}, nil
+		seen[repo] = true
 	}
 
 	agents := make([]string, 0, len(seen))
 	for name := range seen {
+		if !ValidAgentName(name) {
+			fmt.Fprintf(warnOut, "warning: skipping release agent name %q in %s/%s: not a valid agent name\n", name, owner, repo)
+			continue
+		}
 		agents = append(agents, name)
+	}
+	if len(agents) == 0 {
+		return nil, fmt.Errorf("no releases with a valid agent name found in %s/%s", owner, repo)
 	}
 	sort.Strings(agents)
 	return agents, nil
