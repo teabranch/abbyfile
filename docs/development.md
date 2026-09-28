@@ -157,7 +157,7 @@ Agents declare tools by Claude Code name in their `.md` frontmatter:
 | `Read` | `read_file` | Read file contents |
 | `Write` | `write_file` | Write file with dir creation |
 | `Edit` | `edit_file` | Find-and-replace in file |
-| `Bash` | `run_command` | Shell command execution |
+| `Bash` | `run_command` | Run an allowlisted command, no shell (see [Sandbox](guides/tools.md#sandbox)) |
 | `Glob` | `glob_files` | File pattern matching |
 | `Grep` | `grep_search` | Regex content search |
 

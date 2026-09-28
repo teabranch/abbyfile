@@ -125,6 +125,23 @@ func runAgentStdout(t *testing.T, args ...string) string {
 	return string(out)
 }
 
+// runAgentStdoutIn runs the agent with working directory dir.
+func runAgentStdoutIn(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, binaryPath, args...)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		if ee, ok := err.(*exec.ExitError); ok {
+			t.Fatalf("agent %v failed: %v\nstderr: %s", args, err, string(ee.Stderr))
+		}
+		t.Fatalf("agent %v failed: %v", args, err)
+	}
+	return string(out)
+}
+
 func TestVersion(t *testing.T) {
 	out := runAgentStdout(t, "--version")
 	if !strings.Contains(out, "test-agent v0.1.0") {
@@ -184,7 +201,7 @@ func TestRunTool(t *testing.T) {
 	tmpFile := filepath.Join(t.TempDir(), "test.txt")
 	os.WriteFile(tmpFile, []byte("hello from integration test"), 0o644)
 
-	out := runAgentStdout(t, "run-tool", "read_file", "--input", `{"path":"`+tmpFile+`"}`)
+	out := runAgentStdoutIn(t, filepath.Dir(tmpFile), "run-tool", "read_file", "--input", `{"path":"`+tmpFile+`"}`)
 	if !strings.Contains(out, "hello from integration test") {
 		t.Errorf("run-tool read_file output = %q, want to contain test content", out)
 	}

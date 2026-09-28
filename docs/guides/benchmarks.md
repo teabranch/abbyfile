@@ -118,7 +118,7 @@ Savings (cumulative tokens avoided):
 
 Over 20 turns: GitHub MCP costs 1,100,000T cumulative. Abbyfile costs 33,620T. **33x reduction.**
 
-### Per-session handshake cost (v0.10.0, Phase D)
+### Per-session handshake cost (v0.10.0, Phase D; v0.11.0, Phase B)
 
 What a client pays before the first tool call: `tools/list` schemas plus the
 server `instructions` actually delivered by `server/discover` / `initialize`.
@@ -138,6 +138,10 @@ Measured with `go test ./benchmarks/ -run TestHandshakeContextCost -v` (bytes/4 
 | v0.9.x (before) | true | 12 | ~1191 | ~845 | ~2036 |
 | v0.10.0 (after) | false | 12 | ~1177 | ~24 | ~1201 |
 | v0.10.0 (after) | true | 11 | ~1113 | ~845 | ~1958 |
+| v0.11.0 (sandbox) | false | 12 | ~1217 | ~24 | ~1241 |
+| v0.11.0 (sandbox) | true | 11 | ~1153 | ~845 | ~1998 |
+
+- **Phase B sandbox descriptions (v0.11.0):** `read_file`, `write_file`, `edit_file` and `run_command` gained a clause naming the sandbox confinement (e.g. "Paths outside the allowed directories are refused."). `glob_files` and `grep_search` are also confined by the sandbox, but their descriptions are unchanged — the confinement isn't named in their text. That adds ~40 tokens to `tools/list` in both modes (~1177 → ~1217 non-eager, ~1113 → ~1153 eager; bytes/4 estimate), with `instructions` unchanged, so the eager-agent total moves from ~1,958 to ~1,998 tokens. This row uses the default sandbox, whose `run_command` description is the short refuse-all form ("No commands are allowlisted for this agent, so every call is refused."); an agent with an `allow_commands` allowlist gets a longer, rewritten `run_command` description (naming each allowed command), so its `tools/list` cost is higher still.
 
 - **Lazy loading removal (D-1):** no change in these numbers. `search_tools` was never wired into `serve-mcp`, so no shipped agent used it; removing it fixes uncallable tools rather than saving context.
 - **`get_instructions` (D-2):** eager agents drop one tool schema from every `tools/list` (~1191 → ~1113 tokens, −78; total ~2036 → ~1958, −78). For non-eager agents the stub and the tool description changed wording, so the size shifts slightly too (tools/list ~1191 → ~1177, −14; total ~1217 → ~1201, −16). Their stub now tells the model to call the tool.
@@ -278,6 +282,8 @@ These are not mutually exclusive. An Abbyfile agent can coexist with skills in t
 ## Live Validation
 
 We validate all offline estimates against Claude's actual tokenizer using the free `POST /v1/messages/count_tokens` API endpoint. No inference cost — just exact token counts.
+
+The live numbers on this page (here, "Tokenizer Comparison (Live-Validated)", and "Skills vs Sub-agents vs Abbyfile", all above) predate the v0.11.0 sandbox descriptions and were not recaptured for this release — they need `ANTHROPIC_API_KEY` to reproduce. `make bench-report`'s heuristic (bytes/4) column for these same five community agents moved by +58 tokens each (`TestComparisonWithArticle`'s per-agent schema total, which uses the same `builtins.ForNames` + real builtin descriptions as `TestLiveAbbyfileTokenCount`'s heuristic column): cli-developer 1,460 → ~1,518, code-reviewer 1,412 → ~1,470, debugger 1,533 → ~1,591, golang-pro 1,668 → ~1,726, performance-engineer 1,463 → ~1,521. That is a different agent (community, 6 tools, no memory) from the "Per-session handshake cost" table above (representative agent, 11-12 tools with memory), which is why the shift there was a different +40 rather than +58 — both come from the same underlying description-text changes, but a fixed byte increase does not divide into tokens identically across different tool sets. The live (`count_tokens`) figures were not rerun, so no live/heuristic ratio here should be trusted until they are.
 
 ```bash
 ANTHROPIC_API_KEY=sk-... go test -run TestLive -v ./benchmarks/

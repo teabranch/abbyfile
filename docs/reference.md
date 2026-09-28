@@ -66,6 +66,10 @@ Overrides the default config.yaml location (`~/.abbyfile/<name>/config.yaml`). P
 
 Sets the structured logger. Default: `slog.NewTextHandler(os.Stderr, nil)`. Logs go to stderr so they do not interfere with MCP protocol on stdout.
 
+### `WithSandbox(cfg sandbox.Config) Option`
+
+WithSandbox sets the compiled-in sandbox for built-in tools. Without it the agent uses `sandbox.Default()`: file tools confined to the working directory and `run_command` refusing every call.
+
 ---
 
 ## CLI Subcommands and Flags
@@ -153,7 +157,11 @@ model: opus (override)
 tool_timeout: 30s (compiled)
 ```
 
-Supported fields for `set`/`reset`: `model`, `tool_timeout`. Complex fields (`memory_limits`, `command_policy`) can be set by editing the YAML directly.
+Supported fields for `set`: `model`, `tool_timeout`, `context_budget.max_output_lines`, `context_budget.max_output_bytes`, `context_budget.on_overflow`, `context_budget.head_lines`, `context_budget.tail_lines`, `context_budget.summary_lines`, `context_budget.eager_instructions`, `sandbox.allowed_dirs`, `sandbox.bash`, `sandbox.allow_commands`, `sandbox.max_command_timeout`. Complex fields (`memory_limits`, `command_policy`) can be set by editing the YAML directly.
+
+`reset` supports `model` and `tool_timeout` individually, the complex fields `memory_limits` and `command_policy` (each cleared as a whole), and the whole-block names `context_budget` and `sandbox`, which clear every override in that block at once (e.g. `config reset sandbox` reverts all four `sandbox.*` fields to their compiled defaults). There is no per-field reset for an individual `context_budget.*` or `sandbox.*` key — reset the whole block instead.
+
+Setting any `sandbox.*` field validates the merged sandbox as a whole, not just the field being set, and refuses to write an override that would be invalid. `set` prints a restart hint for every `sandbox.*` field (a running MCP session already loaded the old sandbox), plus a stderr warning for `sandbox.bash unrestricted` or a `sandbox.allowed_dirs` containing `/`.
 
 When `reset` removes the last field, the config file is deleted.
 
@@ -228,6 +236,13 @@ Validation PASSED
     "maxKeys": 0,
     "maxValueBytes": 0,
     "maxTotalBytes": 0
+  },
+  "sandbox": {
+    "allowedDirs": ["/"],
+    "bash": "restricted",
+    "allowCommands": ["echo *"],
+    "maxCommandTimeout": "2m0s",
+    "warnings": ["sandbox.allowed_dirs entry \"/\" resolves to / — file tools can reach the whole filesystem"]
   }
 }
 ```
@@ -239,6 +254,7 @@ Notes:
 - `memoryLimits` is only present when memory is enabled and limits are set
 - `annotations` is only present when set on the tool definition
 - `builtin` is `true` for builtin tools and memory tools, `false` for CLI tools
+- `sandbox` reflects the effective, resolved sandbox (compiled defaults plus any `config.yaml` override) — `allowedDirs` is the resolved absolute path(s), not the raw frontmatter value (so `allowed_dirs: ["."]` renders as the working directory's absolute path), and `maxCommandTimeout` is a Go `time.Duration` string (e.g. `"2m0s"` for the 120s default, not `"120s"`); `warnings` is `omitempty` and only appears when there is at least one (e.g. `allowed_dirs` including `/`, or `bash: unrestricted`)
 
 ---
 
@@ -286,6 +302,18 @@ Parameters:
 
 ---
 
+## `tools.BuiltinToolCtx`
+
+```go
+func BuiltinToolCtx(name, description string, schema any, handler func(ctx context.Context, input map[string]any) (string, error)) *Definition
+```
+
+Creates a `Definition` for a builtin tool with a context-aware handler. The executor passes the sandbox, the effective timeout, and cancellation through `ctx` (see `sandbox.FromContext`). It also sets `Handler` to a wrapper that calls `handler` with `context.Background()`, so callers that invoke `Handler` directly keep working, under the default sandbox and with no deadline.
+
+All shipped builtins (`read_file`, `write_file`, `edit_file`, `glob_files`, `grep_search`, `run_command`) are registered with `BuiltinToolCtx`.
+
+---
+
 ## `tools.Definition`
 
 ```go
@@ -297,7 +325,9 @@ type Definition struct {
     Builtin     bool
     Command     string              // CLI tools only
     Args        []string            // CLI tools only, default arguments
-    Handler     func(input map[string]any) (string, error)  // builtin tools only
+    Handler     func(input map[string]any) (string, error)                  // builtin tools only
+    HandlerCtx  func(ctx context.Context, input map[string]any) (string, error) // builtin tools only; the executor prefers this over Handler
+    UsesCommandTimeout bool         // run_command only: the handler enforces sandbox.max_command_timeout itself, so the executor's outer limit becomes max(executor timeout, max_command_timeout)
 }
 ```
 

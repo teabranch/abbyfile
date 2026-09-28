@@ -7,16 +7,22 @@
 package agent
 
 import (
+	"context"
 	"embed"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/teabranch/abbyfile/internal/cli"
+	"github.com/teabranch/abbyfile/pkg/builtins"
 	"github.com/teabranch/abbyfile/pkg/config"
 	"github.com/teabranch/abbyfile/pkg/memory"
 	"github.com/teabranch/abbyfile/pkg/prompt"
+	"github.com/teabranch/abbyfile/pkg/sandbox"
 	"github.com/teabranch/abbyfile/pkg/tools"
 )
 
@@ -43,9 +49,13 @@ type Agent struct {
 
 	configPath string // override config.yaml path (for testing)
 
-	budget tools.ContextBudget
+	budget            tools.ContextBudget
+	sandbox           sandbox.Config
+	compiledSandbox   sandbox.Config // a.sandbox as compiled, before config.yaml overrides; effectiveSandbox's first fallback
+	sandboxOverridden bool           // true once applyConfigOverrides applies a sandbox: field from config.yaml; distinguishes "compiled sandbox is broken" from "the override broke it" in effectiveSandbox
 
 	logger *slog.Logger
+	stderr io.Writer // defaults to os.Stderr; overridable in tests to capture fallback messages
 }
 
 // New creates a new Agent with the given options.
@@ -53,10 +63,16 @@ func New(opts ...Option) (*Agent, error) {
 	a := &Agent{
 		toolTimeout: 30 * time.Second,
 		budget:      tools.DefaultContextBudget(),
+		sandbox:     sandbox.Default(),
 	}
 	for _, opt := range opts {
 		opt(a)
 	}
+	// Snapshot the compiled-in sandbox (WithSandbox, or sandbox.Default() if
+	// unset) before config.yaml overrides are applied below, so an invalid
+	// runtime override can fall back to it instead of silently widening
+	// access to sandbox.Default().
+	a.compiledSandbox = a.sandbox
 
 	if a.name == "" {
 		return nil, fmt.Errorf("agent name is required (use WithName)")
@@ -70,6 +86,9 @@ func New(opts ...Option) (*Agent, error) {
 
 	if a.logger == nil {
 		a.logger = slog.New(slog.NewTextHandler(os.Stderr, nil))
+	}
+	if a.stderr == nil {
+		a.stderr = os.Stderr
 	}
 
 	if a.lazyToolLoading {
@@ -103,6 +122,7 @@ func (a *Agent) compiledDefaults() cli.CompiledDefaults {
 		MaxOutputBytes:    a.budget.MaxOutputBytes,
 		OnOverflow:        string(a.budget.OnOverflow),
 		EagerInstructions: a.budget.EagerInstructions,
+		Sandbox:           a.sandbox.Normalize(),
 	}
 }
 
@@ -176,15 +196,124 @@ func (a *Agent) applyConfigOverrides(cfg *config.Config) {
 			a.budget.EagerInstructions = *cb.EagerInstructions
 		}
 	}
+	if cfg.Sandbox != nil {
+		so := cfg.Sandbox
+		if so.AllowedDirs != nil || so.Bash != nil || so.AllowCommands != nil || so.MaxCommandTimeout != nil {
+			a.sandboxOverridden = true
+		}
+		if so.AllowedDirs != nil {
+			a.sandbox.AllowedDirs = *so.AllowedDirs
+		}
+		if so.Bash != nil {
+			a.sandbox.Bash = sandbox.BashMode(*so.Bash)
+		}
+		if so.AllowCommands != nil {
+			a.sandbox.AllowCommands = *so.AllowCommands
+		}
+		if so.MaxCommandTimeout != nil {
+			if d, err := time.ParseDuration(*so.MaxCommandTimeout); err == nil && d > 0 {
+				a.sandbox.MaxCommandTimeout = d
+			} else {
+				a.logger.Warn("invalid sandbox.max_command_timeout in config, keeping compiled value", "value", *so.MaxCommandTimeout)
+			}
+		}
+	}
+}
+
+// buildSandbox resolves the effective sandbox against the process working
+// directory, with the spill directory as a read-only root, and logs its
+// warnings to stderr.
+func (a *Agent) buildSandbox() (*sandbox.Sandbox, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("resolving working directory: %w", err)
+	}
+	sb, err := sandbox.New(a.sandbox, cwd, tools.SpillDir(a.name))
+	if err != nil {
+		return nil, err
+	}
+	for _, w := range sb.Warnings() {
+		a.logger.Warn(w)
+	}
+	return sb, nil
+}
+
+// effectiveSandbox resolves the sandbox Execute should use. If the
+// configured sandbox (compiled defaults plus any config.yaml override) fails
+// to build — e.g. a hand-edited config.yaml (or one written before
+// validation caught a value like sandbox.allowed_dirs: [""]) left it
+// invalid — it prints a warning to stderr and falls back.
+//
+// When a config.yaml sandbox override is what applied (a.sandboxOverridden),
+// it retries the compiled-in sandbox (WithSandbox's value, or
+// sandbox.Default() if the agent declared none) with a "config reset
+// sandbox" hint, so an invalid *runtime* override degrades to what the
+// binary shipped with rather than silently widening access. Without an
+// override, the effective sandbox already IS the compiled one, so that
+// retry would fail identically and is skipped.
+//
+// If the compiled sandbox is itself unbuildable (with or without an
+// override), tier 3 is sandbox.DenyAll(): no allowed directories, no
+// allowed commands. File and command tools are disabled until the compiled
+// sandbox (or the override) is fixed, but the CLI itself stays usable, so
+// this method always returns err=nil once buildSandbox has failed; it never
+// widens access to sandbox.Default() as a fallback.
+func (a *Agent) effectiveSandbox() (*sandbox.Sandbox, error) {
+	sb, err := a.buildSandbox()
+	if err == nil {
+		return sb, nil
+	}
+
+	if !a.sandboxOverridden {
+		fmt.Fprintf(a.stderr, "Error: compiled sandbox is invalid: %v; file and command tools are disabled until this is fixed\n", err)
+		return sandbox.DenyAll(), nil
+	}
+
+	fmt.Fprintf(a.stderr, "Error: invalid sandbox config: %v; falling back to the compiled sandbox (run \"%s config reset sandbox\" to clear the override)\n", err, a.name)
+
+	cwd, cwdErr := os.Getwd()
+	compiledErr := cwdErr
+	if cwdErr == nil {
+		var compiled *sandbox.Sandbox
+		compiled, compiledErr = sandbox.New(a.compiledSandbox, cwd, tools.SpillDir(a.name))
+		if compiledErr == nil {
+			return compiled, nil
+		}
+	}
+	fmt.Fprintf(a.stderr, "Error: compiled sandbox is also invalid: %v; file and command tools are disabled until this is fixed\n", compiledErr)
+	return sandbox.DenyAll(), nil
+}
+
+// sandboxedToolDefs returns the tool definitions with run_command's
+// description rewritten for the effective sandbox. Originals are not mutated.
+func (a *Agent) sandboxedToolDefs(sb *sandbox.Sandbox) []*tools.Definition {
+	out := make([]*tools.Definition, len(a.toolDefs))
+	for i, def := range a.toolDefs {
+		if def.Builtin && def.Name == builtins.RunCommandToolName {
+			c := *def
+			c.Description = builtins.RunCommandDescription(sb.Config())
+			def = &c
+		}
+		out[i] = def
+	}
+	return out
 }
 
 // Execute sets up the CLI and runs the agent binary. Returns an exit code.
 func (a *Agent) Execute() int {
+	sb, err := a.effectiveSandbox()
+	if err != nil {
+		// effectiveSandbox has already reported each intermediate fallback
+		// to stderr; this is the single final line for the all-fail case.
+		fmt.Fprintf(a.stderr, "Error: %v\n", err)
+		return 1
+	}
+
 	loader := prompt.NewLoader(a.name, *a.promptFS, a.promptPath)
 
 	// Register all tools
 	registry := tools.NewRegistry()
-	for _, def := range a.toolDefs {
+	for _, def := range a.sandboxedToolDefs(sb) {
 		if err := registry.Register(def); err != nil {
 			fmt.Fprintf(os.Stderr, "Error registering tool %q: %v\n", def.Name, err)
 			return 1
@@ -225,6 +354,7 @@ func (a *Agent) Execute() int {
 		CommandPolicy:     a.commandPolicy,
 		Logger:            a.logger,
 		EagerInstructions: a.budget.EagerInstructions,
+		Sandbox:           sb,
 	}
 	if a.memoryEnabled {
 		cliOpts.MemoryLimits = &a.memoryLimits
@@ -239,6 +369,7 @@ func (a *Agent) Execute() int {
 	if a.executionHook != nil {
 		execOpts = append(execOpts, tools.WithExecutionHook(a.executionHook))
 	}
+	execOpts = append(execOpts, tools.WithSandbox(sb))
 
 	// Build the spill sink for the context budget: memory-backed if memory
 	// is enabled, otherwise a temp-file sink.
@@ -260,7 +391,11 @@ func (a *Agent) Execute() int {
 		cmd.AddCommand(cli.NewMemoryCommand(mgr))
 	}
 
-	if err := cmd.Execute(); err != nil {
+	// Ctrl-C / SIGTERM cancel in-flight tools (and their process groups)
+	// instead of killing the agent and orphaning children.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := cmd.ExecuteContext(ctx); err != nil {
 		return 1
 	}
 	return 0

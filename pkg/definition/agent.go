@@ -64,6 +64,7 @@ type AgentDef struct {
 	CustomTools   []CustomToolDef
 	Skills        []SkillDef
 	ContextBudget *ContextBudgetDef
+	Sandbox       *SandboxDef
 	Memory        bool
 	Version       string // set from Abbyfile, not the .md
 	PromptBody    string // markdown after frontmatter
@@ -86,6 +87,7 @@ type frontmatter2 struct {
 	Skills        []SkillDef        `yaml:"skills"`
 	Model         string            `yaml:"model"`
 	ContextBudget *ContextBudgetDef `yaml:"context_budget"`
+	Sandbox       *SandboxDef       `yaml:"sandbox"`
 }
 
 // singleFrontmatter is the alternative single-block frontmatter format.
@@ -104,6 +106,7 @@ type abbyfileBlock struct {
 	CustomTools   []CustomToolDef   `yaml:"custom_tools"`
 	Skills        []SkillDef        `yaml:"skills"`
 	ContextBudget *ContextBudgetDef `yaml:"context_budget"`
+	Sandbox       *SandboxDef       `yaml:"sandbox"`
 }
 
 // ParseAgentMD reads an agent .md file with dual or single frontmatter blocks.
@@ -214,6 +217,11 @@ func parseDualFormat(block1Str, block2Str, body, path string) (*AgentDef, error)
 	}
 	def.ContextBudget = fm2.ContextBudget
 
+	if err := validateSandbox(fm2.Sandbox); err != nil {
+		return nil, err
+	}
+	def.Sandbox = fm2.Sandbox
+
 	return def, nil
 }
 
@@ -258,6 +266,11 @@ func parseSingleFormat(fmStr, body, path string) (*AgentDef, error) {
 			return nil, err
 		}
 		def.ContextBudget = sfm.Abbyfile.ContextBudget
+
+		if err := validateSandbox(sfm.Abbyfile.Sandbox); err != nil {
+			return nil, err
+		}
+		def.Sandbox = sfm.Abbyfile.Sandbox
 	}
 
 	return def, nil

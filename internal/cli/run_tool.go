@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -41,7 +40,7 @@ func NewRunToolCommand(registry *tools.Registry, timeout time.Duration, logger *
 			}
 
 			executor := tools.NewExecutor(timeout, logger, execOpts...)
-			result, err := executor.Run(context.Background(), def, input)
+			result, err := executor.Run(cmd.Context(), def, input)
 			if err != nil {
 				return err
 			}

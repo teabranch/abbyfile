@@ -431,3 +431,60 @@ func TestGenerateSource_PerToolWithoutInlineLarge_OmitsField(t *testing.T) {
 		t.Fatalf("generated main.go must not mention InlineLarge when unset\n%s", src)
 	}
 }
+
+func TestGenerateSource_EmitsSandbox(t *testing.T) {
+	dir := t.TempDir()
+	def := &definition.AgentDef{
+		Name: "s", Version: "0.0.1", Description: "d", Tools: []string{"Read", "Bash"}, PromptBody: "b",
+		Sandbox: &definition.SandboxDef{AllowCommands: []string{`go test *`, `echo "a b"`}, MaxCommandTimeout: "45s"},
+	}
+	if err := GenerateSource(dir, def, "v0.11.0", ""); err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(dir, "main.go")
+	data, _ := os.ReadFile(src)
+	s := string(data)
+	for _, want := range []string{
+		`"github.com/teabranch/abbyfile/pkg/sandbox"`,
+		"agent.WithSandbox(sandbox.Config{",
+		`AllowedDirs: []string{"."}`,
+		`Bash: sandbox.BashMode("restricted")`,
+		`"go test *"`, `"echo \"a b\""`,
+		"MaxCommandTimeout: 45000000000, // 45s",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("main.go missing %q:\n%s", want, s)
+		}
+	}
+	if _, err := parser.ParseFile(token.NewFileSet(), src, nil, parser.AllErrors); err != nil {
+		t.Fatalf("generated main.go is not valid Go: %v\n---\n%s", err, data)
+	}
+}
+
+func TestGenerateSource_NoSandbox_OmitsWithSandbox(t *testing.T) {
+	dir := t.TempDir()
+	def := &definition.AgentDef{Name: "s", Version: "0.0.1", Tools: []string{"Read"}, PromptBody: "b"}
+	if err := GenerateSource(dir, def, "v0.11.0", ""); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(filepath.Join(dir, "main.go"))
+	if strings.Contains(string(data), "WithSandbox") || strings.Contains(string(data), "pkg/sandbox") {
+		t.Fatalf("no sandbox block must emit nothing:\n%s", data)
+	}
+}
+
+func TestGenerateSource_EmptyAllowCommandsIsValidGo(t *testing.T) {
+	dir := t.TempDir()
+	def := &definition.AgentDef{
+		Name: "s", Version: "0.0.1", Tools: []string{"Bash"}, PromptBody: "b",
+		Sandbox: &definition.SandboxDef{Bash: "restricted"},
+	}
+	if err := GenerateSource(dir, def, "v0.11.0", ""); err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(dir, "main.go")
+	if _, err := parser.ParseFile(token.NewFileSet(), src, nil, parser.AllErrors); err != nil {
+		data, _ := os.ReadFile(src)
+		t.Fatalf("invalid Go: %v\n%s", err, data)
+	}
+}

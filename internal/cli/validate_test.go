@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"strings"
 	"testing"
 
@@ -90,6 +91,37 @@ func TestValidateCommand_BuiltinNoHandler(t *testing.T) {
 	out := buf.String()
 	if !strings.Contains(out, "[FAIL] Tool \"broken\"") {
 		t.Errorf("missing broken tool fail in output:\n%s", out)
+	}
+}
+
+// Finding 9: a builtin registered with only HandlerCtx (no legacy Handler)
+// must pass, not be reported as having no handler.
+func TestValidateCommand_HandlerCtxOnlyBuiltin(t *testing.T) {
+	loader := prompt.NewLoader("test-agent", testFS, "testdata/system.md")
+	reg := tools.NewRegistry()
+	reg.Register(&tools.Definition{
+		Name:    "ctx-only",
+		Builtin: true,
+		HandlerCtx: func(ctx context.Context, input map[string]any) (string, error) {
+			return "ok", nil
+		},
+	})
+
+	cmd := NewValidateCommand("test-agent", "1.0.0", loader, reg, false)
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error: %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "[PASS] Tool \"ctx-only\"") {
+		t.Errorf("missing ctx-only tool pass check in output:\n%s", out)
+	}
+	if !strings.Contains(out, "Validation PASSED") {
+		t.Errorf("missing PASSED summary in output:\n%s", out)
 	}
 }
 

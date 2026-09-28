@@ -35,7 +35,7 @@ func NewValidateCommand(name, version string, loader *prompt.Loader, registry *t
 			allTools := registry.All()
 			for _, def := range allTools {
 				if def.Builtin {
-					if def.Handler != nil {
+					if def.HandlerCtx != nil || def.Handler != nil {
 						fmt.Fprintf(w, "[PASS] Tool %q: builtin handler registered\n", def.Name)
 					} else {
 						fmt.Fprintf(w, "[FAIL] Tool %q: builtin tool has no handler\n", def.Name)

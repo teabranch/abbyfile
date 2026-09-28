@@ -11,6 +11,9 @@ import (
 {{- if or .CustomTools .Budget}}
 	"github.com/teabranch/abbyfile/pkg/tools"
 {{- end}}
+{{- if .Sandbox}}
+	"github.com/teabranch/abbyfile/pkg/sandbox"
+{{- end}}
 )
 
 func main() {
@@ -72,6 +75,14 @@ func main() {
 		agent.WithTools(toolDefs...),
 		{{- if .Memory}}
 		agent.WithMemory(true),
+		{{- end}}
+		{{- if .Sandbox}}
+		agent.WithSandbox(sandbox.Config{
+			AllowedDirs: []string{ {{- range $i, $d := .Sandbox.AllowedDirs}}{{if $i}}, {{end}}{{printf "%q" $d}}{{end -}} },
+			Bash: sandbox.BashMode({{printf "%q" .Sandbox.Bash}}),
+			AllowCommands: []string{ {{- range $i, $c := .Sandbox.AllowCommands}}{{if $i}}, {{end}}{{printf "%q" $c}}{{end -}} },
+			MaxCommandTimeout: {{.Sandbox.MaxCommandTimeout}}, // {{.Sandbox.MaxCommandTimeoutText}}
+		}),
 		{{- end}}
 		{{- if .Budget}}
 		agent.WithContextBudget(tools.ContextBudget{

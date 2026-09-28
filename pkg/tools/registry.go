@@ -3,6 +3,7 @@
 package tools
 
 import (
+	"context"
 	"fmt"
 	"sort"
 )
@@ -30,8 +31,15 @@ type Definition struct {
 	// For CLI tools
 	Command string   // the binary to run
 	Args    []string // default arguments
-	// For built-in tools
-	Handler func(input map[string]any) (string, error)
+	// For built-in tools. The executor prefers HandlerCtx: it receives the
+	// executor timeout, the sandbox and the output cap through ctx. Handler
+	// is kept for existing tools and callers; it cannot be cancelled.
+	Handler    func(input map[string]any) (string, error)
+	HandlerCtx func(ctx context.Context, input map[string]any) (string, error)
+	// UsesCommandTimeout marks tools (run_command) whose handler enforces
+	// sandbox.max_command_timeout itself. The executor's outer limit becomes
+	// max(executor timeout, max_command_timeout) so that cap is reachable.
+	UsesCommandTimeout bool
 	// Security policy for command execution (applies to run_command and CLI tools)
 	Policy *CommandPolicy
 }
@@ -111,5 +119,21 @@ func BuiltinTool(name, description string, schema any, handler func(input map[st
 		InputSchema: schema,
 		Builtin:     true,
 		Handler:     handler,
+	}
+}
+
+// BuiltinToolCtx creates a built-in tool with a context-aware handler. It
+// also sets Handler to a wrapper using context.Background(), so callers that
+// invoke Handler directly keep working under the default sandbox.
+func BuiltinToolCtx(name, description string, schema any, handler func(ctx context.Context, input map[string]any) (string, error)) *Definition {
+	return &Definition{
+		Name:        name,
+		Description: description,
+		InputSchema: schema,
+		Builtin:     true,
+		HandlerCtx:  handler,
+		Handler: func(input map[string]any) (string, error) {
+			return handler(context.Background(), input)
+		},
 	}
 }

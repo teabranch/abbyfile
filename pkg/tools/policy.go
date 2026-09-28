@@ -5,26 +5,20 @@ import (
 	"strings"
 )
 
-// CommandPolicy defines execution constraints for CLI tools.
+// CommandPolicy defines execution constraints for custom CLI tools.
+// AllowedPrefixes and DeniedSubstrings are plain string checks on the
+// argument string — conveniences, not a security boundary. run_command is
+// governed by pkg/sandbox instead.
 type CommandPolicy struct {
 	AllowedPrefixes  []string // if non-empty, command must start with one of these
 	DeniedSubstrings []string // command must not contain any of these
-	MaxOutputBytes   int64    // max stdout+stderr size (0 = unlimited)
+	MaxOutputBytes   int64    // cap on captured stdout/stderr each (<=0 = DefaultMaxOutputBytes)
 }
 
-// DefaultCommandPolicy returns a policy with sensible defaults for run_command.
+// DefaultCommandPolicy returns the default policy: no string checks and a
+// DefaultMaxOutputBytes capture cap.
 func DefaultCommandPolicy() *CommandPolicy {
-	return &CommandPolicy{
-		DeniedSubstrings: []string{
-			"rm -rf /",
-			"rm -rf ~",
-			"mkfs.",
-			"dd if=",
-			":(){", // fork bomb
-			"chmod -R 777",
-		},
-		MaxOutputBytes: 10 << 20, // 10 MB
-	}
+	return &CommandPolicy{MaxOutputBytes: DefaultMaxOutputBytes}
 }
 
 // Check validates a command string against the policy. Returns an error if denied.

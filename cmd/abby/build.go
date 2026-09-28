@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/spf13/cobra"
 	"github.com/teabranch/abbyfile/pkg/builder"
@@ -122,6 +124,12 @@ func runBuild(abbyfilePath, outputDir, agentName string, pluginOutput bool, suba
 
 	if agentName != "" && len(defs) == 0 {
 		return fmt.Errorf("agent %q not found in Abbyfile", agentName)
+	}
+
+	for _, name := range slices.Sorted(maps.Keys(defs)) {
+		for _, note := range builder.SandboxNotes(defs[name]) {
+			fmt.Fprintln(os.Stderr, note)
+		}
 	}
 
 	if err := builder.BuildAll(defs, cfg); err != nil {
