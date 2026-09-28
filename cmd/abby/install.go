@@ -84,6 +84,9 @@ Override settings at install time:
 				Out:          os.Stdout,
 				Err:          os.Stderr,
 			}
+			// Print once per command invocation, not once per agent (a
+			// bulk/multi install would otherwise repeat it per ref).
+			warnProjectEnv(opts, scopeFor(global))
 
 			// Validate --model is only used with single-agent installs.
 			isBulk := allFlag || len(args) > 1
@@ -110,13 +113,7 @@ Override settings at install time:
 				return err
 			}
 
-			if modelOverride != "" {
-				if err := config.WriteField(agentName, "model", modelOverride); err != nil {
-					return fmt.Errorf("writing model override: %w", err)
-				}
-				fmt.Fprintf(opts.Out, "Set model override: %s → %s\n", agentName, modelOverride)
-			}
-			return nil
+			return applyModelOverride(opts, agentName, modelOverride)
 		},
 	}
 
@@ -130,6 +127,23 @@ Override settings at install time:
 	cmd.Flags().BoolVar(&insecureSkipChecksum, "insecure-skip-checksum", false, "Skip release checksum verification (use with care)")
 
 	return cmd
+}
+
+// applyModelOverride sets (or, DryRun, previews) the agent's model override
+// in ~/.abbyfile/<name>/config.yaml. A no-op when modelOverride is "".
+func applyModelOverride(opts installOptions, agentName, modelOverride string) error {
+	if modelOverride == "" {
+		return nil
+	}
+	if opts.DryRun {
+		fmt.Fprintf(opts.Out, "would set model override: %s → %s\n", agentName, modelOverride)
+		return nil
+	}
+	if err := config.WriteField(agentName, "model", modelOverride); err != nil {
+		return fmt.Errorf("writing model override: %w", err)
+	}
+	fmt.Fprintf(opts.Out, "Set model override: %s → %s\n", agentName, modelOverride)
+	return nil
 }
 
 // installOne installs a single agent and returns its name and the applied changes.
@@ -260,7 +274,11 @@ func installMany(refs []string, opts installOptions, isRemote bool) ([]appliedCh
 		}
 	}
 
-	fmt.Fprintf(opts.Out, "\nInstalled %d/%d agent(s)", succeeded, succeeded+failed)
+	verb, suffix := "Installed", ""
+	if opts.DryRun {
+		verb, suffix = "Would install", " (dry run)"
+	}
+	fmt.Fprintf(opts.Out, "\n%s %d/%d agent(s)%s", verb, succeeded, succeeded+failed, suffix)
 	if failed > 0 {
 		fmt.Fprintf(opts.Out, " (%d failed)\n", failed)
 		return all, fmt.Errorf("%d agent(s) failed to install:\n%s", failed, strings.Join(errors, "\n"))
@@ -282,27 +300,38 @@ func runLocalInstall(name string, opts installOptions) ([]appliedChange, error) 
 	dst := filepath.Join(binDir, name)
 	scope := scopeFor(opts.Global)
 
+	absDst, err := filepath.Abs(dst)
+	if err != nil {
+		return nil, fmt.Errorf("resolving absolute path: %w", err)
+	}
+
+	// describeAgent runs the source binary directly; no need to wait for the
+	// copy below.
+	m, _ := describeAgent(src)
+	entry := runtimecfg.ServerEntry{
+		Command: absDst,
+		Args:    []string{"serve-mcp"},
+		Env:     opts.Env,
+		Cwd:     cwdIfProject(scope, opts),
+		Timeout: runtimeTimeout(m),
+	}
+
+	// Plan every writer's config change before touching the binary: a
+	// planning failure (an unparsable existing config, or a --config-method
+	// cli refusal) must leave no binary copied and no config written.
+	planned, err := planEntries(opts, scope, map[string]runtimecfg.ServerEntry{name: entry})
+	if err != nil {
+		return nil, err
+	}
+
 	if opts.DryRun {
 		fmt.Fprintf(opts.Out, "would install %s → %s\n", src, dst)
-		m, _ := describeAgent(src)
-		absDst, err := filepath.Abs(dst)
-		if err != nil {
-			return nil, fmt.Errorf("resolving absolute path: %w", err)
-		}
-		entry := runtimecfg.ServerEntry{
-			Command: absDst,
-			Args:    []string{"serve-mcp"},
-			Env:     opts.Env,
-			Cwd:     cwdIfProject(scope, opts),
-			Timeout: runtimeTimeout(m),
-		}
-		return applyEntries(opts, scope, map[string]runtimecfg.ServerEntry{name: entry})
+		return commitPlanned(opts, planned)
 	}
 
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		return nil, fmt.Errorf("creating bin dir: %w", err)
 	}
-
 	if err := fsutil.CopyFile(src, dst); err != nil {
 		return nil, fmt.Errorf("copying binary: %w", err)
 	}
@@ -312,20 +341,7 @@ func runLocalInstall(name string, opts installOptions) ([]appliedChange, error) 
 	fmt.Fprintf(opts.Out, "Installed %s → %s\n", name, dst)
 
 	// Update MCP configs for target runtimes.
-	absDst, err := filepath.Abs(dst)
-	if err != nil {
-		return nil, fmt.Errorf("resolving absolute path: %w", err)
-	}
-
-	m, _ := describeAgent(absDst)
-	entry := runtimecfg.ServerEntry{
-		Command: absDst,
-		Args:    []string{"serve-mcp"},
-		Env:     opts.Env,
-		Cwd:     cwdIfProject(scope, opts),
-		Timeout: runtimeTimeout(m),
-	}
-	applied, err := applyEntries(opts, scope, map[string]runtimecfg.ServerEntry{name: entry})
+	applied, err := commitPlanned(opts, planned)
 	if err != nil {
 		return applied, err
 	}
@@ -427,20 +443,28 @@ func runRemoteInstall(ref string, opts installOptions) ([]appliedChange, error) 
 	dst := filepath.Join(binDir, parsed.Agent)
 	scope := scopeFor(opts.Global)
 
+	absDst, err := filepath.Abs(dst)
+	if err != nil {
+		return nil, fmt.Errorf("resolving absolute path: %w", err)
+	}
+	entry := runtimecfg.ServerEntry{
+		Command: absDst,
+		Args:    []string{"serve-mcp"},
+		Env:     opts.Env,
+		Cwd:     cwdIfProject(scope, opts),
+		Timeout: runtimeTimeout(manifest),
+	}
+
+	// Plan every writer's config change before touching the binary: a
+	// planning failure must leave no binary copied and no config written.
+	planned, err := planEntries(opts, scope, map[string]runtimecfg.ServerEntry{parsed.Agent: entry})
+	if err != nil {
+		return nil, err
+	}
+
 	if opts.DryRun {
 		fmt.Fprintf(opts.Out, "would install %s → %s\n", asset.Name, dst)
-		absDst, err := filepath.Abs(dst)
-		if err != nil {
-			return nil, fmt.Errorf("resolving absolute path: %w", err)
-		}
-		entry := runtimecfg.ServerEntry{
-			Command: absDst,
-			Args:    []string{"serve-mcp"},
-			Env:     opts.Env,
-			Cwd:     cwdIfProject(scope, opts),
-			Timeout: runtimeTimeout(manifest),
-		}
-		return applyEntries(opts, scope, map[string]runtimecfg.ServerEntry{parsed.Agent: entry})
+		return commitPlanned(opts, planned)
 	}
 
 	// Move to install location.
@@ -457,18 +481,7 @@ func runRemoteInstall(ref string, opts installOptions) ([]appliedChange, error) 
 	fmt.Fprintf(opts.Out, "Installed %s → %s\n", parsed.Agent, dst)
 
 	// Wire MCP for target runtimes.
-	absDst, err := filepath.Abs(dst)
-	if err != nil {
-		return nil, fmt.Errorf("resolving absolute path: %w", err)
-	}
-	entry := runtimecfg.ServerEntry{
-		Command: absDst,
-		Args:    []string{"serve-mcp"},
-		Env:     opts.Env,
-		Cwd:     cwdIfProject(scope, opts),
-		Timeout: runtimeTimeout(manifest),
-	}
-	applied, err := applyEntries(opts, scope, map[string]runtimecfg.ServerEntry{parsed.Agent: entry})
+	applied, err := commitPlanned(opts, planned)
 	if err != nil {
 		return applied, err
 	}

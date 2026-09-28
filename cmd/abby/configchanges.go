@@ -15,42 +15,73 @@ type appliedChange struct {
 	Backup string
 }
 
-// applyEntries plans (and unless DryRun, applies) one change per writer per
-// entry, printing each preview. It stops at the first error; changes already
-// applied stay applied and are returned.
-func applyEntries(opts installOptions, scope runtimecfg.Scope, entries map[string]runtimecfg.ServerEntry) ([]appliedChange, error) {
+// planEntries plans one Change per writer per entry (writer-major order,
+// entry names sorted), without applying anything. All-or-nothing: if any
+// PlanAdd fails, the error is returned immediately and no Change is applied.
+// This is what keeps a planning failure (e.g. an unparsable existing config
+// file, or a --config-method cli refusal) from leaving another writer's
+// change applied, or — for install — a binary copied with no working
+// config: callers plan before doing anything else irreversible.
+func planEntries(opts installOptions, scope runtimecfg.Scope, entries map[string]runtimecfg.ServerEntry) ([]runtimecfg.Change, error) {
 	names := make([]string, 0, len(entries))
 	for n := range entries {
 		names = append(names, n)
 	}
 	sort.Strings(names)
-	if len(opts.Env) > 0 && scope == runtimecfg.ScopeProject {
-		fmt.Fprintln(opts.Err, "warning: --env values are written into project config files, which are often committed; prefer ${VAR} references (Claude Code and Gemini CLI expand them) for secrets")
-	}
-	var done []appliedChange
+
+	var planned []runtimecfg.Change
 	for _, w := range opts.Writers {
 		for _, n := range names {
 			c, err := w.PlanAdd(scope, n, entries[n])
 			if err != nil {
-				return done, fmt.Errorf("%s: %w", w.Runtime(), err)
+				return nil, fmt.Errorf("%s: %w", w.Runtime(), err)
 			}
-			if a, err := commit(opts, c); err != nil {
-				return done, err
-			} else {
-				done = append(done, a)
-			}
+			planned = append(planned, c)
 		}
+	}
+	return planned, nil
+}
+
+// commitPlanned applies (or, DryRun, previews) each already-planned change,
+// in order, stopping at the first error; changes already applied stay
+// applied and are returned.
+func commitPlanned(opts installOptions, planned []runtimecfg.Change) ([]appliedChange, error) {
+	var done []appliedChange
+	for _, c := range planned {
+		a, err := commit(opts, c)
+		if err != nil {
+			return done, err
+		}
+		done = append(done, a)
 	}
 	return done, nil
 }
 
-// removeEntries plans/applies removal of name from every writer.
+// applyEntries plans every (writer, entry) change up front — see
+// planEntries — then applies (or, DryRun, previews) them in order, printing
+// each preview. It stops at the first apply error; changes already applied
+// stay applied and are returned.
+func applyEntries(opts installOptions, scope runtimecfg.Scope, entries map[string]runtimecfg.ServerEntry) ([]appliedChange, error) {
+	planned, err := planEntries(opts, scope, entries)
+	if err != nil {
+		return nil, err
+	}
+	return commitPlanned(opts, planned)
+}
+
+// removeEntries plans/applies removal of name from every writer. Every
+// writer is attempted regardless of an earlier writer's failure; a combined
+// error is returned if any writer failed to plan or apply its removal, so
+// the caller (uninstall) can leave its registry entry in place for a retry
+// instead of losing track of a partially-uninstalled agent.
 func removeEntries(opts installOptions, scope runtimecfg.Scope, name string) ([]appliedChange, error) {
 	var done []appliedChange
+	var errs []string
 	for _, w := range opts.Writers {
 		c, err := w.PlanRemove(scope, name)
 		if err != nil {
 			fmt.Fprintf(opts.Err, "warning: %s: %v\n", w.Runtime(), err)
+			errs = append(errs, fmt.Sprintf("%s: %v", w.Runtime(), err))
 			continue
 		}
 		if c.Noop {
@@ -59,16 +90,23 @@ func removeEntries(opts installOptions, scope runtimecfg.Scope, name string) ([]
 		a, err := commit(opts, c)
 		if err != nil {
 			fmt.Fprintf(opts.Err, "warning: %v\n", err)
+			errs = append(errs, err.Error())
 			continue
 		}
 		done = append(done, a)
+	}
+	if len(errs) > 0 {
+		return done, fmt.Errorf("%d runtime(s) failed to remove %q: %s", len(errs), name, strings.Join(errs, "; "))
 	}
 	return done, nil
 }
 
 func commit(opts installOptions, c runtimecfg.Change) (appliedChange, error) {
 	verb := "update"
-	if c.Remove {
+	switch {
+	case c.Noop:
+		verb = "unchanged"
+	case c.Remove:
 		verb = "remove"
 	}
 	fmt.Fprintf(opts.Out, "%s %s in %s (%s, %s scope, via %s):\n%s", verb, c.Server, c.Target, c.Runtime, c.Scope, c.Method, indent(c.Preview))
@@ -118,7 +156,11 @@ func printSummary(w io.Writer, applied []appliedChange, dryRun bool) {
 		if backup == "" {
 			backup = "-"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", c.Runtime, c.Scope, c.Method, c.Target, c.Server, backup)
+		method := string(c.Method)
+		if c.Noop {
+			method += " (unchanged)"
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", c.Runtime, c.Scope, method, c.Target, c.Server, backup)
 		for _, n := range c.Notes {
 			if !seen[n] {
 				seen[n] = true

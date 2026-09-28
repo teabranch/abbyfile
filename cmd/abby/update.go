@@ -33,6 +33,13 @@ If no agent name is given, checks all remote-installed agents.`,
 }
 
 func runUpdate(name string) error {
+	// Resolve up front, like install/uninstall: a bad ABBY_CONFIG_METHOD
+	// must fail the whole command, not be silently ignored per entry.
+	baseCfgOpts, err := configOptions("")
+	if err != nil {
+		return err
+	}
+
 	regPath, err := registry.DefaultPath()
 	if err != nil {
 		return err
@@ -52,6 +59,7 @@ func runUpdate(name string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
+	var all []appliedChange
 	updated := 0
 	for _, entry := range entries {
 		if name != "" && entry.Name != name {
@@ -99,7 +107,7 @@ func runUpdate(name string) error {
 		// update may run from anywhere: resolve writers and the entry's Cwd
 		// against its own project root, not the process's cwd, and replace
 		// the binary at its existing registered location.
-		cfgOpts, _ := configOptions("")
+		cfgOpts := baseCfgOpts
 		cfgOpts.ProjectRoot = projectRootFor(entry)
 		writers := runtimecfg.Detect(cfgOpts)
 
@@ -112,12 +120,16 @@ func runUpdate(name string) error {
 			Err:         os.Stderr,
 		}
 
-		if _, err := runRemoteInstall(newRef, opts); err != nil {
+		applied, err := runRemoteInstall(newRef, opts)
+		all = append(all, applied...)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s: update failed: %v\n", entry.Name, err)
 			continue
 		}
 		updated++
 	}
+
+	printSummary(os.Stdout, all, false)
 
 	if name != "" {
 		if _, ok := reg.Get(name); !ok {

@@ -85,6 +85,17 @@ func parseEnvFlags(pairs []string) (map[string]string, error) {
 	return env, nil
 }
 
+// warnProjectEnv prints a stderr warning when --env values are about to be
+// written into a project-scope config file, which is often committed to
+// version control. Callers invoke this once per command invocation (e.g.
+// install's RunE), not once per agent/writer, so a bulk or multi-agent
+// install with --env doesn't repeat it.
+func warnProjectEnv(opts installOptions, scope runtimecfg.Scope) {
+	if len(opts.Env) > 0 && scope == runtimecfg.ScopeProject {
+		fmt.Fprintln(opts.Err, "warning: --env values are written into project config files, which are often committed; prefer ${VAR} references (Claude Code and Gemini CLI expand them) for secrets")
+	}
+}
+
 // configOptions resolves --config-method (flag, else ABBY_CONFIG_METHOD, else auto).
 func configOptions(flag string) (runtimecfg.Options, error) {
 	v := flag

@@ -93,13 +93,100 @@ func TestInstallKeepsExistingEnv(t *testing.T) {
 	}
 }
 
-func TestProjectEnvWarning(t *testing.T) {
+// Fix round 1, item 6: the --env project-scope warning must print once per
+// command invocation, not once per agent — so it moved out of applyEntries
+// (called once per agent by install/build) into warnProjectEnv, which the
+// install command calls exactly once in its RunE.
+func TestApplyEntriesDoesNotPrintEnvWarningItself(t *testing.T) {
 	chdir(t)
 	var out, errb bytes.Buffer
 	opts := installOptions{Writers: fileWriters(runtimecfg.ClaudeCode), Env: map[string]string{"K": "v"}, Out: &out, Err: &errb}
 	applyEntries(opts, runtimecfg.ScopeProject, map[string]runtimecfg.ServerEntry{"a": {Command: "/x", Env: map[string]string{"K": "v"}}})
+	if errb.Len() != 0 {
+		t.Errorf("applyEntries must not print the --env warning itself (moved to warnProjectEnv): %q", errb.String())
+	}
+}
+
+func TestWarnProjectEnv(t *testing.T) {
+	var errb bytes.Buffer
+	opts := installOptions{Env: map[string]string{"K": "v"}, Err: &errb}
+	warnProjectEnv(opts, runtimecfg.ScopeProject)
 	if !strings.Contains(errb.String(), "committed") || !strings.Contains(errb.String(), "${") {
-		t.Errorf("warning = %q", errb.String())
+		t.Errorf("project-scope warning = %q", errb.String())
+	}
+	errb.Reset()
+	warnProjectEnv(opts, runtimecfg.ScopeUser)
+	if errb.Len() != 0 {
+		t.Errorf("must not warn for user scope: %q", errb.String())
+	}
+}
+
+// Fix round 1, item 2: PlanAdd every (writer, entry) pair before applying
+// anything. A broken existing .gemini/settings.json must fail planning
+// before claude-code's already-planned change is ever committed, so .mcp.json
+// stays untouched.
+func TestApplyEntriesPlansAllWritersBeforeApplyingAny(t *testing.T) {
+	d := chdir(t)
+	os.MkdirAll(filepath.Join(d, ".gemini"), 0o755)
+	os.WriteFile(filepath.Join(d, ".gemini", "settings.json"), []byte("{not valid json"), 0o600)
+
+	var out, errb bytes.Buffer
+	opts := installOptions{Writers: fileWriters(runtimecfg.ClaudeCode, runtimecfg.Gemini), Out: &out, Err: &errb}
+	_, err := applyEntries(opts, runtimecfg.ScopeProject, map[string]runtimecfg.ServerEntry{"a": {Command: "/x", Args: []string{"serve-mcp"}}})
+	if err == nil {
+		t.Fatal("expected an error from the broken gemini config")
+	}
+	if _, err := os.Stat(filepath.Join(d, ".mcp.json")); !os.IsNotExist(err) {
+		t.Error("claude-code's change must not have been applied when gemini's plan failed")
+	}
+}
+
+// Fix round 1, item 3: removeEntries must still attempt every writer, but
+// return a combined error when any removal failed.
+func TestRemoveEntriesCombinesErrorsButAttemptsEveryWriter(t *testing.T) {
+	d := chdir(t)
+	os.WriteFile(filepath.Join(d, ".mcp.json"), []byte(`{"mcpServers":{"a":{"type":"stdio","command":"/x","args":["serve-mcp"]}}}`), 0o600)
+	os.MkdirAll(filepath.Join(d, ".gemini"), 0o755)
+	os.WriteFile(filepath.Join(d, ".gemini", "settings.json"), []byte("{not valid json"), 0o600)
+
+	var out, errb bytes.Buffer
+	opts := installOptions{Writers: fileWriters(runtimecfg.Gemini, runtimecfg.ClaudeCode), Out: &out, Err: &errb}
+	applied, err := removeEntries(opts, runtimecfg.ScopeProject, "a")
+	if err == nil {
+		t.Fatal("expected a combined error from the broken gemini config")
+	}
+	if len(applied) != 1 || applied[0].Change.Runtime != runtimecfg.ClaudeCode {
+		t.Fatalf("expected claude-code's removal to still be applied despite gemini's failure: %+v", applied)
+	}
+	b, _ := os.ReadFile(filepath.Join(d, ".mcp.json"))
+	if strings.Contains(string(b), `"a"`) {
+		t.Errorf("claude-code's entry should have been removed: %s", b)
+	}
+}
+
+// Fix round 1, item 4: a Noop change's commit header says "unchanged", not
+// "update".
+func TestCommitNoopHeaderSaysUnchanged(t *testing.T) {
+	var out bytes.Buffer
+	opts := installOptions{Out: &out, Err: &out}
+	c := runtimecfg.Change{Runtime: runtimecfg.ClaudeCode, Scope: runtimecfg.ScopeProject, Method: runtimecfg.MethodFile, Target: ".mcp.json", Server: "a", Noop: true}
+	if _, err := commit(opts, c); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "unchanged a in .mcp.json") {
+		t.Errorf("commit header must say unchanged for a Noop change:\n%s", out.String())
+	}
+}
+
+// Fix round 1, item 4: the summary marks a Noop row's method as "<method>
+// (unchanged)".
+func TestPrintSummaryMarksNoopChanges(t *testing.T) {
+	var out bytes.Buffer
+	printSummary(&out, []appliedChange{
+		{Change: runtimecfg.Change{Runtime: runtimecfg.ClaudeCode, Scope: runtimecfg.ScopeProject, Method: runtimecfg.MethodFile, Target: ".mcp.json", Server: "a", Noop: true}},
+	}, false)
+	if !strings.Contains(out.String(), "file (unchanged)") {
+		t.Errorf("summary must mark a Noop change as unchanged:\n%s", out.String())
 	}
 }
 
