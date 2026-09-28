@@ -2,7 +2,9 @@ package runtimecfg
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"reflect"
 	"regexp"
 	"strings"
 
@@ -152,6 +154,48 @@ func detachTails(segs []segment) []segment {
 	return result
 }
 
+// errTOMLOtherParts is returned when an edit's result differs from its input
+// anywhere but the edited entry: a segmentation mistake, refused rather than
+// written.
+var errTOMLOtherParts = errors.New("internal error: edit would change other parts of the file; abby did not modify it")
+
+// guardTOMLEdit decodes the original text and the edited text in full and
+// checks that, once mcp_servers.<name> is taken out of both (and mcp_servers
+// itself when that leaves it empty), the documents are identical. This catches
+// any line-level mistake in the segmenter — a header it failed to recognise, a
+// header-like line inside a multi-line string — whatever its cause. It returns
+// the edited text's entry and whether it is present.
+func guardTOMLEdit(original, edited, name string) (map[string]any, bool, error) {
+	var in, out map[string]any
+	if _, err := toml.Decode(original, &in); err != nil {
+		return nil, false, fmt.Errorf("not valid TOML: %w", err)
+	}
+	if _, err := toml.Decode(edited, &out); err != nil {
+		return nil, false, fmt.Errorf("%w (%v)", errTOMLOtherParts, err)
+	}
+	withoutServer(in, name)
+	outEntry, outOK := withoutServer(out, name)
+	if !reflect.DeepEqual(in, out) {
+		return nil, false, errTOMLOtherParts
+	}
+	return outEntry, outOK, nil
+}
+
+// withoutServer removes mcp_servers.<name> from a freshly decoded document
+// (and mcp_servers when it is then empty), returning the removed entry.
+func withoutServer(doc map[string]any, name string) (map[string]any, bool) {
+	srv, isTable := doc[codexServersKey].(map[string]any)
+	if !isTable {
+		return nil, false
+	}
+	e, ok := srv[name].(map[string]any)
+	delete(srv, name)
+	if len(srv) == 0 {
+		delete(doc, codexServersKey)
+	}
+	return e, ok
+}
+
 func decodeServer(text, name string) (map[string]any, bool, error) {
 	var doc map[string]any
 	if _, err := toml.Decode(text, &doc); err != nil {
@@ -289,16 +333,19 @@ func upsertTOMLServer(data []byte, name string, set map[string]any) (out []byte,
 	}
 
 	// Validate round-trip before line-ending conversion
-	decoded, ok, verr := decodeServer(result, name)
-	if verr != nil || !ok {
-		return nil, nil, nil, fmt.Errorf("internal error: edited TOML does not round-trip (%v)", verr)
+	decoded, ok, verr := guardTOMLEdit(text, result, name)
+	if verr != nil {
+		return nil, nil, nil, verr
+	}
+	if !ok {
+		return nil, nil, nil, errTOMLOtherParts
 	}
 
 	// Compare normalized forms
 	expectedEncoded, _ := renderTOMLServer(name, after)
 	actualEncoded, _ := renderTOMLServer(name, decoded)
 	if expectedEncoded != actualEncoded {
-		return nil, nil, nil, fmt.Errorf("internal error: entry mismatch after editing (expected %v, got %v)", after, decoded)
+		return nil, nil, nil, errTOMLOtherParts
 	}
 
 	// Convert line endings at the END, exactly once, only if input had CRLF
@@ -368,9 +415,12 @@ func removeTOMLServer(data []byte, name string) (out []byte, before map[string]a
 	}
 
 	// Validate round-trip before line-ending conversion
-	_, still, verr := decodeServer(result, name)
-	if verr != nil || still {
-		return nil, nil, false, fmt.Errorf("internal error: removal did not round-trip (%v)", verr)
+	_, still, verr := guardTOMLEdit(text, result, name)
+	if verr != nil {
+		return nil, nil, false, verr
+	}
+	if still {
+		return nil, nil, false, errTOMLOtherParts
 	}
 
 	// Convert line endings at the END, exactly once, only if input had CRLF
