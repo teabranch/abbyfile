@@ -98,3 +98,33 @@ func TestSHA256File_NotExist(t *testing.T) {
 		t.Fatal("expected error for missing file")
 	}
 }
+
+func TestWriteAtomic_ParentDirNotExist(t *testing.T) {
+	dir := t.TempDir()
+	nonexistentParent := filepath.Join(dir, "nonexistent", "test.txt")
+	if err := WriteAtomic(nonexistentParent, []byte("data"), 0o600); err == nil {
+		t.Fatal("WriteAtomic should fail when parent directory doesn't exist")
+	}
+}
+
+func TestWriteAtomic_TargetIsDir(t *testing.T) {
+	dir := t.TempDir()
+	targetDir := filepath.Join(dir, "targetdir")
+	os.Mkdir(targetDir, 0o755)
+
+	if err := WriteAtomic(targetDir, []byte("data"), 0o600); err == nil {
+		t.Fatal("WriteAtomic should fail when target is a directory")
+	}
+}
+
+func TestCopyFile_CreateDstFails(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.txt")
+	os.WriteFile(src, []byte("content"), 0o644)
+
+	// Try to create dst in a nonexistent parent directory
+	dstFail := filepath.Join(dir, "nonexistent", "dst.txt")
+	if err := CopyFile(src, dstFail); err == nil {
+		t.Fatal("CopyFile should fail when dst parent doesn't exist")
+	}
+}

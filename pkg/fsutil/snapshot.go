@@ -74,7 +74,10 @@ func (s *Snapshot) Commit(data []byte) (backupPath string, err error) {
 	}
 	if s.Exists {
 		bp := s.Target + BackupSuffix
-		if _, statErr := os.Stat(bp); errors.Is(statErr, fs.ErrNotExist) {
+		if _, statErr := os.Stat(bp); statErr != nil {
+			if !errors.Is(statErr, fs.ErrNotExist) {
+				return "", fmt.Errorf("checking backup %s: %w", bp, statErr)
+			}
 			if err := WriteAtomic(bp, s.Data, s.Mode); err != nil {
 				return "", fmt.Errorf("writing backup %s: %w", bp, err)
 			}
