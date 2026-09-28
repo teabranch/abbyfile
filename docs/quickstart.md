@@ -153,8 +153,8 @@ Supported runtimes:
 
 | Runtime | Local Config | Global Config |
 |---------|-------------|---------------|
-| Claude Code | `.mcp.json` | `~/.claude/mcp.json` |
-| Codex | `.codex/config.toml` | `~/.codex/config.toml` |
+| Claude Code | `.mcp.json` | `$CLAUDE_CONFIG_DIR/.claude.json` if set, else `~/.claude.json` |
+| Codex | `.codex/config.toml` | `$CODEX_HOME/config.toml` if set, else `~/.codex/config.toml` |
 | Gemini CLI | `.gemini/settings.json` | `~/.gemini/settings.json` |
 
 Your runtime auto-discovers the agent via MCP. It sees the agent's tools, can read its system prompt, and can interact with its memory.

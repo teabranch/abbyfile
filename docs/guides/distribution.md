@@ -162,7 +162,7 @@ Override settings at install time without editing config files:
 abby install --model opus github.com/owner/repo/agent
 ```
 
-This writes the override to `~/.abbyfile/<name>/config.yaml`. The agent's `--describe` manifest and MCP instructions reflect the overridden value immediately. You can change it later with `<agent> config set model <value>` or revert with `<agent> config reset model`.
+This writes the override to `~/.abbyfile/<name>/config.yaml`. The agent's `--describe` manifest and MCP instructions reflect the overridden value immediately. You can change it later with `<agent> config set model <value>` or revert with `<agent> config reset model`. Under `--dry-run`, this prints `would set model override: <name> → <value>` instead, and writes nothing.
 
 ### Local Install (unchanged)
 
@@ -174,6 +174,123 @@ abby install my-agent                  # .abbyfile/bin/ + MCP config (auto-detec
 abby install -g my-agent               # /usr/local/bin/ + global MCP config + registry
 abby install --runtime codex my-agent  # target Codex specifically
 ```
+
+## Where abby registers agents
+
+abby registers each installed agent as an MCP server entry in the target runtime's own config file. `--runtime` (default `auto`) selects which runtimes a given command targets: `auto` detects installed runtimes (falling back to Claude Code, project scope, if none is detected), `all` targets every supported runtime, or name one directly (`claude-code`, `codex`, `gemini`).
+
+| Runtime | Scope | Config file | Env override |
+|---------|-------|-------------|---------------|
+| Claude Code | project (default) | `./.mcp.json`, in the **current directory** (not the git root) | — |
+| Claude Code | user (`--global`) | `$CLAUDE_CONFIG_DIR/.claude.json` if set, else `~/.claude.json` | `CLAUDE_CONFIG_DIR` |
+| Codex | project (default) | `./.codex/config.toml` | — |
+| Codex | user (`--global`) | `$CODEX_HOME/config.toml` if set, else `~/.codex/config.toml` | `CODEX_HOME` |
+| Gemini CLI | project (default) | `./.gemini/settings.json` | — |
+| Gemini CLI | user (`--global`) | `~/.gemini/settings.json` | — |
+
+### Detection
+
+`--runtime auto` detects a runtime if its CLI is on `PATH`, or its config directory exists (Claude: `$CLAUDE_CONFIG_DIR` or `~/.claude/`; Codex: `$CODEX_HOME` or `~/.codex/`; Gemini: `~/.gemini/`) — never by checking whether `$HOME` exists. If nothing is detected, abby falls back to Claude Code, project scope.
+
+### CLI vs. file
+
+Every change abby makes is planned first, then applied through the runtime's own CLI when it can faithfully express the entry, and otherwise through a surgical, backed-up edit of the runtime's config file:
+
+- **Claude Code** uses `claude mcp add-json -s <project|user>` for both scopes — unless the existing entry already has keys `add-json` would drop (it keeps only `type`, `command`, `args`, `env` and `timeout`), in which case abby edits `.mcp.json`/`.claude.json` directly. Replacing an existing entry runs `mcp remove` then `mcp add-json`, both in the project root for project scope; if `add-json` fails after the `remove`, abby automatically re-adds the previous entry (and, if that also fails, prints its JSON so you can restore it by hand). Removing an entry that's already absent is treated as success, not an error.
+- **Gemini CLI** uses `gemini mcp add` only at **user** scope, and only when doing so wouldn't erase an existing `cwd` or `timeout`, drop a key abby doesn't own, or misinterpret an argument starting with `-` as a flag. Project scope, and any change the CLI can't safely express, uses the file method — Gemini's CLI has no way to set `cwd`, which project-scope entries need.
+- **Codex** always uses the file method: `codex mcp add` only writes the global config and can't set `cwd` or timeouts.
+
+Pass `--config-method file` to always edit the config file directly, or `--config-method cli` to require the CLI (an error names the reason when a change can't safely use it). The default, `auto`, is the rule above. Set the default for a whole session with `ABBY_CONFIG_METHOD=auto|cli|file`; the `--config-method` flag takes precedence when both are given.
+
+## What abby changes, and how to preview it
+
+Add `--dry-run` to `abby install`, `abby build` or `abby uninstall` to see every change without touching anything: no binary is copied, no config file is written, no registry entry changes, and no backup is made. (A remote install still downloads and checksum-verifies the release into a temp file under `--dry-run`, so the preview reflects a binary abby actually checked.) `abby update` has no `--dry-run` flag.
+
+Every command prints a summary table of what it changed (or, under `--dry-run`, would change):
+
+```
+Runtime config changes:
+RUNTIME      SCOPE    METHOD  TARGET                     SERVER    BACKUP
+claude-code  project  file    /path/to/project/.mcp.json  my-agent  /path/to/project/.mcp.json.abbyfile.bak
+```
+
+- **METHOD** is `cli` or `file`; `(unchanged)` is appended when the change was a no-op (for example, re-running an identical install).
+- **BACKUP** is `-` unless this run made abby's one-time backup of that file, in which case the path is shown.
+- Caveats — for example "Codex loads project `.codex/config.toml` only in trusted projects", or that a running Claude Code can overwrite a user-scope edit — print once per command, after the table, as `note: ...` lines.
+
+abby plans every targeted runtime's change **before** applying any of them: if planning fails for one runtime — an existing config file that doesn't parse, or a `--config-method cli` change that can't be expressed by the CLI — nothing is written anywhere, and (for install) no binary is copied.
+
+### Backups
+
+Before abby's first write to an existing config file, it copies the original to `<file>.abbyfile.bak`, next to the file, with the same permissions. It never overwrites that backup — restore from it by hand if needed. `*.abbyfile.bak` is in `.gitignore`; treat it as disposable, but keep one around until you're sure a change is what you wanted.
+
+### Keys abby owns
+
+abby only ever sets `command`, `args`, `cwd` (project scope; Codex and Gemini only), the timeout key(s), and `env` (only when `--env` is given). Every other key already in an entry — and every other entry, table or key in the file — is preserved:
+
+- **JSON** (Claude Code, Gemini): the file is parsed and rewritten key-by-key, in order; untouched values are byte-identical apart from re-indentation, and numbers are never round-tripped through a float.
+- **TOML** (Codex): only the `[mcp_servers.<name>]` block (and its subtables) is replaced; comments and other tables elsewhere in the file are kept. Comments *inside* the replaced block are lost. The first edit to a file also normalizes any run of multiple blank lines between top-level tables down to a single blank line; a CRLF file stays CRLF.
+
+### Refusals
+
+abby refuses to touch a config file it can't safely round-trip, and writes nothing when it does:
+
+- The file isn't valid JSON/TOML (comments and trailing commas aren't valid JSON — Gemini's `settings.json` is JSON and doesn't support them).
+- A JSON object has a duplicate key — the error names the key.
+- A Codex entry is defined in inline-table form (`x = { ... }` instead of a `[mcp_servers.name]` block) — abby only edits the table form.
+- The file changed on disk between plan and apply (for example, a running runtime rewrote it): abby re-plans once and retries, then refuses with an error naming the file.
+
+## Entry fields
+
+Beyond `command` and `args`, abby sets:
+
+- **`cwd`** (project scope; Codex and Gemini only — Claude Code's entry format has no `cwd` field): the project's absolute directory, so a relative `sandbox.allowed_dirs: ["."]` in the agent resolves against the right place regardless of where the runtime itself was started.
+- **`env`**: set with repeatable `--env KEY=VALUE` flags. Without `--env`, an existing entry's `env` is left alone (a reinstall or `abby update` never erases it); with `--env`, the given keys replace the entry's `env` entirely. At project scope, abby warns on stderr that the values land in a file that's often committed, and suggests `${VAR}` references instead (Claude Code and Gemini CLI expand them).
+- **timeout**: abby runs the agent's `--describe` and sets the runtime's per-call timeout to the agent's largest effective limit — `max(toolTimeout, sandbox.maxCommandTimeout` if the agent has `run_command`) — plus a 10-second margin. If `--describe` fails (for example, a cross-compiled binary that can't run on this machine), the timeout is omitted and the install/build still succeeds. It is recomputed on every install/build, so reinstalling refreshes it after the agent's limits change; `abby doctor` warns when a written timeout is smaller than what the current binary would need. It's written as `timeout` in milliseconds for Claude Code and Gemini (only when ≥ 1 second), and as Codex's `startup_timeout_sec = 30` (constant) plus `tool_timeout_sec` (ceiling of seconds) — a hand-edited float such as `tool_timeout_sec = 120.5` is read back rounded up (121s).
+
+## Checksums
+
+`abby install` (remote) requires the release to carry a checksum asset — `<agent>-sha256sums.txt`, `SHA256SUMS`, or `checksums.txt`, checked in that order — and verifies the downloaded binary against it **before** the binary is made executable or run for `--describe`. Install fails if the asset is missing, fails to download, has no entry for this platform's binary, or the hash doesn't match.
+
+Pass `--insecure-skip-checksum` to bypass this, with a prominent warning printed to stderr. There is no equivalent bypass for `abby update`, which always requires a checksum.
+
+`abby publish` has emitted `<agent>-sha256sums.txt` alongside the platform binaries since v0.7.0, so every agent published with `abby publish` already has one.
+
+## `abby doctor`
+
+`abby doctor [agent]...` checks every installed agent (or just the ones named) against its registry entry:
+
+- the binary exists and is executable;
+- `--describe` succeeds, run in the agent's own project root (so a sandbox's `allowed_dirs` reports the agent's directory, not wherever `doctor` was invoked from) — and shows the effective sandbox and any sandbox warnings;
+- the MCP handshake succeeds on both protocol eras (`server/discover` for 2026-07-28, `initialize` for the legacy 2025-11-25);
+- each targeted runtime has an entry for the agent, it points at the registered binary, and its timeout isn't stale versus what the current binary needs (a warning suggests reinstalling);
+- Codex project-scope entries get a reminder that Codex only loads `.codex/config.toml` in trusted projects.
+
+It also reports any entries left in the legacy `~/.claude/mcp.json` (written by abby ≤ v0.11; Claude Code never reads that file), with a removal hint. `doctor` only ever reads config — it never writes, backs up, or creates a `.abbyfile.bak`. It exits non-zero if any check failed; warnings alone don't fail the command. `--runtime` and `--config-method` are accepted like the other commands, for symmetry.
+
+Sample output:
+
+```
+$ abby doctor
+my-agent (v1.0.0, local, /Users/you/project/.abbyfile/bin/my-agent)
+  ✓ binary /Users/you/project/.abbyfile/bin/my-agent
+  ✓ sandbox: bash=restricted allow_commands=["go test ./..."] allowed_dirs=/Users/you/project
+  ✓ serve-mcp speaks 2026-07-28 (server/discover)
+  ✓ serve-mcp speaks 2025-11-25 (initialize)
+  ✓ claude-code /Users/you/project/.mcp.json → /Users/you/project/.abbyfile/bin/my-agent
+
+legacy config
+  ! /Users/you/.claude/mcp.json has entries old-agent written by abby < v0.12; Claude Code never reads this file — reinstall them with `abby install --global`, then delete /Users/you/.claude/mcp.json
+```
+
+### Migrating from v0.11
+
+1. `abby install` requires a checksum asset. Pass `--insecure-skip-checksum` to bypass.
+2. Claude Code user-scope entries now go into `~/.claude.json` (or `$CLAUDE_CONFIG_DIR/.claude.json`), or through `claude mcp add-json`. Old `~/.claude/mcp.json` entries are reported by `abby doctor` with a removal hint.
+3. Runtimes are detected by CLI on PATH or by config dir, not by `$HOME` existing.
+4. Config edits refuse unparsable files (including JSON with duplicate keys, named in the error), keep unknown keys and comments outside abby's block, write atomically, and back up once.
+5. Entries now carry `cwd`, `env` and a timeout. Codex project config loads only in trusted projects.
+6. `--dry-run`, `--config-method`, `--env` and `abby doctor` are new.
 
 ## Updating
 
@@ -196,6 +313,8 @@ abby update my-agent
 ```
 my-agent: installed from local build, skipping (use 'abby build && abby install my-agent' to update)
 ```
+
+`update` re-installs from the newer release using the same mandatory checksum verification as `abby install` (there is no `--insecure-skip-checksum` for `update`), replaces the binary in place at its existing path, and refreshes each runtime's `command` path and timeout — while leaving any existing `env` untouched, the same as a reinstall. It prints the same runtime-config summary table as install/uninstall, but has no `--dry-run` flag.
 
 ## Listing Installed Agents
 
@@ -228,6 +347,8 @@ Uninstall performs three actions:
 1. **Removes the binary** from its installed path
 2. **Unwires MCP** -- removes the entry from all detected runtime configs (or specify `--runtime`)
 3. **Removes from registry** -- cleans up `~/.abbyfile/registry.json`
+
+Every targeted runtime is attempted even if an earlier one fails. If any runtime's removal fails, abby prints the errors, **keeps the registry entry** (so `abby uninstall` can be re-run once the problem is fixed), and exits non-zero. Add `--dry-run` to preview the removal without deleting the binary, editing any config, or touching the registry.
 
 ## Registry
 
