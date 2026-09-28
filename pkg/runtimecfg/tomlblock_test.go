@@ -120,3 +120,172 @@ func TestRemoveTOMLServer(t *testing.T) {
 		t.Error("missing must be found=false")
 	}
 }
+
+// Fix round 1: Preserve comments and blank lines between entries
+func TestUpsertTOMLServer_PreservesCommentsBetweenEntries(t *testing.T) {
+	input := `[mcp_servers.agent]
+command = "/old"
+
+# This server is disabled for now
+# [mcp_servers.old]
+# command = "/ancient"
+
+# Profile for fast work
+[profiles.fast]
+model = "o4-mini"
+`
+	out, _, _, err := upsertTOMLServer([]byte(input), "agent", map[string]any{"command": "/new"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	// All trailing comments must be preserved
+	for _, want := range []string{
+		"# This server is disabled for now",
+		"# [mcp_servers.old]",
+		"# command = \"/ancient\"",
+		"# Profile for fast work",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("lost comment %q:\n%s", want, s)
+		}
+	}
+}
+
+// Fix round 1: Preserve comments and blank lines on remove
+func TestRemoveTOMLServer_PreservesCommentsBetweenEntries(t *testing.T) {
+	input := `[mcp_servers.agent]
+command = "/old"
+
+# This server is disabled for now
+# [mcp_servers.old]
+# command = "/ancient"
+
+# Profile for fast work
+[profiles.fast]
+model = "o4-mini"
+`
+	out, _, found, err := removeTOMLServer([]byte(input), "agent")
+	if err != nil || !found {
+		t.Fatalf("err=%v found=%v", err, found)
+	}
+	s := string(out)
+	if strings.Contains(s, "[mcp_servers.agent]") {
+		t.Errorf("agent block not removed:\n%s", s)
+	}
+	// All trailing comments must be preserved
+	for _, want := range []string{
+		"# This server is disabled for now",
+		"# [mcp_servers.old]",
+		"# command = \"/ancient\"",
+		"# Profile for fast work",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("lost comment %q:\n%s", want, s)
+		}
+	}
+}
+
+// Fix round 1: Array-of-tables ([[ ]]) not duplicated on multiple upserts
+func TestUpsertTOMLServer_ArrayOfTablesNotDuplicated(t *testing.T) {
+	input := `[mcp_servers.agent]
+command = "/old"
+
+[[mcp_servers.agent.transports]]
+type = "stdio"
+
+[[mcp_servers.agent.transports]]
+type = "sse"
+`
+	set := map[string]any{"command": "/new"}
+
+	// First upsert
+	out1, _, _, err := upsertTOMLServer([]byte(input), "agent", set)
+	if err != nil {
+		t.Fatal(err)
+	}
+	count1 := strings.Count(string(out1), "[[mcp_servers.agent.transports]]")
+	if count1 != 2 {
+		t.Errorf("after first upsert: expected 2 transports, got %d:\n%s", count1, out1)
+	}
+
+	// Second upsert (should be idempotent)
+	out2, _, _, err := upsertTOMLServer(out1, "agent", set)
+	if err != nil {
+		t.Fatal(err)
+	}
+	count2 := strings.Count(string(out2), "[[mcp_servers.agent.transports]]")
+	if count2 != 2 {
+		t.Errorf("after second upsert: expected 2 transports, got %d:\n%s", count2, out2)
+	}
+
+	// Verify both have same content
+	if string(out1) != string(out2) {
+		t.Errorf("upserts not idempotent:\nfirst:\n%s\nsecond:\n%s", out1, out2)
+	}
+}
+
+// Fix round 1: Remove succeeds with array-of-tables
+func TestRemoveTOMLServer_WithArrayOfTables(t *testing.T) {
+	input := `[mcp_servers.agent]
+command = "/old"
+
+[[mcp_servers.agent.transports]]
+type = "stdio"
+
+[[mcp_servers.agent.transports]]
+type = "sse"
+
+[profiles.fast]
+model = "o4-mini"
+`
+	out, _, found, err := removeTOMLServer([]byte(input), "agent")
+	if err != nil || !found {
+		t.Fatalf("err=%v found=%v", err, found)
+	}
+	s := string(out)
+	if strings.Contains(s, "[mcp_servers.agent]") || strings.Contains(s, "[[mcp_servers.agent.transports]]") {
+		t.Errorf("agent block or transports not fully removed:\n%s", s)
+	}
+	if !strings.Contains(s, "[profiles.fast]") {
+		t.Errorf("profiles.fast lost:\n%s", s)
+	}
+}
+
+// Fix round 1: CRLF line endings are preserved
+func TestUpsertTOMLServer_PreservesCRLF(t *testing.T) {
+	input := "[mcp_servers.agent]\r\ncommand = \"/old\"\r\n"
+	out, _, _, err := upsertTOMLServer([]byte(input), "agent", map[string]any{"command": "/new"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	if !strings.Contains(s, "\r\n") {
+		t.Errorf("CRLF lost, got LF only:\n%q", s)
+	}
+	if strings.Contains(s, "\n") && !strings.Contains(s, "\r\n") {
+		t.Errorf("mixed line endings:\n%q", s)
+	}
+}
+
+// Fix round 1: Idempotence - same entry upserted twice yields byte-identical output
+func TestUpsertTOMLServer_Idempotence(t *testing.T) {
+	set := map[string]any{"command": "/new/agent", "args": []string{"serve-mcp"}, "cwd": "/proj", "tool_timeout_sec": int64(130)}
+
+	// First upsert
+	out1, _, _, err := upsertTOMLServer([]byte(codexFixture), "agent", set)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Second upsert with same data
+	out2, _, _, err := upsertTOMLServer(out1, "agent", set)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Must be byte-identical (idempotent)
+	if string(out1) != string(out2) {
+		t.Errorf("upserts not idempotent:\nfirst:\n%s\n\nsecond:\n%s", out1, out2)
+	}
+}

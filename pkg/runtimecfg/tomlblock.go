@@ -45,6 +45,10 @@ func splitTOMLKey(s string) []string {
 
 // serverBlocks returns [start,end) line ranges of the [mcp_servers.<name>]
 // table and its subtables, plus the index of every header line.
+// A block starts at [mcp_servers.<name>] and ends after the last non-blank,
+// non-comment line of that section (preserving trailing blank/comment lines).
+// Includes [[mcp_servers.<name>.*]] array-of-tables (path length ≥3) but
+// skips [[mcp_servers.<name>]] and [[mcp_servers.<name>]] (length 2).
 func serverBlocks(lines []string, name string) [][2]int {
 	var headers []int
 	for i, l := range lines {
@@ -55,25 +59,45 @@ func serverBlocks(lines []string, name string) [][2]int {
 	var blocks [][2]int
 	for hi, start := range headers {
 		m := tomlHeader.FindStringSubmatch(lines[start])
-		if strings.HasPrefix(strings.TrimSpace(lines[start]), "[[") {
-			continue
-		}
+		isArrayOfTables := strings.HasPrefix(strings.TrimSpace(lines[start]), "[[")
 		path := splitTOMLKey(m[1])
+
+		// Skip if not mcp_servers.<name>.*
 		if len(path) < 2 || path[0] != codexServersKey || path[1] != name {
 			continue
 		}
+
+		// For array-of-tables: skip [[mcp_servers.<name>]] (length 2); include [[mcp_servers.<name>.*]] (length ≥3)
+		// For regular tables: include both [mcp_servers.<name>] (length 2) and subtables [mcp_servers.<name>.*] (length ≥3)
+		if isArrayOfTables && len(path) < 3 {
+			continue
+		}
+
+		// Find the end: last non-blank, non-comment line of this section
 		end := len(lines)
 		if hi+1 < len(headers) {
 			end = headers[hi+1]
 		}
-		blocks = append(blocks, [2]int{start, end})
+
+		// Trim trailing blank/comment lines from this block
+		blockEnd := start + 1
+		for j := start + 1; j < end; j++ {
+			trimmed := strings.TrimSpace(lines[j])
+			if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
+				blockEnd = j + 1
+			}
+		}
+		blocks = append(blocks, [2]int{start, blockEnd})
 	}
 	return blocks
 }
 
 func decodeServer(text, name string) (map[string]any, bool, error) {
+	// The TOML decoder can't handle \r, so normalize to \n only
+	normalizedText := strings.ReplaceAll(text, "\r\n", "\n")
+	normalizedText = strings.ReplaceAll(normalizedText, "\r", "\n")
 	var doc map[string]any
-	if _, err := toml.Decode(text, &doc); err != nil {
+	if _, err := toml.Decode(normalizedText, &doc); err != nil {
 		return nil, false, err
 	}
 	srv, _ := doc[codexServersKey].(map[string]any)
@@ -84,7 +108,8 @@ func decodeServer(text, name string) (map[string]any, bool, error) {
 // renderTOMLServer renders entry as a [mcp_servers.<name>] block (with any
 // nested tables as dotted subtable headers), ending in a newline. name is the
 // raw server name; the encoder quotes it when it isn't a bare key.
-func renderTOMLServer(name string, entry map[string]any) (string, error) {
+// lineSep is the line separator to use (e.g., "\n" or "\r\n").
+func renderTOMLServer(name string, entry map[string]any, lineSep string) (string, error) {
 	var buf bytes.Buffer
 	enc := toml.NewEncoder(&buf)
 	enc.Indent = ""
@@ -101,7 +126,12 @@ func renderTOMLServer(name string, entry map[string]any) (string, error) {
 		out = append(out, l)
 	}
 	s := strings.TrimLeft(strings.Join(out, "\n"), "\n")
-	return strings.TrimRight(s, "\n") + "\n", nil
+	result := strings.TrimRight(s, "\n") + "\n"
+	// Convert line endings if needed
+	if lineSep == "\r\n" {
+		result = strings.ReplaceAll(result, "\n", "\r\n")
+	}
+	return result, nil
 }
 
 // upsertTOMLServer merges set into [mcp_servers.<name>] and replaces only
@@ -112,6 +142,15 @@ func upsertTOMLServer(data []byte, name string, set map[string]any) (out []byte,
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("not valid TOML: %w", err)
 	}
+
+	// Detect line ending (CRLF vs LF)
+	var lineSep string
+	if strings.Contains(text, "\r\n") {
+		lineSep = "\r\n"
+	} else {
+		lineSep = "\n"
+	}
+
 	lines := strings.Split(text, "\n")
 	blocks := serverBlocks(lines, name)
 	if inDoc && len(blocks) == 0 {
@@ -127,38 +166,73 @@ func upsertTOMLServer(data []byte, name string, set map[string]any) (out []byte,
 	for k, v := range set {
 		after[k] = v
 	}
-	block, err := renderTOMLServer(name, after)
+	block, err := renderTOMLServer(name, after, lineSep)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	var b strings.Builder
 	if len(blocks) == 0 {
-		b.WriteString(strings.TrimRight(text, "\n"))
+		b.WriteString(strings.TrimRight(text, "\r\n"))
 		if b.Len() > 0 {
-			b.WriteString("\n\n")
+			b.WriteString(lineSep)
+			b.WriteString(lineSep)
 		}
 		b.WriteString(block)
 	} else {
-		pos := 0
-		for i, r := range blocks {
-			b.WriteString(strings.Join(lines[pos:r[0]], "\n"))
-			if r[0] > pos {
-				b.WriteString("\n")
-			}
-			if i == 0 {
-				b.WriteString(block)
-				if r[1] < len(lines) {
-					b.WriteString("\n")
+		// Replace from the first block start to the last block end (includes all subtables)
+		firstBlockStart := blocks[0][0]
+		lastBlockEnd := blocks[len(blocks)-1][1]
+
+		// Write lines before the first block
+		b.WriteString(strings.Join(lines[0:firstBlockStart], "\n"))
+		if firstBlockStart > 0 {
+			b.WriteString("\n")
+		}
+		// Write the new block (with all nested tables, ends with \n)
+		b.WriteString(block)
+		// Write lines after the last block, preserving blank lines
+		if lastBlockEnd < len(lines) {
+			remaining := lines[lastBlockEnd:]
+			// Count leading blank lines; keep only one if any exist
+			blankCount := 0
+			for _, l := range remaining {
+				if strings.TrimSpace(l) == "" {
+					blankCount++
+				} else {
+					break
 				}
 			}
-			pos = r[1]
+			if blankCount > 0 {
+				b.WriteString("\n")
+				remaining = remaining[blankCount:]
+			}
+			if len(remaining) > 0 {
+				b.WriteString(strings.Join(remaining, "\n"))
+			}
 		}
-		b.WriteString(strings.Join(lines[pos:], "\n"))
 	}
-	out = []byte(b.String())
-	if _, ok, verr := decodeServer(string(out), name); verr != nil || !ok {
+	result := b.String()
+
+	// Convert line endings if CRLF
+	if lineSep == "\r\n" {
+		result = strings.ReplaceAll(result, "\n", "\r\n")
+	}
+
+	out = []byte(result)
+
+	// Stronger round-trip validation: decode and compare normalized forms
+	decoded, ok, verr := decodeServer(string(out), name)
+	if verr != nil || !ok {
 		return nil, nil, nil, fmt.Errorf("internal error: edited TOML does not round-trip (%v)", verr)
 	}
+
+	// Compare normalized forms (re-encode both)
+	expectedEncoded, _ := renderTOMLServer(name, after, "\n")
+	actualEncoded, _ := renderTOMLServer(name, decoded, "\n")
+	if expectedEncoded != actualEncoded {
+		return nil, nil, nil, fmt.Errorf("internal error: entry mismatch after editing (expected %v, got %v)", after, decoded)
+	}
+
 	return out, before, after, nil
 }
 
@@ -172,6 +246,15 @@ func removeTOMLServer(data []byte, name string) (out []byte, before map[string]a
 	if !inDoc {
 		return data, nil, false, nil
 	}
+
+	// Detect line ending (CRLF vs LF)
+	var lineSep string
+	if strings.Contains(text, "\r\n") {
+		lineSep = "\r\n"
+	} else {
+		lineSep = "\n"
+	}
+
 	lines := strings.Split(text, "\n")
 	blocks := serverBlocks(lines, name)
 	if len(blocks) == 0 {
@@ -184,8 +267,18 @@ func removeTOMLServer(data []byte, name string) (out []byte, before map[string]a
 		pos = r[1]
 	}
 	kept = append(kept, lines[pos:]...)
-	out = []byte(strings.Join(kept, "\n"))
-	if _, still, verr := decodeServer(string(out), name); verr != nil || still {
+	result := strings.Join(kept, "\n")
+
+	// Convert line endings if CRLF
+	if lineSep == "\r\n" {
+		result = strings.ReplaceAll(result, "\n", "\r\n")
+	}
+
+	out = []byte(result)
+
+	// Stronger round-trip validation: ensure entry is gone
+	_, still, verr := decodeServer(string(out), name)
+	if verr != nil || still {
 		return nil, nil, false, fmt.Errorf("internal error: removal did not round-trip (%v)", verr)
 	}
 	return out, existing, true, nil
