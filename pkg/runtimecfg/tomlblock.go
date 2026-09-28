@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"regexp"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -13,7 +12,61 @@ import (
 
 const codexServersKey = "mcp_servers"
 
-var tomlHeader = regexp.MustCompile(`^\s*\[\[?\s*([^\[\]]+?)\s*\]\]?\s*(#.*)?$`)
+// parseTOMLHeader reports whether line is a table header ([a.b]) or an
+// array-of-tables header ([[a.b]]), returning the key text between the
+// brackets. Brackets inside "basic" or 'literal' quoted key parts are part of
+// the key (Codex writes [projects."/path/a[1]"]); an unquoted bracket inside
+// the key, or anything but whitespace and a comment after the closing
+// bracket(s), means the line is not a header.
+func parseTOMLHeader(line string) (key string, array bool, ok bool) {
+	s := strings.TrimLeft(line, " \t")
+	if !strings.HasPrefix(s, "[") {
+		return "", false, false
+	}
+	array = strings.HasPrefix(s, "[[")
+	start := 1
+	if array {
+		start = 2
+	}
+	end := -1
+	quote := byte(0)
+	for i := start; i < len(s) && end < 0; i++ {
+		c := s[i]
+		switch {
+		case quote != 0:
+			if c == '\\' && quote == '"' {
+				i++
+			} else if c == quote {
+				quote = 0
+			}
+		case c == '"' || c == '\'':
+			quote = c
+		case c == '[':
+			return "", false, false
+		case c == ']':
+			end = i
+		}
+	}
+	if end < 0 {
+		return "", false, false
+	}
+	rest := s[end+1:]
+	if array {
+		if !strings.HasPrefix(rest, "]") {
+			return "", false, false
+		}
+		rest = rest[1:]
+	}
+	rest = strings.TrimLeft(rest, " \t")
+	if rest != "" && !strings.HasPrefix(rest, "#") {
+		return "", false, false
+	}
+	key = strings.TrimSpace(s[start:end])
+	if key == "" {
+		return "", false, false
+	}
+	return key, array, true
+}
 
 // splitTOMLKey splits a dotted TOML key, honouring "basic" and 'literal' quotes.
 func splitTOMLKey(s string) []string {
@@ -66,7 +119,7 @@ type segment struct {
 func splitSegments(lines []string, name string) []segment {
 	var headers []int
 	for i, l := range lines {
-		if tomlHeader.MatchString(l) {
+		if _, _, ok := parseTOMLHeader(l); ok {
 			headers = append(headers, i)
 		}
 	}
@@ -96,9 +149,8 @@ func splitSegments(lines []string, name string) []segment {
 		}
 
 		// Determine if this header is a target
-		m := tomlHeader.FindStringSubmatch(lines[start])
-		isArrayOfTables := strings.HasPrefix(strings.TrimSpace(lines[start]), "[[")
-		path := splitTOMLKey(m[1])
+		key, isArrayOfTables, _ := parseTOMLHeader(lines[start])
+		path := splitTOMLKey(key)
 
 		target := false
 		if len(path) >= 2 && path[0] == codexServersKey && path[1] == name {
