@@ -43,61 +43,116 @@ func splitTOMLKey(s string) []string {
 	return append(parts, strings.TrimSpace(cur.String()))
 }
 
-// serverBlocks returns [start,end) line ranges of the [mcp_servers.<name>]
-// table and its subtables, plus the index of every header line.
-// A block starts at [mcp_servers.<name>] and ends after the last non-blank,
-// non-comment line of that section (preserving trailing blank/comment lines).
-// Includes [[mcp_servers.<name>.*]] array-of-tables (path length ≥3) but
-// skips [[mcp_servers.<name>]] (length 2).
-func serverBlocks(lines []string, name string) [][2]int {
+// isBlank returns true if the line is blank (only whitespace).
+func isBlank(l string) bool {
+	return strings.TrimSpace(l) == ""
+}
+
+// isComment returns true if the line is a comment.
+func isComment(l string) bool {
+	return strings.HasPrefix(strings.TrimSpace(l), "#")
+}
+
+// segment is a run of lines: the preamble (before the first header) or one
+// header line plus the lines up to the next header. Lines are verbatim (LF).
+type segment struct {
+	lines  []string
+	target bool // header belongs to mcp_servers.<name> (table or [[…]] subtable, path ≥3 for [[]])
+}
+
+// splitSegments splits LF text into segments.
+func splitSegments(lines []string, name string) []segment {
 	var headers []int
 	for i, l := range lines {
 		if tomlHeader.MatchString(l) {
 			headers = append(headers, i)
 		}
 	}
-	var blocks [][2]int
-	for hi, start := range headers {
+
+	var segments []segment
+
+	// Preamble (before first header)
+	if len(headers) > 0 {
+		segments = append(segments, segment{
+			lines:  lines[0:headers[0]],
+			target: false,
+		})
+	} else {
+		// No headers: entire file is preamble
+		segments = append(segments, segment{
+			lines:  lines,
+			target: false,
+		})
+		return segments
+	}
+
+	// Each header + its content
+	for i, start := range headers {
+		end := len(lines)
+		if i+1 < len(headers) {
+			end = headers[i+1]
+		}
+
+		// Determine if this header is a target
 		m := tomlHeader.FindStringSubmatch(lines[start])
 		isArrayOfTables := strings.HasPrefix(strings.TrimSpace(lines[start]), "[[")
 		path := splitTOMLKey(m[1])
 
-		// Skip if not mcp_servers.<name>.*
-		if len(path) < 2 || path[0] != codexServersKey || path[1] != name {
-			continue
-		}
-
-		// For array-of-tables: skip [[mcp_servers.<name>]] (length 2); include [[mcp_servers.<name>.*]] (length ≥3)
-		// For regular tables: include both [mcp_servers.<name>] (length 2) and subtables [mcp_servers.<name>.*] (length ≥3)
-		if isArrayOfTables && len(path) < 3 {
-			continue
-		}
-
-		// Find the end: last non-blank, non-comment line of this section
-		end := len(lines)
-		if hi+1 < len(headers) {
-			end = headers[hi+1]
-		}
-
-		// Trim trailing blank/comment lines from this block (don't include next header as content)
-		blockEnd := start + 1
-		for j := start + 1; j < end; j++ {
-			trimmed := strings.TrimSpace(lines[j])
-			// Stop if we hit another header (even if it's a subtable of ours)
-			if tomlHeader.MatchString(lines[j]) {
-				break
-			}
-			if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
-				blockEnd = j + 1
+		target := false
+		if len(path) >= 2 && path[0] == codexServersKey && path[1] == name {
+			if isArrayOfTables && len(path) >= 3 {
+				target = true
+			} else if !isArrayOfTables {
+				target = true
 			}
 		}
-		blocks = append(blocks, [2]int{start, blockEnd})
+
+		segments = append(segments, segment{
+			lines:  lines[start:end],
+			target: target,
+		})
 	}
-	return blocks
+
+	return segments
+}
+
+// detachTails detaches trailing blank/comment lines from target segments.
+// Returns the modified segments with tails split into separate non-target segments.
+func detachTails(segs []segment) []segment {
+	var result []segment
+	for _, seg := range segs {
+		if !seg.target || len(seg.lines) == 0 {
+			result = append(result, seg)
+			continue
+		}
+
+		// Find the last non-blank, non-comment line
+		lastContent := 0
+		for i := 1; i < len(seg.lines); i++ {
+			if !isBlank(seg.lines[i]) && !isComment(seg.lines[i]) {
+				lastContent = i
+			}
+		}
+
+		// Split: content + detached tail
+		contentEnd := lastContent + 1
+		if contentEnd < len(seg.lines) {
+			result = append(result, segment{
+				lines:  seg.lines[0:contentEnd],
+				target: true,
+			})
+			result = append(result, segment{
+				lines:  seg.lines[contentEnd:],
+				target: false,
+			})
+		} else {
+			result = append(result, seg)
+		}
+	}
+	return result
 }
 
 func decodeServer(text, name string) (map[string]any, bool, error) {
-	// text is already normalized to LF only; decode directly
 	var doc map[string]any
 	if _, err := toml.Decode(text, &doc); err != nil {
 		return nil, false, err
@@ -143,9 +198,26 @@ func upsertTOMLServer(data []byte, name string, set map[string]any) (out []byte,
 	}
 
 	lines := strings.Split(text, "\n")
-	blocks := serverBlocks(lines, name)
-	if inDoc && len(blocks) == 0 {
-		return nil, nil, nil, fmt.Errorf("mcp_servers.%s is defined inline; abby only edits [mcp_servers.%s] tables — edit it by hand or remove it and re-run", name, name)
+	if inDoc {
+		// Check for inline form
+		var doc map[string]any
+		if _, err := toml.Decode(text, &doc); err == nil {
+			srv, _ := doc[codexServersKey].(map[string]any)
+			if _, ok := srv[name]; ok {
+				// Entry exists; verify it's not inline by checking segments
+				segs := splitSegments(lines, name)
+				hasTargetSeg := false
+				for _, seg := range segs {
+					if seg.target {
+						hasTargetSeg = true
+						break
+					}
+				}
+				if !hasTargetSeg {
+					return nil, nil, nil, fmt.Errorf("mcp_servers.%s is defined inline; abby only edits [mcp_servers.%s] tables — edit it by hand or remove it and re-run", name, name)
+				}
+			}
+		}
 	}
 
 	after = map[string]any{}
@@ -164,100 +236,65 @@ func upsertTOMLServer(data []byte, name string, set map[string]any) (out []byte,
 		return nil, nil, nil, err
 	}
 
-	var b strings.Builder
-	if len(blocks) == 0 {
-		// Append: trim trailing newlines, add separator, add block
-		b.WriteString(strings.TrimRight(text, "\n"))
-		if b.Len() > 0 {
-			b.WriteString("\n\n")
-		}
-		b.WriteString(block)
-	} else {
-		// Replace blocks using walk pattern: emit lines before first block,
-		// rendered block at first position, gaps between blocks (preserving unrelated content),
-		// skip subsequent blocks, emit lines after last block
+	// Segment-based assembly
+	segs := splitSegments(lines, name)
+	segs = detachTails(segs)
 
-		firstBlockStart := blocks[0][0]
-		// Absorb leading blank lines before the first block
-		absorbBlanksFrom := firstBlockStart
-		for i := firstBlockStart - 1; i >= 0; i-- {
-			if strings.TrimSpace(lines[i]) == "" {
-				absorbBlanksFrom = i
-			} else {
-				break
-			}
-		}
-
-		// Write lines before the first block (absorb leading blanks)
-		if absorbBlanksFrom > 0 {
-			b.WriteString(strings.Join(lines[0:absorbBlanksFrom], "\n"))
-			b.WriteString("\n")
-		}
-
-		// Write the rendered block at the first block position
-		b.WriteString(block)
-
-		// Walk subsequent blocks: emit gaps, skip blocks
-		for i := 1; i < len(blocks); i++ {
-			prevBlockEnd := blocks[i-1][1]
-			currBlockStart := blocks[i][0]
-
-			// Emit gap between previous block end and current block start
-			// Absorb leading blank lines before this block (only blanks)
-			gap := lines[prevBlockEnd:currBlockStart]
-			blanksBefore := 0
-			for _, l := range gap {
-				if strings.TrimSpace(l) == "" {
-					blanksBefore++
-				} else {
-					break
+	var pieces []string
+	inserted := false
+	for _, seg := range segs {
+		if seg.target {
+			if !inserted {
+				// Trim the rendered block for assembly
+				trimmed := strings.TrimRight(block, "\n")
+				if trimmed != "" {
+					pieces = append(pieces, trimmed)
 				}
+				inserted = true
 			}
-
-			// Keep non-blank gap content, skip blanks
-			if len(gap) > blanksBefore {
-				// There's non-blank content in the gap; emit it with one blank line separator
-				b.WriteString("\n")
-				b.WriteString(strings.Join(gap[blanksBefore:], "\n"))
-			}
-
-			// Skip the current block (don't emit lines[currBlockStart:blocks[i][1]])
+			continue
 		}
 
-		// Write lines after the last block
-		lastBlockEnd := blocks[len(blocks)-1][1]
-		if lastBlockEnd < len(lines) {
-			remaining := lines[lastBlockEnd:]
-			// Absorb leading blank lines after the last block (keep only one as seam separator)
-			blankCount := 0
-			for _, l := range remaining {
-				if strings.TrimSpace(l) == "" {
-					blankCount++
-				} else {
-					break
-				}
-			}
-			if blankCount > 0 {
-				b.WriteString("\n")
-				remaining = remaining[blankCount:]
-			}
-			if len(remaining) > 0 {
-				b.WriteString(strings.Join(remaining, "\n"))
-			}
+		// Non-target segment: trim leading/trailing blanks, keep content
+		segText := strings.Join(seg.lines, "\n")
+		// Trim leading blanks
+		segText = strings.TrimLeft(segText, "\n")
+		// Trim trailing blanks
+		segText = strings.TrimRight(segText, "\n")
+		if segText != "" {
+			pieces = append(pieces, segText)
 		}
 	}
 
-	result := b.String()
-	// Ensure result ends with exactly one newline (trim trailing blanks, add one newline)
-	result = strings.TrimRight(result, "\n") + "\n"
+	// Append case: if we haven't inserted yet, add the rendered block
+	if !inserted && inDoc {
+		trimmed := strings.TrimRight(block, "\n")
+		if trimmed != "" {
+			pieces = append(pieces, trimmed)
+		}
+	} else if !inserted && !inDoc {
+		// Append new entry to file
+		trimmed := strings.TrimRight(block, "\n")
+		if trimmed != "" {
+			pieces = append(pieces, trimmed)
+		}
+	}
 
-	// Validate round-trip before any line-ending conversion
+	// Assemble with one blank line between pieces
+	var result string
+	if len(pieces) == 0 {
+		result = ""
+	} else {
+		result = strings.Join(pieces, "\n\n") + "\n"
+	}
+
+	// Validate round-trip before line-ending conversion
 	decoded, ok, verr := decodeServer(result, name)
 	if verr != nil || !ok {
 		return nil, nil, nil, fmt.Errorf("internal error: edited TOML does not round-trip (%v)", verr)
 	}
 
-	// Compare normalized forms (re-encode both)
+	// Compare normalized forms
 	expectedEncoded, _ := renderTOMLServer(name, after)
 	actualEncoded, _ := renderTOMLServer(name, decoded)
 	if expectedEncoded != actualEncoded {
@@ -288,58 +325,49 @@ func removeTOMLServer(data []byte, name string) (out []byte, before map[string]a
 	}
 
 	lines := strings.Split(text, "\n")
-	blocks := serverBlocks(lines, name)
-	if len(blocks) == 0 {
-		return nil, nil, false, fmt.Errorf("mcp_servers.%s is defined inline; remove it by hand", name)
-	}
 
-	// Walk blocks: keep lines before first block, skip blocks and gaps between them,
-	// absorb blank lines before content after last block, keep remaining lines
-	var kept []string
-	firstBlockStart := blocks[0][0]
-
-	// Absorb leading blank lines before the first block
-	absorbBlanksFrom := firstBlockStart
-	for i := firstBlockStart - 1; i >= 0; i-- {
-		if strings.TrimSpace(lines[i]) == "" {
-			absorbBlanksFrom = i
-		} else {
+	// Check for inline form
+	segs := splitSegments(lines, name)
+	hasTargetSeg := false
+	for _, seg := range segs {
+		if seg.target {
+			hasTargetSeg = true
 			break
 		}
 	}
-
-	// Keep lines before the first block (absorb leading blanks)
-	if absorbBlanksFrom > 0 {
-		kept = append(kept, lines[0:absorbBlanksFrom]...)
+	if !hasTargetSeg {
+		return nil, nil, false, fmt.Errorf("mcp_servers.%s is defined inline; remove it by hand", name)
 	}
 
-	// Walk through blocks and their gaps: skip each block but keep gaps that contain unrelated content
-	for i := 0; i < len(blocks); i++ {
-		currBlockEnd := blocks[i][1]
-		nextBlockStart := len(lines)
-		if i+1 < len(blocks) {
-			nextBlockStart = blocks[i+1][0]
+	// Segment-based assembly: skip all target segments
+	segs = detachTails(segs)
+
+	var pieces []string
+	for _, seg := range segs {
+		if seg.target {
+			continue
 		}
 
-		// Gap between this block and the next (or end of file)
-		gap := lines[currBlockEnd:nextBlockStart]
-		// Preserve the gap as-is; it contains comments, blank lines, and other tables
-		kept = append(kept, gap...)
+		// Non-target segment: trim leading/trailing blanks
+		segText := strings.Join(seg.lines, "\n")
+		// Trim leading blanks
+		segText = strings.TrimLeft(segText, "\n")
+		// Trim trailing blanks
+		segText = strings.TrimRight(segText, "\n")
+		if segText != "" {
+			pieces = append(pieces, segText)
+		}
 	}
 
-	// Trim trailing blank lines and ensure single newline at end
-	for len(kept) > 0 && strings.TrimSpace(kept[len(kept)-1]) == "" {
-		kept = kept[:len(kept)-1]
+	// Assemble with one blank line between pieces
+	var result string
+	if len(pieces) == 0 {
+		result = ""
+	} else {
+		result = strings.Join(pieces, "\n\n") + "\n"
 	}
 
-	result := strings.Join(kept, "\n")
-	// Ensure result ends with exactly one newline (trim trailing blanks, add one newline)
-	result = strings.TrimRight(result, "\n")
-	if result != "" {
-		result += "\n"
-	}
-
-	// Validate round-trip before any line-ending conversion
+	// Validate round-trip before line-ending conversion
 	_, still, verr := decodeServer(result, name)
 	if verr != nil || still {
 		return nil, nil, false, fmt.Errorf("internal error: removal did not round-trip (%v)", verr)

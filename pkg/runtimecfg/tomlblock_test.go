@@ -407,9 +407,12 @@ func TestUpsertTOMLServer_CRLFMultipleUpserts(t *testing.T) {
 	}
 }
 
-// Fix round 2: Remove with gaps leaves exactly one blank line between neighbours
+// Fix round 3: Remove with gaps leaves exactly one blank line between neighbours (segment model)
 func TestRemoveTOMLServer_GapSeam(t *testing.T) {
-	input := `[mcp_servers.agent]
+	input := `[mcp_servers.other]
+command = "/bin/other"
+
+[mcp_servers.agent]
 command = "/old"
 
 [mcp_servers.agent.env]
@@ -423,14 +426,16 @@ model = "o4-mini"
 		t.Fatalf("err=%v found=%v", err, found)
 	}
 	s := string(out)
-	// Verify exactly one blank line between [profiles.fast] and what comes before
-	if !strings.Contains(s, "\n\n[profiles.fast]") {
-		t.Errorf("not exactly one blank line before [profiles.fast]:\n%s", s)
+	// Verify [profiles.fast] is present and other table too
+	if !strings.Contains(s, "[profiles.fast]") {
+		t.Errorf("[profiles.fast] lost:\n%s", s)
 	}
-	// Count occurrences of the seam to ensure it's there exactly once
-	seamCount := strings.Count(s, "\n\n[profiles.fast]")
-	if seamCount != 1 {
-		t.Errorf("seam appears %d times, want 1:\n%s", seamCount, s)
+	if !strings.Contains(s, "[mcp_servers.other]") {
+		t.Errorf("[mcp_servers.other] lost:\n%s", s)
+	}
+	// Verify exactly one blank line between them
+	if !strings.Contains(s, "[mcp_servers.other]\ncommand = \"/bin/other\"\n\n[profiles.fast]") {
+		t.Errorf("not exactly one blank line between neighbours:\n%s", s)
 	}
 }
 
@@ -533,5 +538,263 @@ func TestRemoveTOMLServer_PreservesCRLF(t *testing.T) {
 	var doc map[string]any
 	if _, err := toml.Decode(s, &doc); err != nil {
 		t.Fatalf("raw toml.Decode failed: %v\n%q", err, s)
+	}
+}
+
+// Fix round 3: Loss case — comment and next header between subtables
+func TestUpsertTOMLServer_LooseLossCase(t *testing.T) {
+	input := "[mcp_servers.agent]\ncommand=\"old\"\n# note\n[mcp_servers.agent.env]\nA=\"1\"\n[tail]\n[next]\nq = 1\n"
+	out, _, _, err := upsertTOMLServer([]byte(input), "agent", map[string]any{"command": "/new"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	// Verify # note is preserved
+	if !strings.Contains(s, "# note") {
+		t.Errorf("lost comment: %s", s)
+	}
+	// Verify [tail] is preserved
+	if !strings.Contains(s, "[tail]") {
+		t.Errorf("lost [tail]: %s", s)
+	}
+	// Verify [next] is preserved
+	if !strings.Contains(s, "[next]") {
+		t.Errorf("lost [next]: %s", s)
+	}
+	// Verify decoding works and has tail, next
+	var doc map[string]any
+	if _, err := toml.Decode(s, &doc); err != nil {
+		t.Fatalf("toml.Decode failed: %v\n%s", err, s)
+	}
+	if _, ok := doc["tail"]; !ok {
+		t.Errorf("[tail] not in decoded output: %v", doc)
+	}
+	if _, ok := doc["next"]; !ok {
+		t.Errorf("[next] not in decoded output: %v", doc)
+	}
+}
+
+// Fix round 3: No-blank-line non-contiguous layout
+func TestUpsertTOMLServer_NoBlankLineNonContiguous(t *testing.T) {
+	input := "[mcp_servers.agent]\ncommand=\"o\"\n[profiles.fast]\nmodel = \"x\"\n[mcp_servers.agent.env]\nA = \"1\"\n[tail]\nk = 1\n"
+	out, _, _, err := upsertTOMLServer([]byte(input), "agent", map[string]any{"command": "/new"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	var doc map[string]any
+	if _, err := toml.Decode(s, &doc); err != nil {
+		t.Fatalf("toml.Decode failed: %v\n%s", err, s)
+	}
+	// Check all tables are present
+	if profiles, ok := doc["profiles"].(map[string]any); !ok || profiles["fast"] == nil {
+		t.Errorf("profiles.fast missing: %v", doc)
+	}
+	if tail, ok := doc["tail"].(map[string]any); !ok || tail["k"] == nil {
+		t.Errorf("tail.k missing: %v", doc)
+	}
+}
+
+// Fix round 3: No-blank-line non-contiguous layout remove
+func TestRemoveTOMLServer_NoBlankLineNonContiguous(t *testing.T) {
+	input := "[mcp_servers.agent]\ncommand=\"o\"\n[profiles.fast]\nmodel = \"x\"\n[mcp_servers.agent.env]\nA = \"1\"\n[tail]\nk = 1\n"
+	out, _, found, err := removeTOMLServer([]byte(input), "agent")
+	if err != nil || !found {
+		t.Fatalf("err=%v found=%v", err, found)
+	}
+	s := string(out)
+	var doc map[string]any
+	if _, err := toml.Decode(s, &doc); err != nil {
+		t.Fatalf("toml.Decode failed: %v\n%s", err, s)
+	}
+	// Check all tables are still present
+	if profiles, ok := doc["profiles"].(map[string]any); !ok || profiles["fast"] == nil {
+		t.Errorf("profiles.fast missing after remove: %v", doc)
+	}
+	if tail, ok := doc["tail"].(map[string]any); !ok || tail["k"] == nil {
+		t.Errorf("tail.k missing after remove: %v", doc)
+	}
+}
+
+// Fix round 3: Idempotence on codexFixture
+func TestUpsertTOMLServer_IdempotenceCodexFixture(t *testing.T) {
+	set := map[string]any{"command": "/new/agent"}
+	out1, _, _, err := upsertTOMLServer([]byte(codexFixture), "agent", set)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out2, _, _, err := upsertTOMLServer(out1, "agent", set)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(out1) != string(out2) {
+		t.Errorf("idempotence failed on codexFixture")
+	}
+}
+
+// Fix round 3: Idempotence on empty file
+func TestUpsertTOMLServer_IdempotenceEmpty(t *testing.T) {
+	set := map[string]any{"command": "/x"}
+	out1, _, _, err := upsertTOMLServer([]byte(""), "agent", set)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out2, _, _, err := upsertTOMLServer(out1, "agent", set)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(out1) != string(out2) {
+		t.Errorf("idempotence failed on empty file")
+	}
+}
+
+// Fix round 3: Idempotence on single-line file
+func TestUpsertTOMLServer_IdempotenceSingleLine(t *testing.T) {
+	input := "model = \"o3\"\n"
+	set := map[string]any{"command": "/x"}
+	out1, _, _, err := upsertTOMLServer([]byte(input), "agent", set)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out2, _, _, err := upsertTOMLServer(out1, "agent", set)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(out1) != string(out2) {
+		t.Errorf("idempotence failed on single-line file")
+	}
+}
+
+// Fix round 3: Idempotence on loss-case input
+func TestUpsertTOMLServer_IdempotenceLossCase(t *testing.T) {
+	input := "[mcp_servers.agent]\ncommand=\"old\"\n# note\n[mcp_servers.agent.env]\nA=\"1\"\n[tail]\n[next]\nq = 1\n"
+	set := map[string]any{"command": "/new"}
+	out1, _, _, err := upsertTOMLServer([]byte(input), "agent", set)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out2, _, _, err := upsertTOMLServer(out1, "agent", set)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(out1) != string(out2) {
+		t.Errorf("idempotence failed on loss-case input")
+	}
+}
+
+// Fix round 3: Remove with env+tools leaves one blank line
+func TestRemoveTOMLServer_GapBlankLine(t *testing.T) {
+	input := "[mcp_servers.other]\ncommand = \"/bin/other\"\n\n[mcp_servers.agent]\ncommand = \"/old\"\n\n[mcp_servers.agent.env]\nTOKEN = \"t\"\n\n[mcp_servers.agent.tools.search]\napproval_mode = \"prompt\"\n\n[profiles.fast]\nmodel = \"o4-mini\"\n"
+	out, _, found, err := removeTOMLServer([]byte(input), "agent")
+	if err != nil || !found {
+		t.Fatalf("err=%v found=%v", err, found)
+	}
+	s := string(out)
+	// Verify exactly one blank line between other and profiles
+	if !strings.Contains(s, "[mcp_servers.other]\ncommand = \"/bin/other\"\n\n[profiles.fast]") {
+		t.Errorf("not exactly one blank line between neighbours: %s", s)
+	}
+}
+
+// Fix round 3: Remove of leading entry leaves no leading blank
+func TestRemoveTOMLServer_NoLeadingBlank(t *testing.T) {
+	input := "[mcp_servers.agent]\ncommand = \"/old\"\n\n[profiles.fast]\nmodel = \"o4-mini\"\n"
+	out, _, found, err := removeTOMLServer([]byte(input), "agent")
+	if err != nil || !found {
+		t.Fatalf("err=%v found=%v", err, found)
+	}
+	s := string(out)
+	if strings.HasPrefix(s, "\n") {
+		t.Errorf("output starts with blank line: %q", s)
+	}
+	if !strings.HasPrefix(s, "[profiles.fast]") {
+		t.Errorf("expected [profiles.fast] at start: %s", s)
+	}
+}
+
+// Fix round 3: Remove of only entry returns empty string
+func TestRemoveTOMLServer_OnlyEntryEmpty(t *testing.T) {
+	input := "[mcp_servers.agent]\ncommand = \"/old\"\n\n[mcp_servers.agent.env]\nA = \"1\"\n"
+	out, _, found, err := removeTOMLServer([]byte(input), "agent")
+	if err != nil || !found {
+		t.Fatalf("err=%v found=%v", err, found)
+	}
+	if string(out) != "" {
+		t.Errorf("expected empty string, got: %q", string(out))
+	}
+}
+
+// Fix round 3: Comment before header with blank line preserved
+func TestUpsertTOMLServer_CommentBeforeHeader(t *testing.T) {
+	input := "# about agent\n\n[mcp_servers.agent]\ncommand = \"x\"\n"
+	out, _, _, err := upsertTOMLServer([]byte(input), "agent", map[string]any{"command": "/new"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	// Verify comment and exactly one blank line before header
+	if !strings.Contains(s, "# about agent\n\n[mcp_servers.agent]") {
+		t.Errorf("comment or blank line lost: %s", s)
+	}
+}
+
+// Fix round 3: CRLF no double-CR and raw decode succeeds
+func TestUpsertTOMLServer_CRLFNoDoubleCarriage(t *testing.T) {
+	crlfFixture := strings.ReplaceAll(codexFixture, "\n", "\r\n")
+	set := map[string]any{"command": "/new/agent"}
+
+	// Multiple upserts
+	var out []byte = []byte(crlfFixture)
+	for i := 0; i < 3; i++ {
+		var err error
+		out, _, _, err = upsertTOMLServer(out, "agent", set)
+		if err != nil {
+			t.Fatalf("upsert %d: %v", i, err)
+		}
+		s := string(out)
+		if strings.Contains(s, "\r\r") {
+			t.Errorf("upsert %d: double carriage return found", i)
+		}
+		// Raw decode must work
+		var doc map[string]any
+		if _, err := toml.Decode(s, &doc); err != nil {
+			t.Fatalf("upsert %d: raw toml.Decode failed: %v", i, err)
+		}
+	}
+
+	// Outputs should be identical after first upsert (idempotent)
+	out1, _, _, _ := upsertTOMLServer([]byte(crlfFixture), "agent", set)
+	out2, _, _, _ := upsertTOMLServer(out1, "agent", set)
+	if string(out1) != string(out2) {
+		t.Errorf("CRLF idempotence failed")
+	}
+}
+
+// Fix round 3: CRLF loss case
+func TestUpsertTOMLServer_CRLFLossCase(t *testing.T) {
+	input := "[mcp_servers.agent]\r\ncommand=\"old\"\r\n# note\r\n[mcp_servers.agent.env]\r\nA=\"1\"\r\n[tail]\r\n[next]\r\nq = 1\r\n"
+	out, _, _, err := upsertTOMLServer([]byte(input), "agent", map[string]any{"command": "/new"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	if strings.Contains(s, "\r\r") {
+		t.Errorf("double carriage return found: %q", s)
+	}
+	if !strings.Contains(s, "\r\n") {
+		t.Errorf("CRLF lost: %q", s)
+	}
+	// Raw decode must work
+	var doc map[string]any
+	if _, err := toml.Decode(s, &doc); err != nil {
+		t.Fatalf("raw toml.Decode failed: %v", err)
+	}
+	// Idempotence
+	out2, _, _, err := upsertTOMLServer(out, "agent", map[string]any{"command": "/new"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(out) != string(out2) {
+		t.Errorf("CRLF idempotence failed")
 	}
 }
