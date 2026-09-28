@@ -11,9 +11,29 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
+
+// syncBuffer is a bytes.Buffer safe for one writer (os/exec's stderr copy
+// goroutine) and a concurrent reader (the test, while the process runs).
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
 
 // sendRawJSONRPC spawns bin's `serve-mcp` with HOME isolated to a fresh temp
 // dir, writes each message in msgs to stdin (one JSON-RPC message per
@@ -40,7 +60,7 @@ func sendRawJSONRPC(t *testing.T, bin string, msgs []string, wantIDs []float64) 
 	if err != nil {
 		t.Fatalf("stdout pipe: %v", err)
 	}
-	var stderr bytes.Buffer
+	var stderr syncBuffer
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start serve-mcp: %v", err)
