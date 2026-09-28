@@ -141,9 +141,9 @@ func TestApplyEntriesPlansAllWritersBeforeApplyingAny(t *testing.T) {
 	}
 }
 
-// Fix round 1, item 3: removeEntries must still attempt every writer, but
-// return a combined error when any removal failed.
-func TestRemoveEntriesCombinesErrorsButAttemptsEveryWriter(t *testing.T) {
+// Final review I-3: a planning failure in any writer (here an unparsable
+// gemini config) aborts the whole removal before anything is applied.
+func TestRemoveEntriesPlanningFailureAppliesNothing(t *testing.T) {
 	d := chdir(t)
 	os.WriteFile(filepath.Join(d, ".mcp.json"), []byte(`{"mcpServers":{"a":{"type":"stdio","command":"/x","args":["serve-mcp"]}}}`), 0o600)
 	os.MkdirAll(filepath.Join(d, ".gemini"), 0o755)
@@ -153,7 +153,37 @@ func TestRemoveEntriesCombinesErrorsButAttemptsEveryWriter(t *testing.T) {
 	opts := installOptions{Writers: fileWriters(runtimecfg.Gemini, runtimecfg.ClaudeCode), Out: &out, Err: &errb}
 	applied, err := removeEntries(opts, runtimecfg.ScopeProject, "a")
 	if err == nil {
-		t.Fatal("expected a combined error from the broken gemini config")
+		t.Fatal("expected an error from the broken gemini config")
+	}
+	if len(applied) != 0 {
+		t.Fatalf("nothing may be applied after a planning failure: %+v", applied)
+	}
+	b, _ := os.ReadFile(filepath.Join(d, ".mcp.json"))
+	if !strings.Contains(string(b), `"a"`) {
+		t.Errorf("claude-code's entry must be left in place: %s", b)
+	}
+}
+
+// Fix round 1, item 3 (kept for apply-time failures): once every removal has
+// planned, an apply failure in one writer doesn't stop the others, and a
+// combined error is returned.
+func TestCommitRemovalsAttemptsEveryWriterOnApplyFailure(t *testing.T) {
+	d := chdir(t)
+	os.WriteFile(filepath.Join(d, ".mcp.json"), []byte(`{"mcpServers":{"a":{"type":"stdio","command":"/x","args":["serve-mcp"]}}}`), 0o600)
+	os.MkdirAll(filepath.Join(d, ".gemini"), 0o755)
+	gemini := filepath.Join(d, ".gemini", "settings.json")
+	os.WriteFile(gemini, []byte(`{"mcpServers":{"a":{"command":"/x"}}}`), 0o600)
+
+	var out, errb bytes.Buffer
+	opts := installOptions{Writers: fileWriters(runtimecfg.Gemini, runtimecfg.ClaudeCode), Out: &out, Err: &errb}
+	planned, err := planRemovals(opts, runtimecfg.ScopeProject, "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(gemini, []byte("{not valid json"), 0o600) // breaks gemini's apply
+	applied, err := commitRemovals(opts, planned, "a")
+	if err == nil {
+		t.Fatal("expected a combined error from gemini's failed apply")
 	}
 	if len(applied) != 1 || applied[0].Change.Runtime != runtimecfg.ClaudeCode {
 		t.Fatalf("expected claude-code's removal to still be applied despite gemini's failure: %+v", applied)
@@ -161,6 +191,36 @@ func TestRemoveEntriesCombinesErrorsButAttemptsEveryWriter(t *testing.T) {
 	b, _ := os.ReadFile(filepath.Join(d, ".mcp.json"))
 	if strings.Contains(string(b), `"a"`) {
 		t.Errorf("claude-code's entry should have been removed: %s", b)
+	}
+}
+
+// Final review I-3: uninstall plans every removal before deleting the binary,
+// so an unparsable config leaves the binary and the registry entry intact.
+func TestRunUninstallPlanningFailureKeepsBinaryAndRegistryEntry(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	proj := chdir(t)
+	bin := filepath.Join(proj, ".abbyfile", "bin", "a")
+	os.MkdirAll(filepath.Dir(bin), 0o755)
+	os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755)
+	os.WriteFile(filepath.Join(proj, ".mcp.json"), []byte("{not valid json"), 0o600)
+
+	regPath, _ := registry.DefaultPath()
+	reg, _ := registry.Load(regPath)
+	reg.Set(registry.Entry{Name: "a", Source: "local", Version: "1.0.0", Path: bin, Scope: "local"})
+	if err := reg.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	cfgOpts := runtimecfg.Options{Method: runtimecfg.MethodFile, LookPath: func(string) (string, error) { return "", os.ErrNotExist }}
+	if err := runUninstall("a", "claude-code", cfgOpts, false); err == nil {
+		t.Fatal("expected an error from the unparsable .mcp.json")
+	}
+	if _, err := os.Stat(bin); err != nil {
+		t.Errorf("binary must not be removed when planning fails: %v", err)
+	}
+	reg, _ = registry.Load(regPath)
+	if _, ok := reg.Get("a"); !ok {
+		t.Error("registry entry must be kept when planning fails")
 	}
 }
 

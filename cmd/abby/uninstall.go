@@ -69,6 +69,16 @@ func runUninstall(name, runtimeFlag string, cfgOpts runtimecfg.Options, dryRun b
 		Err:         os.Stderr,
 	}
 
+	// Plan every runtime's removal before touching anything: a planning
+	// failure (e.g. an unparsable config file) must abort with the binary
+	// and the registry entry still in place, so the user can fix it and
+	// retry.
+	scope := scopeFor(opts.Global)
+	planned, err := planRemovals(opts, scope, name)
+	if err != nil {
+		return err
+	}
+
 	if dryRun {
 		fmt.Fprintf(opts.Out, "would remove %s\n", entry.Path)
 	} else {
@@ -80,8 +90,7 @@ func runUninstall(name, runtimeFlag string, cfgOpts runtimecfg.Options, dryRun b
 	}
 
 	// Unwire from MCP config for all target runtimes.
-	scope := scopeFor(opts.Global)
-	applied, err := removeEntries(opts, scope, name)
+	applied, err := commitRemovals(opts, planned, name)
 	printSummary(opts.Out, applied, opts.DryRun)
 	if err != nil {
 		return err

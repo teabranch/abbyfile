@@ -69,24 +69,49 @@ func applyEntries(opts installOptions, scope runtimecfg.Scope, entries map[strin
 	return commitPlanned(opts, planned)
 }
 
-// removeEntries plans/applies removal of name from every writer. Every
-// writer is attempted regardless of an earlier writer's failure; a combined
-// error is returned if any writer failed to plan or apply its removal, so
-// the caller (uninstall) can leave its registry entry in place for a retry
-// instead of losing track of a partially-uninstalled agent.
+// removeEntries plans the removal of name from every writer (see
+// planRemovals), then applies the removals (see commitRemovals).
 func removeEntries(opts installOptions, scope runtimecfg.Scope, name string) ([]appliedChange, error) {
-	var done []appliedChange
+	planned, err := planRemovals(opts, scope, name)
+	if err != nil {
+		return nil, err
+	}
+	return commitRemovals(opts, planned, name)
+}
+
+// planRemovals plans the removal of name from every writer without applying
+// anything, skipping writers with nothing to remove. All-or-nothing: if any
+// writer fails to plan (e.g. an unparsable config file), a combined error
+// naming every failing writer is returned and no change is returned, so the
+// caller (uninstall) can abort before deleting the binary.
+func planRemovals(opts installOptions, scope runtimecfg.Scope, name string) ([]runtimecfg.Change, error) {
+	var planned []runtimecfg.Change
 	var errs []string
 	for _, w := range opts.Writers {
 		c, err := w.PlanRemove(scope, name)
 		if err != nil {
-			fmt.Fprintf(opts.Err, "warning: %s: %v\n", w.Runtime(), err)
 			errs = append(errs, fmt.Sprintf("%s: %v", w.Runtime(), err))
 			continue
 		}
-		if c.Noop {
-			continue
+		if !c.Noop {
+			planned = append(planned, c)
 		}
+	}
+	if len(errs) > 0 {
+		return nil, fmt.Errorf("%d runtime(s) could not plan removing %q, nothing was changed: %s", len(errs), name, strings.Join(errs, "; "))
+	}
+	return planned, nil
+}
+
+// commitRemovals applies (or, DryRun, previews) already-planned removals.
+// Every change is attempted regardless of an earlier one's apply failure; a
+// combined error is returned if any failed, so the caller (uninstall) can
+// leave its registry entry in place for a retry instead of losing track of a
+// partially-uninstalled agent.
+func commitRemovals(opts installOptions, planned []runtimecfg.Change, name string) ([]appliedChange, error) {
+	var done []appliedChange
+	var errs []string
+	for _, c := range planned {
 		a, err := commit(opts, c)
 		if err != nil {
 			fmt.Fprintf(opts.Err, "warning: %v\n", err)
