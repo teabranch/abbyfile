@@ -257,7 +257,10 @@ agents:
 		"-f", filepath.Join(tmpDir, "Abbyfile"),
 		"--module-dir", projectRoot,
 	)
-	cmd.Dir = projectRoot
+	// publish writes to ./build/publish relative to its working directory
+	// (it has no output flag), so run it in the temp dir: it must never
+	// touch the repo's own build artifacts.
+	cmd.Dir = tmpDir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("publish --dry-run failed: %v\n%s", err, out)
@@ -267,8 +270,7 @@ agents:
 	}
 
 	// Verify binaries were created for all targets.
-	publishDir := filepath.Join(projectRoot, "build", "publish")
-	defer os.RemoveAll(publishDir)
+	publishDir := filepath.Join(tmpDir, "build", "publish")
 
 	for _, target := range []string{"darwin-amd64", "darwin-arm64", "linux-amd64", "linux-arm64"} {
 		p := filepath.Join(publishDir, "pub-test-"+target)

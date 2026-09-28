@@ -25,6 +25,10 @@ func TestMain(m *testing.M) {
 	// developer machine usually has `claude` installed. Every child process
 	// inherits this, and it keeps the suite from touching a real runtime CLI.
 	os.Setenv("ABBY_CONFIG_METHOD", "file")
+	// Never let a developer's own runtime config dirs redirect the user-scope
+	// config paths abby writes during the suite.
+	os.Unsetenv("CLAUDE_CONFIG_DIR")
+	os.Unsetenv("CODEX_HOME")
 
 	projectRoot := findProjectRoot()
 
