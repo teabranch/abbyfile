@@ -128,10 +128,12 @@ abby install -g github.com/owner/repo/agent-name
 1. **Resolve release** -- fetches the latest (or specified) release from GitHub
 2. **Find asset** -- matches `<agent>-<os>-<arch>` for your platform
 3. **Download** -- downloads the binary to a temp file
-4. **Verify** -- runs `<binary> --describe` to confirm it's a valid agent
-5. **Install** -- moves to `.abbyfile/bin/` (or `/usr/local/bin/` with `-g`)
-6. **Wire MCP** -- updates MCP config for detected runtimes (Claude Code `.mcp.json`, Codex `.codex/config.toml`, Gemini `.gemini/settings.json`)
-7. **Track** -- records the install in `~/.abbyfile/registry.json`
+4. **Verify checksum** -- checks the download against the release's checksum asset (fails without one, unless `--insecure-skip-checksum`) -- see [Checksums](#checksums)
+5. **Verify manifest** -- runs `<binary> --describe` to confirm it's a valid agent
+6. **Plan** -- plans the MCP config change for every targeted runtime before touching anything else; a planning failure here leaves no binary installed and no config written -- see [What abby changes, and how to preview it](#what-abby-changes-and-how-to-preview-it)
+7. **Install** -- moves the verified binary to `.abbyfile/bin/` (or `/usr/local/bin/` with `-g`)
+8. **Wire MCP** -- applies the planned MCP config change for each targeted runtime (Claude Code `.mcp.json`, Codex `.codex/config.toml`, Gemini `.gemini/settings.json`)
+9. **Track** -- records the install in `~/.abbyfile/registry.json`
 
 ### Private Repositories
 
@@ -222,11 +224,13 @@ abby plans every targeted runtime's change **before** applying any of them: if p
 
 ### Backups
 
-Before abby's first write to an existing config file, it copies the original to `<file>.abbyfile.bak`, next to the file, with the same permissions. It never overwrites that backup — restore from it by hand if needed. `*.abbyfile.bak` is in `.gitignore`; treat it as disposable, but keep one around until you're sure a change is what you wanted.
+A backup is only made for a **file-method** change: before abby's first write to an existing config file in a session, it copies the original to `<file>.abbyfile.bak`, next to the file, with the same permissions, and never overwrites that backup afterwards — restore from it by hand if needed. A **CLI-method** change makes no backup (the BACKUP column shows `-`), since the runtime's own CLI is the one writing the file.
+
+abby doesn't touch your project's `.gitignore`. Since a project-scope backup such as `.mcp.json.abbyfile.bak` lands in the project root right next to a config file that's often committed, add `*.abbyfile.bak` to your project's `.gitignore` so a backup never gets committed by accident.
 
 ### Keys abby owns
 
-abby only ever sets `command`, `args`, `cwd` (project scope; Codex and Gemini only), the timeout key(s), and `env` (only when `--env` is given). Every other key already in an entry — and every other entry, table or key in the file — is preserved:
+abby only ever sets `command`, `args`, `cwd` (project scope; Codex and Gemini only), the timeout key(s), `env` (only when `--env` is given), and — for Claude Code only — a constant `type: "stdio"`. Every other key already in an entry — and every other entry, table or key in the file — is preserved:
 
 - **JSON** (Claude Code, Gemini): the file is parsed and rewritten key-by-key, in order; untouched values are byte-identical apart from re-indentation, and numbers are never round-tripped through a float.
 - **TOML** (Codex): only the `[mcp_servers.<name>]` block (and its subtables) is replaced; comments and other tables elsewhere in the file are kept. Comments *inside* the replaced block are lost. The first edit to a file also normalizes any run of multiple blank lines between top-level tables down to a single blank line; a CRLF file stays CRLF.
@@ -278,10 +282,11 @@ my-agent (v1.0.0, local, /Users/you/project/.abbyfile/bin/my-agent)
   ✓ serve-mcp speaks 2026-07-28 (server/discover)
   ✓ serve-mcp speaks 2025-11-25 (initialize)
   ✓ claude-code /Users/you/project/.mcp.json → /Users/you/project/.abbyfile/bin/my-agent
-
 legacy config
   ! /Users/you/.claude/mcp.json has entries old-agent written by abby < v0.12; Claude Code never reads this file — reinstall them with `abby install --global`, then delete /Users/you/.claude/mcp.json
 ```
+
+(Adapted from a captured run: the check wording, marks and no-blank-line structure are exact; the agent's version, sandbox command list and paths were simplified for the page.)
 
 ### Migrating from v0.11
 
@@ -314,7 +319,7 @@ abby update my-agent
 my-agent: installed from local build, skipping (use 'abby build && abby install my-agent' to update)
 ```
 
-`update` re-installs from the newer release using the same mandatory checksum verification as `abby install` (there is no `--insecure-skip-checksum` for `update`), replaces the binary in place at its existing path, and refreshes each runtime's `command` path and timeout — while leaving any existing `env` untouched, the same as a reinstall. It prints the same runtime-config summary table as install/uninstall, but has no `--dry-run` flag.
+`update` re-installs from the newer release using the same mandatory checksum verification as `abby install` (there is no `--insecure-skip-checksum` for `update`), replaces the binary in place at its existing path, and refreshes each runtime's `command` path and timeout — while leaving any existing `env` untouched, the same as a reinstall. It prints the same runtime-config summary table as install/uninstall, but has neither a `--dry-run` nor a `--config-method` flag — `ABBY_CONFIG_METHOD` is the only way to change its config method. A per-agent failure (for example a release with no checksum asset) is reported on stderr and that agent is skipped; it doesn't stop the rest of the batch or change `update`'s own exit code.
 
 ## Listing Installed Agents
 
@@ -334,12 +339,21 @@ Shows all agents tracked in the registry regardless of source.
 
 ## Uninstalling
 
-```bash
-abby uninstall my-agent
-# Removed /path/.abbyfile/bin/my-agent
-# Updated .mcp.json (claude-code)
-# Updated .codex/config.toml (codex)
-# Uninstalled my-agent
+```
+$ abby uninstall my-agent
+Removed /path/to/project/.abbyfile/bin/my-agent
+remove my-agent in /path/to/project/.mcp.json (claude-code, project scope, via file):
+    - {
+    -   "type": "stdio",
+    -   "command": "/path/to/project/.abbyfile/bin/my-agent",
+    -   "args": ["serve-mcp"],
+    -   "timeout": 130000
+    - }
+
+Runtime config changes:
+RUNTIME      SCOPE    METHOD  TARGET                       SERVER    BACKUP
+claude-code  project  file    /path/to/project/.mcp.json  my-agent  -
+Uninstalled my-agent
 ```
 
 Uninstall performs three actions:

@@ -134,12 +134,16 @@ See the [Abbyfile Format Guide](./guides/abbyfile-format.md) for full details.
 {
   "mcpServers": {
     "my-agent": {
+      "type": "stdio",
       "command": "/path/to/build/my-agent",
-      "args": ["serve-mcp"]
+      "args": ["serve-mcp"],
+      "timeout": 130000
     }
   }
 }
 ```
+
+(`type` and `timeout` are set for Claude Code; `timeout` is only present when `--describe` succeeds — see the [Distribution Guide](guides/distribution.md#entry-fields).)
 
 Or install the binary explicitly:
 

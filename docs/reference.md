@@ -522,7 +522,7 @@ Flags:
 Parses the Abbyfile, generates Go source from each agent's `.md` file, and compiles standalone binaries. Also generates/updates MCP config for the target runtime(s).
 
 The `--runtime` flag controls which runtimes receive MCP config:
-- `auto` (default) — detects installed runtimes by checking for their global config directories, falls back to Claude Code
+- `auto` (default) — detects a runtime whose CLI is on `PATH` or whose config directory exists (never by checking whether `$HOME` exists), falls back to Claude Code
 - `all` — generates config for all supported runtimes (Claude Code, Codex, Gemini CLI)
 - `claude-code` / `codex` / `gemini` — targets a specific runtime
 
@@ -657,7 +657,7 @@ Diagnoses one or more installed agents (all of them, if none are named) against 
 
 ## `ABBY_CONFIG_METHOD`
 
-Environment variable read by `abby build`, `abby install`, `abby uninstall` and `abby doctor` when their `--config-method` flag isn't given. One of `auto` (default — CLI when it can express the entry, else a file edit), `cli` (require the CLI; error if a change can't use it), or `file` (always edit the config file directly). See [Where abby registers agents](guides/distribution.md#where-abby-registers-agents) for the full method-selection rule.
+Environment variable read by `abby build`, `abby install`, `abby uninstall` and `abby doctor` when their `--config-method` flag isn't given, and by `abby update`, which has no `--config-method` flag of its own — `ABBY_CONFIG_METHOD` is its only way to change the method. One of `auto` (default — CLI when it can express the entry, else a file edit), `cli` (require the CLI; error if a change can't use it), or `file` (always edit the config file directly). See [Where abby registers agents](guides/distribution.md#where-abby-registers-agents) for the full method-selection rule.
 
 ---
 
