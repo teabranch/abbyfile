@@ -2,6 +2,7 @@ package runtimecfg
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -140,26 +141,39 @@ func (w *writer) wrapRunErr(err error, stdout, stderr []byte, args []string) err
 	return fmt.Errorf("%s %s: %w: %s", cliName(w.r), strings.Join(args, " "), err, msg)
 }
 
-func (w *writer) run(scope Scope, args ...string) error {
-	stdout, stderr, err := w.execCLI(scope, args...)
+// cliCmd is one runtime-CLI invocation: args is what runs, display is what
+// abby shows (in previews and errors) — the same command with env values,
+// which are often secrets, replaced by redacted.
+type cliCmd struct {
+	args, display []string
+}
+
+// redacted replaces env values wherever abby displays a CLI command.
+const redacted = "***"
+
+// plainCmd is a cliCmd with nothing to redact.
+func plainCmd(args ...string) cliCmd { return cliCmd{args: args, display: args} }
+
+func (w *writer) run(scope Scope, c cliCmd) error {
+	stdout, stderr, err := w.execCLI(scope, c.args...)
 	if err == nil {
 		return nil
 	}
-	return w.wrapRunErr(err, stdout, stderr, args)
+	return w.wrapRunErr(err, stdout, stderr, c.display)
 }
 
 // runRemove is like run but treats "already absent" — the runtime's own
 // idempotent response to removing a name it doesn't have — as success, so
 // neither a race nor a repeat removal surfaces as an abby error.
-func (w *writer) runRemove(scope Scope, args ...string) error {
-	stdout, stderr, err := w.execCLI(scope, args...)
+func (w *writer) runRemove(scope Scope, c cliCmd) error {
+	stdout, stderr, err := w.execCLI(scope, c.args...)
 	if err == nil {
 		return nil
 	}
 	if strings.Contains(string(stdout), alreadyAbsentMsg) || strings.Contains(string(stderr), alreadyAbsentMsg) {
 		return nil
 	}
-	return w.wrapRunErr(err, stdout, stderr, args)
+	return w.wrapRunErr(err, stdout, stderr, c.display)
 }
 
 func shellQuote(s string) string {
@@ -177,6 +191,39 @@ func commandLine(name string, args []string) string {
 	return name + " " + strings.Join(q, " ")
 }
 
+// redactEnvJSON returns entry with each env value replaced by redacted, for
+// display. entry itself is not modified.
+func redactEnvJSON(entry jsonObject) jsonObject {
+	v, ok := entry.get("env")
+	if !ok {
+		return entry
+	}
+	env, err := parseJSONObject(v)
+	if err != nil {
+		return entry
+	}
+	masked := make(jsonObject, len(env))
+	for i, f := range env {
+		masked[i] = jsonField{Key: f.Key, Value: json.RawMessage(`"` + redacted + `"`)}
+	}
+	b, err := masked.compact()
+	if err != nil {
+		return entry
+	}
+	return entry.with("env", b)
+}
+
+// addJSONCmd is claude's "mcp add-json" for entry, displayed with its env
+// values redacted.
+func addJSONCmd(scope Scope, name string, entry jsonObject) cliCmd {
+	payload, _ := entry.compact()
+	shown, _ := redactEnvJSON(entry).compact()
+	return cliCmd{
+		args:    []string{"mcp", "add-json", "-s", string(scope), name, string(payload)},
+		display: []string{"mcp", "add-json", "-s", string(scope), name, string(shown)},
+	}
+}
+
 // mergedJSON is existing overlaid with abby's owned keys.
 func mergedJSON(existing, set jsonObject) jsonObject {
 	out := append(jsonObject(nil), existing...)
@@ -189,18 +236,18 @@ func mergedJSON(existing, set jsonObject) jsonObject {
 func (w *writer) cliAddChange(scope Scope, name string, e ServerEntry, existing jsonObject) (Change, error) {
 	path, _ := w.ConfigPath(scope)
 	after := mergedJSON(existing, ownedJSON(w.r, e))
-	var cmds [][]string
+	var cmds []cliCmd
 	removeFirst := false // cmds[0] is a "remove" that must tolerate "already absent"
 	switch w.r {
 	case ClaudeCode:
-		payload, _ := after.compact()
 		if existing != nil {
-			cmds = append(cmds, []string{"mcp", "remove", "-s", string(scope), name})
+			cmds = append(cmds, plainCmd("mcp", "remove", "-s", string(scope), name))
 			removeFirst = true
 		}
-		cmds = append(cmds, []string{"mcp", "add-json", "-s", string(scope), name, string(payload)})
+		cmds = append(cmds, addJSONCmd(scope, name, after))
 	case Gemini:
 		args := []string{"mcp", "add", "-s", string(scope)}
+		shown := append([]string(nil), args...)
 		env := e.Env
 		if env == nil {
 			env = entryFromJSON(existing).Env
@@ -212,34 +259,42 @@ func (w *writer) cliAddChange(scope Scope, name string, e ServerEntry, existing 
 		sort.Strings(keys)
 		for _, k := range keys {
 			args = append(args, "-e", k+"="+env[k])
+			shown = append(shown, "-e", k+"="+redacted)
 		}
+		var rest []string
 		if e.Timeout >= time.Second {
-			args = append(args, "--timeout", strconv.FormatInt(e.Timeout.Milliseconds(), 10))
+			rest = append(rest, "--timeout", strconv.FormatInt(e.Timeout.Milliseconds(), 10))
 		}
-		args = append(args, name, e.Command)
-		cmds = append(cmds, append(args, e.Args...))
+		rest = append(append(rest, name, e.Command), e.Args...)
+		cmds = append(cmds, cliCmd{args: append(args, rest...), display: append(shown, rest...)})
 	}
 	var lines []string
 	for _, c := range cmds {
-		lines = append(lines, "$ "+commandLine(cliName(w.r), c))
+		lines = append(lines, "$ "+commandLine(cliName(w.r), c.display))
 	}
 	c := Change{Runtime: w.r, Scope: scope, Method: MethodCLI, Target: path, Server: name,
 		Noop:    existing != nil && renderJSONPreview(existing) == renderJSONPreview(after),
 		Preview: lineDiff(renderJSONPreview(existing), renderJSONPreview(after)) + strings.Join(lines, "\n") + "\n"}
 	c.apply = func() (string, error) {
-		for i, args := range cmds {
+		for i, cmd := range cmds {
 			var err error
 			if removeFirst && i == 0 {
-				err = w.runRemove(scope, args...)
+				err = w.runRemove(scope, cmd)
 			} else {
-				err = w.run(scope, args...)
+				err = w.run(scope, cmd)
 			}
 			if err != nil {
 				if w.r == ClaudeCode && existing != nil && i > 0 {
-					old, _ := existing.compact()
-					if rerr := w.run(scope, "mcp", "add-json", "-s", string(scope), name, string(old)); rerr != nil {
-						return "", fmt.Errorf("%w; restoring the previous entry also failed (%v) — re-add it with: %s",
-							err, rerr, commandLine("claude", []string{"mcp", "add-json", "-s", string(scope), name, string(old)}))
+					restore := addJSONCmd(scope, name, existing)
+					if rerr := w.run(scope, restore); rerr != nil {
+						// The hint must carry the real payload: it's the only
+						// copy of the entry the user has left.
+						note := ""
+						if _, hasEnv := existing.get("env"); hasEnv {
+							note = " (this command contains the entry's env values, which may be secret values)"
+						}
+						return "", fmt.Errorf("%w; restoring the previous entry also failed (%v) — re-add it with%s: %s",
+							err, rerr, note, commandLine("claude", restore.args))
 					}
 					return "", fmt.Errorf("%w; the previous entry was restored", err)
 				}
@@ -254,8 +309,8 @@ func (w *writer) cliAddChange(scope Scope, name string, e ServerEntry, existing 
 func (w *writer) cliRemoveChange(scope Scope, name string, existing jsonObject) (Change, error) {
 	path, _ := w.ConfigPath(scope)
 	c := Change{Runtime: w.r, Scope: scope, Method: MethodCLI, Target: path, Server: name, Remove: true, Noop: existing == nil}
-	args := []string{"mcp", "remove", "-s", string(scope), name}
-	c.Preview = lineDiff(renderJSONPreview(existing), "") + "$ " + commandLine(cliName(w.r), args) + "\n"
-	c.apply = func() (string, error) { return "", w.runRemove(scope, args...) }
+	cmd := plainCmd("mcp", "remove", "-s", string(scope), name)
+	c.Preview = lineDiff(renderJSONPreview(existing), "") + "$ " + commandLine(cliName(w.r), cmd.display) + "\n"
+	c.apply = func() (string, error) { return "", w.runRemove(scope, cmd) }
 	return c, nil
 }

@@ -394,3 +394,70 @@ func TestClaudeCLIErrorFallsBackToStdoutWhenStderrEmpty(t *testing.T) {
 		t.Fatalf("err = %v, want it to include stdout when stderr is empty", err)
 	}
 }
+
+// Final review M-3: env values are secrets; CLI previews and errors show them
+// as ***, while the commands actually run carry the real values.
+func TestClaudeCLIRedactsEnvInPreviewAndErrors(t *testing.T) {
+	d := chdirTemp(t)
+	os.WriteFile(d+"/.mcp.json", []byte(`{"mcpServers":{"agent":{"type":"stdio","command":"/old","args":[],"env":{"K":"oldsecret"}}}}`), 0o600)
+	var calls []call
+	opts := cliOpts(&calls, map[string]error{"add-json": errors.New("exit status 1")}, "claude")
+	e := entry()
+	e.Env = map[string]string{"T": "newsecret"}
+	c, err := For(ClaudeCode, opts).PlanAdd(ScopeProject, "agent", e)
+	if err != nil || c.Method != MethodCLI {
+		t.Fatalf("change = %+v, %v", c, err)
+	}
+	cmdLines := c.Preview[strings.Index(c.Preview, "$ "):]
+	if strings.Contains(cmdLines, "newsecret") || !strings.Contains(cmdLines, `"T":"***"`) {
+		t.Errorf("preview command must redact env values: %s", cmdLines)
+	}
+	_, err = c.Apply()
+	if err == nil {
+		t.Fatal("expected the add and the restore to fail")
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "newsecret") {
+		t.Errorf("error leaks the new env value: %s", msg)
+	}
+	// The re-add hint keeps the real old payload (the user needs it to
+	// restore the entry) and says it contains secrets.
+	hint := msg[strings.Index(msg, "re-add it with"):]
+	if !strings.Contains(hint, "oldsecret") || !strings.Contains(hint, "secret values") {
+		t.Errorf("restore hint must carry the real payload and warn about secrets: %s", hint)
+	}
+	if strings.Contains(msg[:strings.Index(msg, "re-add it with")], "oldsecret") {
+		t.Errorf("failed-command messages leak the old env value: %s", msg)
+	}
+	for _, cl := range calls {
+		if cl.args[1] == "add-json" && strings.Contains(cl.args[len(cl.args)-1], "***") {
+			t.Errorf("the command actually run must carry real values: %v", cl.args)
+		}
+	}
+}
+
+func TestGeminiCLIRedactsEnvInPreviewAndErrors(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	chdirTemp(t)
+	var calls []call
+	opts := cliOpts(&calls, map[string]error{"add": errors.New("exit status 1")}, "gemini")
+	e := entry()
+	e.Cwd = ""
+	e.Env = map[string]string{"A": "topsecret"}
+	c, _ := For(Gemini, opts).PlanAdd(ScopeUser, "agent", e)
+	if c.Method != MethodCLI {
+		t.Fatalf("method = %s", c.Method)
+	}
+	// The preview shell-quotes the argument ("*" is a glob character).
+	cmdLines := c.Preview[strings.Index(c.Preview, "$ "):]
+	if strings.Contains(cmdLines, "topsecret") || !strings.Contains(cmdLines, "-e 'A=***'") {
+		t.Errorf("preview command must show -e 'A=***': %s", cmdLines)
+	}
+	_, err := c.Apply()
+	if err == nil || strings.Contains(err.Error(), "topsecret") || !strings.Contains(err.Error(), "-e A=***") {
+		t.Errorf("err = %v, want redacted -e A=***", err)
+	}
+	if got := strings.Join(calls[0].args, " "); !strings.Contains(got, "-e A=topsecret") {
+		t.Errorf("the command actually run must carry the real value: %s", got)
+	}
+}
