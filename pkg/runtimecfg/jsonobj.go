@@ -136,10 +136,16 @@ func (o jsonObject) marshal() ([]byte, error) {
 	return out.Bytes(), nil
 }
 
-// servers returns the mcpServers object of top (empty if absent).
+// servers returns the mcpServers object of top (empty if absent or null).
 func servers(top jsonObject) (jsonObject, error) {
 	v, ok := top.get(mcpServersKey)
 	if !ok {
+		return jsonObject{}, nil
+	}
+	// A null container means "no servers" (some tools and hand edits write
+	// "mcpServers": null); treat it like an absent key rather than refusing
+	// the file. An upsert replaces it with an object.
+	if string(bytes.TrimSpace(v)) == "null" {
 		return jsonObject{}, nil
 	}
 	s, err := parseJSONObject(v)

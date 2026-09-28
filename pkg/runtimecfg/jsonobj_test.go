@@ -195,3 +195,31 @@ func TestHTMLCharactersInKeysPreserved(t *testing.T) {
 		t.Errorf("key 'c&d' was escaped in output:\n%s", s)
 	}
 }
+
+// Final review M-2: "mcpServers": null is treated as an empty object.
+func TestJSONServer_NullContainerIsEmpty(t *testing.T) {
+	data := []byte(`{"a": 1, "mcpServers": null}`)
+	if _, ok, err := lookupJSONServer(data, "x"); err != nil || ok {
+		t.Fatalf("lookup = %v, %v", ok, err)
+	}
+	if out, _, found, err := removeJSONServer(data, "x"); err != nil || found || string(out) != string(data) {
+		t.Fatalf("remove = %s, %v, %v", out, found, err)
+	}
+	out, before, _, err := upsertJSONServer(data, "x", jsonObject{{Key: "command", Value: json.RawMessage(`"/bin/x"`)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before != nil {
+		t.Errorf("before = %v, want nil", before)
+	}
+	e, ok, err := lookupJSONServer(out, "x")
+	if err != nil || !ok {
+		t.Fatalf("entry missing after upsert: %s (%v)", out, err)
+	}
+	if v, _ := e.get("command"); string(v) != `"/bin/x"` {
+		t.Errorf("command = %s", v)
+	}
+	if !strings.Contains(string(out), `"a": 1`) {
+		t.Errorf("lost other key: %s", out)
+	}
+}
