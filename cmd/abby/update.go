@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -94,8 +95,24 @@ func runUpdate(name string) error {
 		global := entry.Scope == "global"
 		ref.Version = latestVersion
 		newRef := fmt.Sprintf("github.com/%s/%s/%s@%s", ref.Owner, ref.Repo, ref.Agent, latestVersion)
-		writers := runtimecfg.Detect(runtimecfg.Options{Method: runtimecfg.MethodFile})
-		if err := runRemoteInstall(newRef, global, writers); err != nil {
+
+		// update may run from anywhere: resolve writers and the entry's Cwd
+		// against its own project root, not the process's cwd, and replace
+		// the binary at its existing registered location.
+		cfgOpts, _ := configOptions("")
+		cfgOpts.ProjectRoot = projectRootFor(entry)
+		writers := runtimecfg.Detect(cfgOpts)
+
+		opts := installOptions{
+			Global:      global,
+			BinDir:      filepath.Dir(entry.Path),
+			ProjectRoot: cfgOpts.ProjectRoot,
+			Writers:     writers,
+			Out:         os.Stdout,
+			Err:         os.Stderr,
+		}
+
+		if _, err := runRemoteInstall(newRef, opts); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: update failed: %v\n", entry.Name, err)
 			continue
 		}
