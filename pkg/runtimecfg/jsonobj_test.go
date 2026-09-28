@@ -37,6 +37,23 @@ func TestParseJSONObjectRejectsNonObjectAndComments(t *testing.T) {
 	}
 }
 
+// Review Focus #3: Error message accuracy without heuristics.
+func TestParseErrorMessages(t *testing.T) {
+	// URL + missing-brace should report "unexpected end of JSON input"
+	urlMissingBrace := `{"url":"http://example.com"`
+	_, err := parseJSONObject([]byte(urlMissingBrace))
+	if err == nil || !strings.Contains(err.Error(), "unexpected end of JSON input") {
+		t.Errorf("URL+missing-brace error should contain 'unexpected end of JSON input', got: %v", err)
+	}
+
+	// Comment should still mention comments in the note
+	commentInput := `{"a":1 // comment` + "\n}"
+	_, err = parseJSONObject([]byte(commentInput))
+	if err == nil || !strings.Contains(err.Error(), "comments") {
+		t.Errorf("comment input error should mention 'comments', got: %v", err)
+	}
+}
+
 // Review Focus #1.
 func TestUpsertJSONServer_PreservesUnownedKeys(t *testing.T) {
 	in := `{"theme":"dark","mcpServers":{"other":{"command":"x"},"a":{"command":"/old","trust":true,"env":{"K":"v"},"includeTools":["t"]}},"tail":{"n":1}}`

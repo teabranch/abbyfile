@@ -26,15 +26,10 @@ func parseJSONObject(data []byte) (jsonObject, error) {
 		return jsonObject{}, nil
 	}
 	if !json.Valid(data) {
-		// Provide a more accurate error message
-		if bytes.Contains(data, []byte("//")) || bytes.Contains(data, []byte("/*")) ||
-			bytes.Contains(data, []byte(",}")) || bytes.Contains(data, []byte(",]")) {
-			return nil, fmt.Errorf("not valid JSON (comments and trailing commas are not supported)")
-		}
-		// Try to unmarshal to get a better error
+		// Always get the positioned error from json.Unmarshal
 		var tmp any
 		if err := json.Unmarshal(data, &tmp); err != nil {
-			return nil, fmt.Errorf("%w", err)
+			return nil, fmt.Errorf("not valid JSON: %w (note: comments and trailing commas are not supported)", err)
 		}
 		return nil, fmt.Errorf("not valid JSON")
 	}
