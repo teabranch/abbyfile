@@ -1,0 +1,5 @@
+{
+  "theme": "GitHub",
+  "mcpServers": {"agent": {"command": "/old", "args": ["serve-mcp"], "trust": true, "includeTools": ["read_file"]}},
+  "selectedAuthType": "oauth-personal"
+}

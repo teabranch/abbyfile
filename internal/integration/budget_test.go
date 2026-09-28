@@ -74,7 +74,7 @@ agents:
 		"-o", buildDir,
 		"--module-dir", projectRoot,
 	)
-	buildCmd.Dir = projectRoot
+	buildCmd.Dir = tmp
 	if out, err := buildCmd.CombinedOutput(); err != nil {
 		t.Fatalf("abby build: %v\n%s", err, out)
 	}

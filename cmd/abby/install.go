@@ -59,7 +59,7 @@ Override settings at install time:
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			writers, err := runtimecfg.Resolve(runtimeFlag)
+			writers, err := runtimecfg.Resolve(runtimeFlag, runtimecfg.Options{Method: runtimecfg.MethodFile})
 			if err != nil {
 				return err
 			}
@@ -407,21 +407,21 @@ func installBinDir(global bool) string {
 
 // mergeRuntimeConfigs writes MCP server entries to all target runtime configs.
 func mergeRuntimeConfigs(writers []runtimecfg.ConfigWriter, global bool, entries map[string]runtimecfg.ServerEntry) error {
+	scope := runtimecfg.ScopeProject
+	if global {
+		scope = runtimecfg.ScopeUser
+	}
 	for _, w := range writers {
-		var cfgPath string
-		if global {
-			var err error
-			cfgPath, err = w.GlobalPath()
+		for name, e := range entries {
+			c, err := w.PlanAdd(scope, name, e)
 			if err != nil {
-				return fmt.Errorf("resolving global path for %s: %w", w.Runtime(), err)
+				return fmt.Errorf("updating %s config: %w", w.Runtime(), err)
 			}
-		} else {
-			cfgPath = w.LocalPath()
+			if _, err := c.Apply(); err != nil {
+				return fmt.Errorf("updating %s for %s: %w", c.Target, w.Runtime(), err)
+			}
+			fmt.Printf("Updated %s (%s)\n", c.Target, w.Runtime())
 		}
-		if err := w.Merge(cfgPath, entries); err != nil {
-			return fmt.Errorf("updating %s for %s: %w", cfgPath, w.Runtime(), err)
-		}
-		fmt.Printf("Updated %s (%s)\n", cfgPath, w.Runtime())
 	}
 	return nil
 }

@@ -61,7 +61,7 @@ agents:
 		"--plugin",
 		"--module-dir", projectRoot,
 	)
-	cmd.Dir = projectRoot
+	cmd.Dir = tmp
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {

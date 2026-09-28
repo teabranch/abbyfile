@@ -1,0 +1,19 @@
+# user settings
+model = "o3"  # keep me
+
+[mcp_servers.other]
+command = "/bin/other"
+
+[mcp_servers.agent]
+command = "/old/agent"
+args = ["serve-mcp"]
+enabled = false
+
+[mcp_servers.agent.env]
+TOKEN = "t"
+
+[mcp_servers.agent.tools.search]
+approval_mode = "prompt"
+
+[profiles.fast]
+model = "o4-mini"

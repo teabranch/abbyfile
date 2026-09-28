@@ -1,0 +1,9 @@
+{
+  "numStartups": 412,
+  "userID": "f00dfeedf00dfeedf00dfeedf00dfeedf00dfeedf00dfeedf00dfeedf00dfeed",
+  "tipsHistory": {"new-user-warmup": 7},
+  "projects": {"/Users/x/proj": {"allowedTools": [], "mcpServers": {"local-one": {"command": "/bin/l"}}}},
+  "mcpServers": {"existing": {"type": "stdio", "command": "/opt/existing", "args": []}},
+  "cachedStatsigGates": {"tengu_x": true},
+  "lastReleaseNotesSeen": "2.9.1"
+}

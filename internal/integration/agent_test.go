@@ -21,6 +21,11 @@ var (
 )
 
 func TestMain(m *testing.M) {
+	// Force the file method: abby detects runtimes by CLI on PATH, and a
+	// developer machine usually has `claude` installed. Every child process
+	// inherits this, and it keeps the suite from touching a real runtime CLI.
+	os.Setenv("ABBY_CONFIG_METHOD", "file")
+
 	projectRoot := findProjectRoot()
 
 	// Create a temp dir for the entire integration test.
@@ -81,7 +86,7 @@ agents:
 	// Build the test agent via abby build.
 	buildDir := filepath.Join(tmp, "build")
 	cmd = exec.Command(abbyBin, "build", "-f", filepath.Join(tmp, "Abbyfile"), "-o", buildDir, "--module-dir", projectRoot)
-	cmd.Dir = projectRoot
+	cmd.Dir = tmp
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {

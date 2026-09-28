@@ -1,11 +1,16 @@
-// Package runtimecfg abstracts MCP server config generation for multiple
-// AI coding runtimes (Claude Code, Codex, Gemini CLI).
+// Package runtimecfg registers MCP servers with AI coding runtimes (Claude
+// Code, Codex, Gemini CLI). Every edit is planned first — a Change carries a
+// preview — and applied through the runtime's own CLI when it can express the
+// entry, otherwise through a surgical, backed-up edit of its config file.
 package runtimecfg
 
 import (
+	"bytes"
+	"context"
 	"fmt"
 	"os"
-	"path/filepath"
+	"os/exec"
+	"time"
 )
 
 // Runtime identifies an AI coding runtime that supports MCP servers.
@@ -18,102 +23,160 @@ const (
 )
 
 // AllRuntimes returns all supported runtimes in deterministic order.
-func AllRuntimes() []Runtime {
-	return []Runtime{ClaudeCode, Codex, Gemini}
+func AllRuntimes() []Runtime { return []Runtime{ClaudeCode, Codex, Gemini} }
+
+// Parse converts a string to a Runtime.
+func Parse(s string) (Runtime, error) {
+	for _, r := range AllRuntimes() {
+		if string(r) == s {
+			return r, nil
+		}
+	}
+	return "", fmt.Errorf("unknown runtime %q (supported: claude-code, codex, gemini)", s)
 }
 
-// ServerEntry describes an MCP server to register with a runtime.
+// Scope is where an entry is registered.
+type Scope string
+
+const (
+	ScopeProject Scope = "project" // project root config (default install, abby build)
+	ScopeUser    Scope = "user"    // user-global config (--global)
+)
+
+// Method is how a change is applied.
+type Method string
+
+const (
+	MethodAuto Method = "auto" // CLI when it can express the entry, else file
+	MethodCLI  Method = "cli"
+	MethodFile Method = "file"
+)
+
+// ParseMethod parses --config-method / ABBY_CONFIG_METHOD values.
+func ParseMethod(s string) (Method, error) {
+	switch Method(s) {
+	case MethodAuto, MethodCLI, MethodFile:
+		return Method(s), nil
+	}
+	return "", fmt.Errorf("unknown config method %q (want auto, cli or file)", s)
+}
+
+// ServerEntry is the part of an MCP server entry abby owns. Zero values mean
+// "leave the existing value alone": nil Env keeps an existing env, "" Cwd and
+// 0 Timeout set nothing.
 type ServerEntry struct {
 	Command string
 	Args    []string
+	Env     map[string]string
+	Cwd     string
+	Timeout time.Duration
 }
 
-// ConfigWriter handles reading/writing MCP server entries for a specific runtime.
+// Change is one planned edit to one runtime's config.
+type Change struct {
+	Runtime Runtime
+	Scope   Scope
+	Method  Method // MethodCLI or MethodFile
+	Target  string // config file written (directly, or by the runtime CLI)
+	Server  string // MCP server name
+	Remove  bool
+	Noop    bool     // nothing to do (e.g. removing an absent entry)
+	Preview string   // entry diff; for MethodCLI also the commands to run
+	Notes   []string // user-facing caveats, e.g. Codex project trust
+	apply   func() (string, error)
+}
+
+// Apply performs the change and returns the backup it created, if any.
+func (c Change) Apply() (backup string, err error) {
+	if c.Noop || c.apply == nil {
+		return "", nil
+	}
+	return c.apply()
+}
+
+// ConfigWriter plans edits to one runtime's MCP config.
 type ConfigWriter interface {
-	// Runtime returns which runtime this writer targets.
 	Runtime() Runtime
-
-	// LocalPath returns the project-local config path (e.g. ".mcp.json").
-	LocalPath() string
-
-	// GlobalPath returns the user-global config path (e.g. "~/.claude/mcp.json").
-	GlobalPath() (string, error)
-
-	// Merge reads existing config at path, adds/overwrites the given entries,
-	// and writes back. Creates the file and parent directories if needed.
-	Merge(path string, entries map[string]ServerEntry) error
-
-	// Remove deletes a single server entry from config at path.
-	Remove(path string, name string) error
+	ConfigPath(scope Scope) (string, error)
+	Lookup(scope Scope, name string) (ServerEntry, bool, error)
+	PlanAdd(scope Scope, name string, e ServerEntry) (Change, error)
+	PlanRemove(scope Scope, name string) (Change, error)
 }
 
-// Parse converts a string to a Runtime, returning an error for unknown values.
-func Parse(s string) (Runtime, error) {
-	switch s {
-	case string(ClaudeCode):
-		return ClaudeCode, nil
-	case string(Codex):
-		return Codex, nil
-	case string(Gemini):
-		return Gemini, nil
-	default:
-		return "", fmt.Errorf("unknown runtime %q (supported: claude-code, codex, gemini)", s)
+// CommandRunner runs a runtime CLI (injectable for tests).
+type CommandRunner func(ctx context.Context, name string, args ...string) (stdout, stderr []byte, err error)
+
+// Options configures writers. Zero values use real PATH lookup, a real
+// process runner, MethodAuto and the current directory as project root.
+type Options struct {
+	Method      Method
+	ProjectRoot string // absolute; project-scope configs live here ("" = os.Getwd())
+	LookPath    func(string) (string, error)
+	Run         CommandRunner
+}
+
+func (o Options) normalized() Options {
+	if o.Method == "" {
+		o.Method = MethodAuto
 	}
-}
-
-// For returns the ConfigWriter for a specific runtime.
-func For(r Runtime) ConfigWriter {
-	switch r {
-	case ClaudeCode:
-		return &claudeWriter{}
-	case Codex:
-		return &codexWriter{}
-	case Gemini:
-		return &geminiWriter{}
-	default:
-		return &claudeWriter{} // fallback
+	if o.LookPath == nil {
+		o.LookPath = exec.LookPath
 	}
+	if o.Run == nil {
+		o.Run = runCommand
+	}
+	if o.ProjectRoot == "" {
+		if wd, err := os.Getwd(); err == nil {
+			o.ProjectRoot = wd
+		}
+	}
+	return o
 }
 
-// Detect returns ConfigWriters for all runtimes whose global config directories
-// exist on the current system. Falls back to Claude Code if none are detected.
-func Detect() []ConfigWriter {
-	var writers []ConfigWriter
+func runCommand(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+	var out, errb bytes.Buffer
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Stdout, cmd.Stderr = &out, &errb
+	err := cmd.Run()
+	return out.Bytes(), errb.Bytes(), err
+}
+
+// For returns the writer for r.
+func For(r Runtime, opts Options) ConfigWriter {
+	return newWriter(r, opts.normalized())
+}
+
+// Detect returns writers for runtimes whose CLI is on PATH or whose config
+// directory exists; Claude Code when none is found.
+func Detect(opts Options) []ConfigWriter {
+	opts = opts.normalized()
+	var ws []ConfigWriter
 	for _, r := range AllRuntimes() {
-		w := For(r)
-		gp, err := w.GlobalPath()
-		if err != nil {
-			continue
-		}
-		// Check if the parent directory of the global config exists.
-		dir := filepath.Dir(gp)
-		if _, err := os.Stat(dir); err == nil {
-			writers = append(writers, w)
+		if detected(r, opts) {
+			ws = append(ws, newWriter(r, opts))
 		}
 	}
-	if len(writers) == 0 {
-		writers = append(writers, For(ClaudeCode))
+	if len(ws) == 0 {
+		ws = append(ws, newWriter(ClaudeCode, opts))
 	}
-	return writers
+	return ws
 }
 
-// Resolve returns the list of ConfigWriters for a given --runtime flag value.
-// Supported values: "auto", "all", or a specific runtime name.
-func Resolve(flag string) ([]ConfigWriter, error) {
+// Resolve maps a --runtime flag ("auto", "all" or a runtime name) to writers.
+func Resolve(flag string, opts Options) ([]ConfigWriter, error) {
 	switch flag {
-	case "auto":
-		return Detect(), nil
+	case "auto", "":
+		return Detect(opts), nil
 	case "all":
-		var writers []ConfigWriter
+		var ws []ConfigWriter
 		for _, r := range AllRuntimes() {
-			writers = append(writers, For(r))
+			ws = append(ws, For(r, opts))
 		}
-		return writers, nil
-	default:
-		r, err := Parse(flag)
-		if err != nil {
-			return nil, err
-		}
-		return []ConfigWriter{For(r)}, nil
+		return ws, nil
 	}
+	r, err := Parse(flag)
+	if err != nil {
+		return nil, err
+	}
+	return []ConfigWriter{For(r, opts)}, nil
 }

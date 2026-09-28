@@ -137,7 +137,7 @@ func runBuild(abbyfilePath, outputDir, agentName string, pluginOutput bool, suba
 	}
 
 	// Generate MCP config for target runtimes.
-	writers, err := runtimecfg.Resolve(runtimeFlag)
+	writers, err := runtimecfg.Resolve(runtimeFlag, runtimecfg.Options{Method: runtimecfg.MethodFile})
 	if err != nil {
 		return fmt.Errorf("resolving runtimes: %w", err)
 	}
@@ -151,11 +151,8 @@ func runBuild(abbyfilePath, outputDir, agentName string, pluginOutput bool, suba
 		}
 	}
 
-	for _, w := range writers {
-		if err := w.Merge(w.LocalPath(), entries); err != nil {
-			return fmt.Errorf("updating %s for %s: %w", w.LocalPath(), w.Runtime(), err)
-		}
-		fmt.Printf("Updated %s (%s)\n", w.LocalPath(), w.Runtime())
+	if err := mergeRuntimeConfigs(writers, false, entries); err != nil {
+		return err
 	}
 
 	// Generate plugin directories if --plugin flag is set.

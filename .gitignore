@@ -35,6 +35,7 @@ go.work.sum
 .mcp.json
 .codex/config.toml
 .gemini/settings.json
+*.abbyfile.bak
 
 # Build output (abby CLI + agent binaries)
 build/

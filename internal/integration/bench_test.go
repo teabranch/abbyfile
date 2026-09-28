@@ -269,7 +269,7 @@ func TestMeasureAllAgents(t *testing.T) {
 			"--agent", name,
 			"--module-dir", projectRoot,
 		)
-		buildCmd.Dir = projectRoot
+		buildCmd.Dir = tmp
 		if out, err := buildCmd.CombinedOutput(); err != nil {
 			t.Logf("Skipping %s: build failed: %v\n%s", name, err, out)
 			continue

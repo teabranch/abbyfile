@@ -94,7 +94,7 @@ func runUpdate(name string) error {
 		global := entry.Scope == "global"
 		ref.Version = latestVersion
 		newRef := fmt.Sprintf("github.com/%s/%s/%s@%s", ref.Owner, ref.Repo, ref.Agent, latestVersion)
-		writers := runtimecfg.Detect()
+		writers := runtimecfg.Detect(runtimecfg.Options{Method: runtimecfg.MethodFile})
 		if err := runRemoteInstall(newRef, global, writers); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: update failed: %v\n", entry.Name, err)
 			continue

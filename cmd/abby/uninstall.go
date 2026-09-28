@@ -20,7 +20,7 @@ runtimes, and removes it from the registry. Use --runtime to target a
 specific runtime or "all" for all supported runtimes.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			writers, err := runtimecfg.Resolve(runtimeFlag)
+			writers, err := runtimecfg.Resolve(runtimeFlag, runtimecfg.Options{Method: runtimecfg.MethodFile})
 			if err != nil {
 				return err
 			}
@@ -56,21 +56,20 @@ func runUninstall(name string, writers []runtimecfg.ConfigWriter) error {
 
 	// Unwire from MCP config for all target runtimes.
 	global := entry.Scope == "global"
+	scope := runtimecfg.ScopeProject
+	if global {
+		scope = runtimecfg.ScopeUser
+	}
 	for _, w := range writers {
-		var cfgPath string
-		if global {
-			cfgPath, err = w.GlobalPath()
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: could not resolve global path for %s: %v\n", w.Runtime(), err)
-				continue
-			}
-		} else {
-			cfgPath = w.LocalPath()
+		c, err := w.PlanRemove(scope, name)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not update %s config: %v\n", w.Runtime(), err)
+			continue
 		}
-		if err := w.Remove(cfgPath, name); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not update %s (%s): %v\n", cfgPath, w.Runtime(), err)
+		if _, err := c.Apply(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not update %s (%s): %v\n", c.Target, w.Runtime(), err)
 		} else {
-			fmt.Printf("Updated %s (%s)\n", cfgPath, w.Runtime())
+			fmt.Printf("Updated %s (%s)\n", c.Target, w.Runtime())
 		}
 	}
 
