@@ -112,8 +112,13 @@ type ConfigWriter interface {
 	PlanRemove(scope Scope, name string) (Change, error)
 }
 
-// CommandRunner runs a runtime CLI (injectable for tests).
-type CommandRunner func(ctx context.Context, name string, args ...string) (stdout, stderr []byte, err error)
+// CommandRunner runs a runtime CLI (injectable for tests). dir, when
+// non-empty, is the working directory the command runs in — project-scope
+// calls need this to be Options.ProjectRoot, since claude/gemini resolve
+// their own "project scope" from the process's cwd, which need not be the
+// project abby was told to act on (e.g. an uninstall/update/doctor run from
+// elsewhere). "" means the process's own cwd.
+type CommandRunner func(ctx context.Context, dir, name string, args ...string) (stdout, stderr []byte, err error)
 
 // Options configures writers. Zero values use real PATH lookup, a real
 // process runner, MethodAuto and the current directory as project root.
@@ -146,9 +151,12 @@ func (o Options) normalized() Options {
 	return o
 }
 
-func runCommand(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+func runCommand(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 	var out, errb bytes.Buffer
 	cmd := exec.CommandContext(ctx, name, args...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	err := cmd.Run()
 	return out.Bytes(), errb.Bytes(), err

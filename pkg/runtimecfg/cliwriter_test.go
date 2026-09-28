@@ -10,14 +10,15 @@ import (
 )
 
 type call struct {
+	dir  string // working directory the fake command "ran" in
 	name string
 	args []string
 }
 
 // fakeRunner records calls; fail maps "subcommand" (args[1]) to an error.
 func fakeRunner(calls *[]call, fail map[string]error) CommandRunner {
-	return func(_ context.Context, name string, args ...string) ([]byte, []byte, error) {
-		*calls = append(*calls, call{name, append([]string(nil), args...)})
+	return func(_ context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		*calls = append(*calls, call{dir, name, append([]string(nil), args...)})
 		if len(args) > 1 {
 			if err, ok := fail[args[1]]; ok {
 				return nil, []byte(err.Error()), err
@@ -86,8 +87,8 @@ func TestClaudeCLIRestoresOnAddFailure(t *testing.T) {
 	var calls []call
 	n := 0
 	opts := cliOpts(&calls, nil, "claude")
-	opts.Run = func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
-		calls = append(calls, call{name, args})
+	opts.Run = func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		calls = append(calls, call{dir, name, args})
 		if args[1] == "add-json" {
 			n++
 			if n == 1 {
@@ -253,5 +254,143 @@ func TestForcedCLIWithoutBinaryErrors(t *testing.T) {
 	opts.Method = MethodCLI
 	if _, err := For(ClaudeCode, opts).PlanAdd(ScopeProject, "agent", entry()); err == nil || !strings.Contains(err.Error(), "not on PATH") {
 		t.Errorf("err = %v", err)
+	}
+}
+
+// Fix round 1, item 1: claude's own "mcp" subcommands resolve project scope
+// from THEIR process's cwd, not from any flag, so abby must run them in
+// Options.ProjectRoot — which Task 6 sets independently of the process's
+// actual working directory (e.g. uninstall/update/doctor run from
+// elsewhere) — or the CLI edits the wrong project's .mcp.json.
+func TestClaudeCLIProjectScopeRunsInProjectRootNotProcessCwd(t *testing.T) {
+	chdirTemp(t)                                  // process cwd = A, deliberately unrelated to the project root
+	root, _ := filepath.EvalSymlinks(t.TempDir()) // Options.ProjectRoot = B
+	os.WriteFile(filepath.Join(root, ".mcp.json"), []byte(`{"mcpServers":{"agent":{"command":"/old","args":[]}}}`), 0o600)
+
+	var calls []call
+	opts := cliOpts(&calls, nil, "claude")
+	opts.ProjectRoot = root
+	w := For(ClaudeCode, opts)
+
+	c, err := w.PlanAdd(ScopeProject, "agent", entry())
+	if err != nil || c.Method != MethodCLI {
+		t.Fatalf("change = %+v, %v", c, err)
+	}
+	if _, err := c.Apply(); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 2 {
+		t.Fatalf("calls = %+v", calls)
+	}
+	for _, cl := range calls {
+		if cl.dir != root {
+			t.Errorf("add call %+v ran in dir %q, want Options.ProjectRoot %q", cl, cl.dir, root)
+		}
+	}
+
+	calls = nil
+	rm, err := w.PlanRemove(ScopeProject, "agent")
+	if err != nil || rm.Method != MethodCLI {
+		t.Fatalf("remove = %+v, %v", rm, err)
+	}
+	if _, err := rm.Apply(); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 1 || calls[0].dir != root {
+		t.Fatalf("remove calls = %+v, want dir %q", calls, root)
+	}
+}
+
+func TestClaudeCLIUserScopeRunsInProcessCwd(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	chdirTemp(t)
+	var calls []call
+	opts := cliOpts(&calls, nil, "claude")
+	opts.ProjectRoot = "/should/not/be/used/for/user/scope"
+	c, err := For(ClaudeCode, opts).PlanAdd(ScopeUser, "agent", entry())
+	if err != nil || c.Method != MethodCLI {
+		t.Fatalf("change = %+v, %v", c, err)
+	}
+	if _, err := c.Apply(); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 1 || calls[0].dir != "" {
+		t.Fatalf("calls = %+v, want an empty dir (process cwd) for user scope", calls)
+	}
+}
+
+// Fix round 1, item 2: claude's "mcp remove" exits 1 with a "No MCP server
+// named" message when the name isn't registered; abby's desired end state
+// (no such entry) already holds, so that must not surface as an abby error.
+func TestClaudeRemoveViaCLITreatsAlreadyAbsentAsSuccess(t *testing.T) {
+	d := chdirTemp(t)
+	os.WriteFile(d+"/.mcp.json", []byte(`{"mcpServers":{"agent":{"command":"/old","args":[]}}}`), 0o600)
+	var calls []call
+	opts := cliOpts(&calls, nil, "claude")
+	opts.Run = func(_ context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		calls = append(calls, call{dir, name, args})
+		return nil, []byte(`No MCP server named "agent" in project config`), errors.New("exit status 1")
+	}
+	c, err := For(ClaudeCode, opts).PlanRemove(ScopeProject, "agent")
+	if err != nil || c.Method != MethodCLI {
+		t.Fatalf("%+v %v", c, err)
+	}
+	if _, err := c.Apply(); err != nil {
+		t.Fatalf("a remove failing only because the entry is already absent must not be an error: %v", err)
+	}
+}
+
+// Same tolerance for the first ("remove") step of Claude's replace flow: it
+// must not trigger the restore-on-failure path (nothing was removed) and
+// must let the add-json step still run.
+func TestClaudeReplaceTreatsAlreadyAbsentRemoveAsSuccessAndProceeds(t *testing.T) {
+	d := chdirTemp(t)
+	os.WriteFile(d+"/.mcp.json", []byte(`{"mcpServers":{"agent":{"type":"stdio","command":"/old","args":[]}}}`), 0o600)
+	var calls []call
+	opts := cliOpts(&calls, nil, "claude")
+	opts.Run = func(_ context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		calls = append(calls, call{dir, name, args})
+		if args[1] == "remove" {
+			return nil, []byte(`No MCP server named "agent" in project config`), errors.New("exit status 1")
+		}
+		return nil, nil, nil
+	}
+	c, _ := For(ClaudeCode, opts).PlanAdd(ScopeProject, "agent", entry())
+	if _, err := c.Apply(); err != nil {
+		t.Fatalf("an already-absent remove must not block the add or trigger a restore: %v", err)
+	}
+	if len(calls) != 2 || calls[0].args[1] != "remove" || calls[1].args[1] != "add-json" {
+		t.Fatalf("calls = %+v", calls)
+	}
+}
+
+// Fix round 1, item 3.
+func TestClaudeCLITimeoutIsReported(t *testing.T) {
+	chdirTemp(t)
+	var calls []call
+	opts := cliOpts(&calls, nil, "claude")
+	opts.Run = func(_ context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		return nil, nil, context.DeadlineExceeded
+	}
+	c, _ := For(ClaudeCode, opts).PlanAdd(ScopeProject, "agent", entry())
+	_, err := c.Apply()
+	if err == nil || !strings.Contains(err.Error(), "timed out after 30s") {
+		t.Fatalf("err = %v, want a message naming the 30s timeout", err)
+	}
+}
+
+func TestClaudeCLIErrorFallsBackToStdoutWhenStderrEmpty(t *testing.T) {
+	chdirTemp(t)
+	var calls []call
+	opts := cliOpts(&calls, nil, "claude")
+	opts.Run = func(_ context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		return []byte(" some diagnostic on stdout \n"), nil, errors.New("exit status 1")
+	}
+	c, _ := For(ClaudeCode, opts).PlanAdd(ScopeProject, "agent", entry())
+	_, err := c.Apply()
+	if err == nil || !strings.Contains(err.Error(), "some diagnostic on stdout") {
+		t.Fatalf("err = %v, want it to include stdout when stderr is empty", err)
 	}
 }

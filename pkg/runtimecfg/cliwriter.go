@@ -2,6 +2,7 @@ package runtimecfg
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -102,14 +103,63 @@ func (w *writer) choose(scope Scope, e *ServerEntry, existing jsonObject) (Metho
 	return MethodFile, nil
 }
 
-func (w *writer) run(args ...string) error {
+// alreadyAbsentMsg is what claude's own "mcp remove" prints (to stderr,
+// exit 1) when the name isn't registered; abby treats that as success, not
+// a failure, since the end state abby wants (no such entry) already holds.
+const alreadyAbsentMsg = "No MCP server named"
+
+// execCLI runs the runtime CLI with a bounded timeout. Project-scope calls
+// run in Options.ProjectRoot, not the process's own working directory:
+// claude/gemini's "mcp" subcommands resolve their own project scope from
+// their process's cwd, which need not be the project abby was told to act
+// on (Options.ProjectRoot), for example an uninstall/update/doctor run from
+// elsewhere. User scope has no such directory dependency and runs in the
+// process's own cwd ("").
+func (w *writer) execCLI(scope Scope, args ...string) (stdout, stderr []byte, err error) {
+	dir := ""
+	if scope == ScopeProject {
+		dir = w.opts.ProjectRoot
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), cliTimeout)
 	defer cancel()
-	_, stderr, err := w.opts.Run(ctx, cliName(w.r), args...)
-	if err != nil {
-		return fmt.Errorf("%s %s: %w: %s", cliName(w.r), strings.Join(args, " "), err, strings.TrimSpace(string(stderr)))
+	return w.opts.Run(ctx, dir, cliName(w.r), args...)
+}
+
+// wrapRunErr turns a failed execCLI call into an error naming the command;
+// a context timeout is reported specially, and when stderr is empty the
+// (trimmed) stdout is used instead, so a CLI that only prints to stdout
+// still surfaces a useful message.
+func (w *writer) wrapRunErr(err error, stdout, stderr []byte, args []string) error {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("%s %s timed out after %s", cliName(w.r), strings.Join(args, " "), cliTimeout)
 	}
-	return nil
+	msg := strings.TrimSpace(string(stderr))
+	if msg == "" {
+		msg = strings.TrimSpace(string(stdout))
+	}
+	return fmt.Errorf("%s %s: %w: %s", cliName(w.r), strings.Join(args, " "), err, msg)
+}
+
+func (w *writer) run(scope Scope, args ...string) error {
+	stdout, stderr, err := w.execCLI(scope, args...)
+	if err == nil {
+		return nil
+	}
+	return w.wrapRunErr(err, stdout, stderr, args)
+}
+
+// runRemove is like run but treats "already absent" — the runtime's own
+// idempotent response to removing a name it doesn't have — as success, so
+// neither a race nor a repeat removal surfaces as an abby error.
+func (w *writer) runRemove(scope Scope, args ...string) error {
+	stdout, stderr, err := w.execCLI(scope, args...)
+	if err == nil {
+		return nil
+	}
+	if strings.Contains(string(stdout), alreadyAbsentMsg) || strings.Contains(string(stderr), alreadyAbsentMsg) {
+		return nil
+	}
+	return w.wrapRunErr(err, stdout, stderr, args)
 }
 
 func shellQuote(s string) string {
@@ -140,11 +190,13 @@ func (w *writer) cliAddChange(scope Scope, name string, e ServerEntry, existing 
 	path, _ := w.ConfigPath(scope)
 	after := mergedJSON(existing, ownedJSON(w.r, e))
 	var cmds [][]string
+	removeFirst := false // cmds[0] is a "remove" that must tolerate "already absent"
 	switch w.r {
 	case ClaudeCode:
 		payload, _ := after.compact()
 		if existing != nil {
 			cmds = append(cmds, []string{"mcp", "remove", "-s", string(scope), name})
+			removeFirst = true
 		}
 		cmds = append(cmds, []string{"mcp", "add-json", "-s", string(scope), name, string(payload)})
 	case Gemini:
@@ -176,10 +228,16 @@ func (w *writer) cliAddChange(scope Scope, name string, e ServerEntry, existing 
 		Preview: lineDiff(renderJSONPreview(existing), renderJSONPreview(after)) + strings.Join(lines, "\n") + "\n"}
 	c.apply = func() (string, error) {
 		for i, args := range cmds {
-			if err := w.run(args...); err != nil {
+			var err error
+			if removeFirst && i == 0 {
+				err = w.runRemove(scope, args...)
+			} else {
+				err = w.run(scope, args...)
+			}
+			if err != nil {
 				if w.r == ClaudeCode && existing != nil && i > 0 {
 					old, _ := existing.compact()
-					if rerr := w.run("mcp", "add-json", "-s", string(scope), name, string(old)); rerr != nil {
+					if rerr := w.run(scope, "mcp", "add-json", "-s", string(scope), name, string(old)); rerr != nil {
 						return "", fmt.Errorf("%w; restoring the previous entry also failed (%v) — re-add it with: %s",
 							err, rerr, commandLine("claude", []string{"mcp", "add-json", "-s", string(scope), name, string(old)}))
 					}
@@ -198,6 +256,6 @@ func (w *writer) cliRemoveChange(scope Scope, name string, existing jsonObject) 
 	c := Change{Runtime: w.r, Scope: scope, Method: MethodCLI, Target: path, Server: name, Remove: true, Noop: existing == nil}
 	args := []string{"mcp", "remove", "-s", string(scope), name}
 	c.Preview = lineDiff(renderJSONPreview(existing), "") + "$ " + commandLine(cliName(w.r), args) + "\n"
-	c.apply = func() (string, error) { return "", w.run(args...) }
+	c.apply = func() (string, error) { return "", w.runRemove(scope, args...) }
 	return c, nil
 }
