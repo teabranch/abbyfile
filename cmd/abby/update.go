@@ -55,7 +55,7 @@ func runUpdate(name string) error {
 		return nil
 	}
 
-	client := github.NewClient()
+	client := newGitHubClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 

@@ -216,7 +216,7 @@ func runBulkRemoteInstall(ref string, opts installOptions) ([]appliedChange, err
 		return nil, fmt.Errorf("--all cannot be used with a pinned version; each agent has its own version")
 	}
 
-	client := github.NewClient()
+	client := newGitHubClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
@@ -367,7 +367,7 @@ func runRemoteInstall(ref string, opts installOptions) ([]appliedChange, error) 
 		return nil, err
 	}
 
-	client := github.NewClient()
+	client := newGitHubClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
@@ -404,6 +404,15 @@ func runRemoteInstall(ref string, opts installOptions) ([]appliedChange, error) 
 	}
 	tmpFile.Close()
 
+	// Verify the checksum before the downloaded binary is chmod'd executable
+	// or run for --describe: a tampered binary must never execute.
+	if err := verifyReleaseAsset(ctx, client, release, parsed.Agent, *asset, tmpPath, opts.SkipChecksum, opts.Err); err != nil {
+		return nil, err
+	}
+	if !opts.SkipChecksum {
+		fmt.Fprintf(opts.Out, "Checksum verified ✓\n")
+	}
+
 	if err := os.Chmod(tmpPath, 0o755); err != nil {
 		return nil, fmt.Errorf("setting permissions: %w", err)
 	}
@@ -414,27 +423,6 @@ func runRemoteInstall(ref string, opts installOptions) ([]appliedChange, error) 
 		return nil, fmt.Errorf("downloaded binary is not a valid agent: %w", err)
 	}
 	fmt.Fprintf(opts.Out, "Verified: %s v%s\n", manifest.Name, manifest.Version)
-
-	// Verify checksum if a checksums file exists in the release.
-	if sumsAsset := findChecksumAsset(release, parsed.Agent); sumsAsset != nil {
-		fmt.Fprintf(opts.Out, "Verifying checksum...\n")
-		sumsFile, sErr := os.CreateTemp("", "abbyfile-sums-*")
-		if sErr == nil {
-			if sErr = client.DownloadAsset(ctx, *sumsAsset, sumsFile); sErr == nil {
-				sumsFile.Close()
-				sumsData, _ := os.ReadFile(sumsFile.Name())
-				sums := github.ParseChecksumFile(string(sumsData))
-				if expected, ok := sums[asset.Name]; ok {
-					if vErr := github.VerifyChecksum(tmpPath, expected); vErr != nil {
-						os.Remove(sumsFile.Name())
-						return nil, fmt.Errorf("checksum verification failed: %w", vErr)
-					}
-					fmt.Fprintf(opts.Out, "Checksum verified ✓\n")
-				}
-			}
-			os.Remove(sumsFile.Name())
-		}
-	}
 
 	binDir := opts.BinDir
 	if binDir == "" {
