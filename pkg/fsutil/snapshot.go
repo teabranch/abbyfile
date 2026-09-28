@@ -59,6 +59,8 @@ func ReadSnapshot(path string) (*Snapshot, error) {
 // no backup exists yet, it first copies the original to Target+BackupSuffix
 // (same mode) and returns that path; otherwise backupPath is "". Returns
 // ErrChangedOnDisk, writing nothing, if the file no longer matches Data.
+// When running as root and the existing file belongs to another user, the
+// new file and the backup are chowned to that user before their renames.
 func (s *Snapshot) Commit(data []byte) (backupPath string, err error) {
 	current, readErr := os.ReadFile(s.Target)
 	switch {
@@ -72,19 +74,24 @@ func (s *Snapshot) Commit(data []byte) (backupPath string, err error) {
 	if err := os.MkdirAll(filepath.Dir(s.Target), 0o755); err != nil {
 		return "", fmt.Errorf("creating directory for %s: %w", s.Path, err)
 	}
+	// Under root, keep a user's file (and its backup) owned by that user.
+	var restoreOwner func(*os.File) error
+	if s.Exists {
+		restoreOwner = restoreOwnerFunc(s.Target)
+	}
 	if s.Exists {
 		bp := s.Target + BackupSuffix
 		if _, statErr := os.Stat(bp); statErr != nil {
 			if !errors.Is(statErr, fs.ErrNotExist) {
 				return "", fmt.Errorf("checking backup %s: %w", bp, statErr)
 			}
-			if err := WriteAtomic(bp, s.Data, s.Mode); err != nil {
+			if err := writeAtomic(bp, s.Data, s.Mode, restoreOwner); err != nil {
 				return "", fmt.Errorf("writing backup %s: %w", bp, err)
 			}
 			backupPath = bp
 		}
 	}
-	if err := WriteAtomic(s.Target, data, s.Mode); err != nil {
+	if err := writeAtomic(s.Target, data, s.Mode, restoreOwner); err != nil {
 		return backupPath, fmt.Errorf("writing %s: %w", s.Path, err)
 	}
 	return backupPath, nil

@@ -32,21 +32,41 @@ func CopyFile(src, dst string) error {
 
 // WriteAtomic writes data to path atomically using a temp-file-then-rename pattern.
 func WriteAtomic(path string, data []byte, perm os.FileMode) error {
+	return writeAtomic(path, data, perm, nil)
+}
+
+// owner is a file's uid/gid.
+type owner struct{ uid, gid int }
+
+// writeAtomic is WriteAtomic with an optional prepare hook, run on the synced
+// temp file just before it is closed and renamed into place.
+func writeAtomic(path string, data []byte, perm os.FileMode, prepare func(*os.File) error) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
 	if err != nil {
 		return fmt.Errorf("creating temp file: %w", err)
 	}
 	tmpPath := tmp.Name()
+	fail := func(format string, err error) error {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return fmt.Errorf(format, err)
+	}
 
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmpPath)
-		return fmt.Errorf("writing temp file: %w", err)
+		return fail("writing temp file: %w", err)
 	}
 	if err := tmp.Chmod(perm); err != nil {
-		tmp.Close()
-		os.Remove(tmpPath)
-		return fmt.Errorf("setting permissions: %w", err)
+		return fail("setting permissions: %w", err)
+	}
+	if prepare != nil {
+		if err := prepare(tmp); err != nil {
+			return fail("setting owner: %w", err)
+		}
+	}
+	// Flush to disk before the rename so a crash can't leave an empty or
+	// partial file in place of the original.
+	if err := tmp.Sync(); err != nil {
+		return fail("syncing temp file: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
 		os.Remove(tmpPath)
