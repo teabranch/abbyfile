@@ -358,6 +358,43 @@ func TestApplyReplansOnceOnConcurrentWrite_RepeatedConflictFails(t *testing.T) {
 	}
 }
 
+// R3: a MethodFile Change.Apply() must run even when Noop was true at plan
+// time, because the on-disk state can change between plan and apply (here,
+// something deletes the entry); the apply closure re-reads and re-writes it.
+func TestApplyRunsFileMethodEvenWhenNoop(t *testing.T) {
+	d := chdirTemp(t)
+	w := For(ClaudeCode, fileOpts)
+
+	c1, err := w.PlanAdd(ScopeProject, "agent", entry())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c1.Apply(); err != nil {
+		t.Fatal(err)
+	}
+
+	c2, err := w.PlanAdd(ScopeProject, "agent", entry())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c2.Noop {
+		t.Fatal("second identical PlanAdd must be a no-op")
+	}
+
+	// Remove the entry on disk between plan (c2) and apply.
+	path := filepath.Join(d, ".mcp.json")
+	if err := os.WriteFile(path, []byte(`{"mcpServers":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := c2.Apply(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := w.Lookup(ScopeProject, "agent"); !ok {
+		t.Error("Apply on the noop change must restore the entry, since it was removed on disk")
+	}
+}
+
 func compactJSON(r json.RawMessage) string {
 	var v any
 	json.Unmarshal(r, &v)

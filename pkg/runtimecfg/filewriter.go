@@ -137,10 +137,32 @@ func (w *writer) fileChange(scope Scope, name string, remove bool, ed edit) (Cha
 }
 
 func (w *writer) PlanAdd(scope Scope, name string, e ServerEntry) (Change, error) {
+	existing, err := w.existingJSON(scope, name)
+	if err != nil {
+		return Change{}, err
+	}
+	m, err := w.choose(scope, &e, existing)
+	if err != nil {
+		return Change{}, err
+	}
+	if m == MethodCLI {
+		return w.cliAddChange(scope, name, e, existing)
+	}
 	return w.fileChange(scope, name, false, w.addEdit(name, e))
 }
 
 func (w *writer) PlanRemove(scope Scope, name string) (Change, error) {
+	existing, err := w.existingJSON(scope, name)
+	if err != nil {
+		return Change{}, err
+	}
+	m, err := w.choose(scope, nil, existing)
+	if err != nil {
+		return Change{}, err
+	}
+	if m == MethodCLI {
+		return w.cliRemoveChange(scope, name, existing)
+	}
 	return w.fileChange(scope, name, true, w.removeEdit(name))
 }
 

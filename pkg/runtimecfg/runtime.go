@@ -86,9 +86,18 @@ type Change struct {
 	apply   func() (string, error)
 }
 
-// Apply performs the change and returns the backup it created, if any.
+// Apply performs the change and returns the backup it created, if any. A
+// MethodFile change runs its apply closure even when Noop was true at plan
+// time: the closure re-reads the file and returns early if there is still
+// nothing to do, so an entry altered on disk between plan and apply (e.g.
+// deleted by another process) is still (re)written. A MethodCLI change is
+// skipped outright when Noop, since there is no cheap way to re-check "is
+// this still a no-op" without invoking the CLI.
 func (c Change) Apply() (backup string, err error) {
-	if c.Noop || c.apply == nil {
+	if c.apply == nil {
+		return "", nil
+	}
+	if c.Noop && c.Method != MethodFile {
 		return "", nil
 	}
 	return c.apply()
