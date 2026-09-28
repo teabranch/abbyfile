@@ -289,3 +289,249 @@ func TestUpsertTOMLServer_Idempotence(t *testing.T) {
 		t.Errorf("upserts not idempotent:\nfirst:\n%s\n\nsecond:\n%s", out1, out2)
 	}
 }
+
+// Fix round 2: Non-contiguous layout — agent blocks separated by profiles table
+func TestUpsertTOMLServer_NonContiguousLayout(t *testing.T) {
+	input := `[mcp_servers.agent]
+command = "/old"
+
+# about profiles
+[profiles.fast]
+model = "o4-mini"
+
+[mcp_servers.agent.env]
+TOKEN = "t"
+`
+	out, _, _, err := upsertTOMLServer([]byte(input), "agent", map[string]any{"command": "/new"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	// Verify profiles section is intact
+	for _, want := range []string{"[profiles.fast]", "model = \"o4-mini\"", "# about profiles"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("lost %q:\n%s", want, s)
+		}
+	}
+	// Verify agent.env is still there
+	if !strings.Contains(s, "[mcp_servers.agent.env]") || !strings.Contains(s, "TOKEN = \"t\"") {
+		t.Errorf("env lost:\n%s", s)
+	}
+}
+
+// Fix round 2: Non-contiguous layout — remove preserves profiles table
+func TestRemoveTOMLServer_NonContiguousLayout(t *testing.T) {
+	input := `[mcp_servers.agent]
+command = "/old"
+
+# about profiles
+[profiles.fast]
+model = "o4-mini"
+
+[mcp_servers.agent.env]
+TOKEN = "t"
+`
+	out, _, found, err := removeTOMLServer([]byte(input), "agent")
+	if err != nil || !found {
+		t.Fatalf("err=%v found=%v", err, found)
+	}
+	s := string(out)
+	// Verify profiles section is intact
+	for _, want := range []string{"[profiles.fast]", "model = \"o4-mini\"", "# about profiles"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("lost %q:\n%s", want, s)
+		}
+	}
+	// Verify agent is completely gone
+	if strings.Contains(s, "[mcp_servers.agent]") || strings.Contains(s, "TOKEN = \"t\"") {
+		t.Errorf("agent not fully removed:\n%s", s)
+	}
+}
+
+// Fix round 2: CRLF is preserved through multiple upserts; no double-carriage-return
+func TestUpsertTOMLServer_CRLFMultipleUpserts(t *testing.T) {
+	// Create CRLF version of codexFixture
+	crlfFixture := strings.ReplaceAll(codexFixture, "\n", "\r\n")
+	set := map[string]any{"command": "/new/agent"}
+
+	// First upsert
+	out1, _, _, err := upsertTOMLServer([]byte(crlfFixture), "agent", set)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s1 := string(out1)
+
+	// Verify no double carriage returns
+	if strings.Contains(s1, "\r\r") {
+		t.Errorf("double carriage return found:\n%q", s1)
+	}
+
+	// Verify all line endings are CRLF
+	if !strings.Contains(s1, "\r\n") {
+		t.Errorf("CRLF lost in first upsert")
+	}
+
+	// Verify raw toml.Decode works (no normalization needed)
+	var doc map[string]any
+	if _, err := toml.Decode(s1, &doc); err != nil {
+		t.Fatalf("raw toml.Decode failed (CRLF not preserved correctly): %v\n%q", err, s1)
+	}
+
+	// Second upsert
+	out2, _, _, err := upsertTOMLServer(out1, "agent", set)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s2 := string(out2)
+
+	// Third upsert
+	out3, _, _, err := upsertTOMLServer(out2, "agent", set)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s3 := string(out3)
+
+	// Outputs 2 and 3 must be byte-identical (idempotent)
+	if s2 != s3 {
+		t.Errorf("CRLF upserts not idempotent after second upsert:\nout2:\n%q\nout3:\n%q", s2, s3)
+	}
+
+	// All must have CRLF, no double-CR
+	for i, s := range []string{s1, s2, s3} {
+		if strings.Contains(s, "\r\r") {
+			t.Errorf("upsert %d: double carriage return found", i+1)
+		}
+		if !strings.Contains(s, "\r\n") {
+			t.Errorf("upsert %d: CRLF lost", i+1)
+		}
+	}
+}
+
+// Fix round 2: Remove with gaps leaves exactly one blank line between neighbours
+func TestRemoveTOMLServer_GapSeam(t *testing.T) {
+	input := `[mcp_servers.agent]
+command = "/old"
+
+[mcp_servers.agent.env]
+TOKEN = "t"
+
+[profiles.fast]
+model = "o4-mini"
+`
+	out, _, found, err := removeTOMLServer([]byte(input), "agent")
+	if err != nil || !found {
+		t.Fatalf("err=%v found=%v", err, found)
+	}
+	s := string(out)
+	// Verify exactly one blank line between [profiles.fast] and what comes before
+	if !strings.Contains(s, "\n\n[profiles.fast]") {
+		t.Errorf("not exactly one blank line before [profiles.fast]:\n%s", s)
+	}
+	// Count occurrences of the seam to ensure it's there exactly once
+	seamCount := strings.Count(s, "\n\n[profiles.fast]")
+	if seamCount != 1 {
+		t.Errorf("seam appears %d times, want 1:\n%s", seamCount, s)
+	}
+}
+
+// Fix round 2: Remove of last block ends with exactly one newline
+func TestRemoveTOMLServer_LastBlockEndsWithNewline(t *testing.T) {
+	input := `[mcp_servers.agent]
+command = "/old"
+
+[mcp_servers.agent.env]
+TOKEN = "t"
+`
+	out, _, found, err := removeTOMLServer([]byte(input), "agent")
+	if err != nil || !found {
+		t.Fatalf("err=%v found=%v", err, found)
+	}
+	s := string(out)
+	// Output should be empty or just whitespace, ending with exactly one newline if non-empty
+	if len(s) > 0 && s != "\n" {
+		t.Errorf("non-empty file after removing only entry should be just newline, got: %q", s)
+	}
+	if len(s) > 0 && !strings.HasSuffix(s, "\n") {
+		t.Errorf("output does not end with newline: %q", s)
+	}
+	// Count trailing newlines
+	if len(s) > 0 {
+		trailingNewlines := len(s) - len(strings.TrimRight(s, "\n"))
+		if trailingNewlines != 1 {
+			t.Errorf("expected exactly 1 trailing newline, got %d: %q", trailingNewlines, s)
+		}
+	}
+}
+
+// Fix round 2: Array-of-tables idempotence with 3 upserts
+func TestUpsertTOMLServer_ArrayOfTablesIdempotence3Upserts(t *testing.T) {
+	input := `[mcp_servers.agent]
+command = "/old"
+
+[[mcp_servers.agent.transports]]
+type = "stdio"
+
+[[mcp_servers.agent.transports]]
+type = "sse"
+`
+	set := map[string]any{"command": "/new"}
+
+	// First upsert
+	out1, _, _, err := upsertTOMLServer([]byte(input), "agent", set)
+	if err != nil {
+		t.Fatal(err)
+	}
+	count1 := strings.Count(string(out1), "[[mcp_servers.agent.transports]]")
+	if count1 != 2 {
+		t.Errorf("after first upsert: expected 2 transports, got %d", count1)
+	}
+
+	// Second upsert
+	out2, _, _, err := upsertTOMLServer(out1, "agent", set)
+	if err != nil {
+		t.Fatal(err)
+	}
+	count2 := strings.Count(string(out2), "[[mcp_servers.agent.transports]]")
+	if count2 != 2 {
+		t.Errorf("after second upsert: expected 2 transports, got %d", count2)
+	}
+
+	// Third upsert
+	out3, _, _, err := upsertTOMLServer(out2, "agent", set)
+	if err != nil {
+		t.Fatal(err)
+	}
+	count3 := strings.Count(string(out3), "[[mcp_servers.agent.transports]]")
+	if count3 != 2 {
+		t.Errorf("after third upsert: expected 2 transports, got %d", count3)
+	}
+
+	// All must be identical (idempotent from first upsert onward)
+	if string(out1) != string(out2) {
+		t.Errorf("out1 != out2 (not idempotent)")
+	}
+	if string(out2) != string(out3) {
+		t.Errorf("out2 != out3 (not idempotent)")
+	}
+}
+
+// Fix round 2: CRLF remove preserves all-CRLF
+func TestRemoveTOMLServer_PreservesCRLF(t *testing.T) {
+	input := "[mcp_servers.agent]\r\ncommand = \"/old\"\r\n\r\n[profiles.fast]\r\nmodel = \"o4-mini\"\r\n"
+	out, _, found, err := removeTOMLServer([]byte(input), "agent")
+	if err != nil || !found {
+		t.Fatalf("err=%v found=%v", err, found)
+	}
+	s := string(out)
+	if !strings.Contains(s, "\r\n") {
+		t.Errorf("CRLF lost in remove")
+	}
+	if strings.Contains(s, "\r\r") {
+		t.Errorf("double carriage return: %q", s)
+	}
+	// Raw toml.Decode should work on the output
+	var doc map[string]any
+	if _, err := toml.Decode(s, &doc); err != nil {
+		t.Fatalf("raw toml.Decode failed: %v\n%q", err, s)
+	}
+}
