@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const cliVersion = "0.12.0"
+const cliVersion = "0.12.1"
 
 func main() {
 	root := newRootCommand()
