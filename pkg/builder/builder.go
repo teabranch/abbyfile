@@ -45,6 +45,7 @@ type templateData struct {
 	Description   string
 	Tools         []string
 	CustomTools   []customToolData
+	NeedsJSON     bool // a custom tool has an input_schema to decode
 	Memory        bool
 	ModuleVersion string // published module version (e.g. "v0.8.0")
 	ModuleDir     string // local module path for replace directive (dev/CI only)
@@ -306,6 +307,7 @@ func GenerateSource(dir string, def *definition.AgentDef, moduleVersion, moduleD
 	}
 
 	var customTools []customToolData
+	needsJSON := false
 	for _, ct := range def.CustomTools {
 		ctd := customToolData{
 			Name:        ct.Name,
@@ -320,6 +322,7 @@ func GenerateSource(dir string, def *definition.AgentDef, moduleVersion, moduleD
 			}
 			ctd.InputSchemaJSON = string(schemaJSON)
 			ctd.StdinInput = true
+			needsJSON = true
 		}
 		customTools = append(customTools, ctd)
 	}
@@ -335,6 +338,7 @@ func GenerateSource(dir string, def *definition.AgentDef, moduleVersion, moduleD
 		Description:   def.Description,
 		Tools:         def.Tools,
 		CustomTools:   customTools,
+		NeedsJSON:     needsJSON,
 		Memory:        def.Memory,
 		ModuleVersion: moduleVersion,
 		ModuleDir:     moduleDir,

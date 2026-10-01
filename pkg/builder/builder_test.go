@@ -488,3 +488,22 @@ func TestGenerateSource_EmptyAllowCommandsIsValidGo(t *testing.T) {
 		t.Fatalf("invalid Go: %v\n%s", err, data)
 	}
 }
+
+func TestGenerateSource_SchemaLessCustomToolSkipsJSONImport(t *testing.T) {
+	// encoding/json is only used to decode an input_schema; importing it
+	// without one fails `go build` with an unused import.
+	dir := t.TempDir()
+	def := &definition.AgentDef{
+		Name:        "plain-tool",
+		Version:     "1.0.0",
+		PromptBody:  "x",
+		CustomTools: []definition.CustomToolDef{{Name: "lint", Command: "echo", Description: "Lint"}},
+	}
+	if err := GenerateSource(dir, def, "v1.0.0", ""); err != nil {
+		t.Fatalf("GenerateSource: %v", err)
+	}
+	mainGo, _ := os.ReadFile(filepath.Join(dir, "main.go"))
+	if strings.Contains(string(mainGo), `"encoding/json"`) {
+		t.Fatalf("main.go imports encoding/json with no input_schema:\n%s", mainGo)
+	}
+}
