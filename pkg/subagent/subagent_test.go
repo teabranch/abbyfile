@@ -172,3 +172,33 @@ func TestGenerate_MemoryPointerOnlyWhenMemoryEnabled(t *testing.T) {
 		t.Fatalf("memory agent should be pointed at memory_read:\n%s", with)
 	}
 }
+
+func TestGenerate_RendersReturnContractOutsideSummaryCap(t *testing.T) {
+	def := &definition.AgentDef{
+		Name:       "deployer",
+		PromptBody: "Deploy.",
+		ReturnFields: []definition.ReturnField{
+			{Name: "verdict", Description: "functionally verified, or only deployed"},
+			{Name: "proof"},
+		},
+	}
+	s := generateString(t, def, GenerateConfig{})
+	for _, sub := range []string{
+		"3. Every one of these fields",
+		"not part of the summary's line cap",
+		"never shorten or drop",
+		"- `verdict` — functionally verified, or only deployed",
+		"- `proof`\n",
+	} {
+		if !strings.Contains(s, sub) {
+			t.Fatalf("output missing %q:\n%s", sub, s)
+		}
+	}
+}
+
+func TestGenerate_NoReturnContractNoFieldsSection(t *testing.T) {
+	s := generateString(t, &definition.AgentDef{Name: "a", PromptBody: "x"}, GenerateConfig{})
+	if strings.Contains(s, "3. ") {
+		t.Fatalf("unexpected fields section without a return_contract:\n%s", s)
+	}
+}

@@ -191,6 +191,31 @@ The `mcp__<agent>__` prefix matches the project `.mcp.json` entry that `abby bui
 
 `--plugin` also emits the sub-agent file (in addition to the plugin directory); `--subagent` is for when you want the sub-agent artifact without the full plugin wrapper.
 
+### Required report fields (`return_contract:`)
+
+A line cap alone can squeeze out the part of a report the caller depends on, such as a verdict and its evidence. Declare those parts as named fields, in block 2 of a dual-frontmatter file or under `abbyfile:` in a single-block file:
+
+```yaml
+return_contract:
+  fields:
+    - name: verdict
+      description: functionally verified, or only deployed and health-green
+    - name: proof
+      description: the command and output that shows it
+```
+
+The Return Protocol then gains a third item:
+
+```markdown
+3. Every one of these fields, each on its own line as `name: value`. They are
+   not part of the summary's line cap: always include each one in full, and
+   never shorten or drop one. Write `none` when a field does not apply.
+   - `verdict` — functionally verified, or only deployed and health-green
+   - `proof` — the command and output that shows it
+```
+
+Field names follow the agent-name rules (letters, digits, `-`, `_`) and must be unique; `description` is optional. This is an instruction in the sub-agent's prompt, not a check: nothing verifies the final message. To enforce it, check the reply yourself, for example in a Claude Code `SubagentStop` hook. The fields only appear in `--subagent` / `--plugin` output.
+
 ## Instructions Behavior (`eager_instructions`)
 
 By default (`eager_instructions: false`), the MCP handshake (`server/discover`, or `initialize` for older clients) does **not** send the full system prompt as the server's `instructions`. It sends a short stub:

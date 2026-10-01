@@ -66,8 +66,9 @@ type AgentDef struct {
 	ContextBudget *ContextBudgetDef
 	Sandbox       *SandboxDef
 	Memory        bool
-	Version       string // set from Abbyfile, not the .md
-	PromptBody    string // markdown after frontmatter
+	ReturnFields  []ReturnField // return_contract.fields, for --subagent output
+	Version       string        // set from Abbyfile, not the .md
+	PromptBody    string        // markdown after frontmatter
 }
 
 // frontmatter block 1: agent identity for Claude Code (name, memory).
@@ -88,6 +89,9 @@ type frontmatter2 struct {
 	Model         string            `yaml:"model"`
 	ContextBudget *ContextBudgetDef `yaml:"context_budget"`
 	Sandbox       *SandboxDef       `yaml:"sandbox"`
+	// ReturnContract is read here, not in block 1: block 1 is Claude
+	// Code's own identity block.
+	ReturnContract *ReturnContractDef `yaml:"return_contract"`
 }
 
 // singleFrontmatter is the alternative single-block frontmatter format.
@@ -101,12 +105,13 @@ type singleFrontmatter struct {
 
 // abbyfileBlock holds tool, memory, and skill configuration in single-frontmatter format.
 type abbyfileBlock struct {
-	Tools         []string          `yaml:"tools"`
-	Memory        string            `yaml:"memory"`
-	CustomTools   []CustomToolDef   `yaml:"custom_tools"`
-	Skills        []SkillDef        `yaml:"skills"`
-	ContextBudget *ContextBudgetDef `yaml:"context_budget"`
-	Sandbox       *SandboxDef       `yaml:"sandbox"`
+	Tools          []string           `yaml:"tools"`
+	Memory         string             `yaml:"memory"`
+	CustomTools    []CustomToolDef    `yaml:"custom_tools"`
+	Skills         []SkillDef         `yaml:"skills"`
+	ContextBudget  *ContextBudgetDef  `yaml:"context_budget"`
+	Sandbox        *SandboxDef        `yaml:"sandbox"`
+	ReturnContract *ReturnContractDef `yaml:"return_contract"`
 }
 
 // ParseAgentMD reads an agent .md file with dual or single frontmatter blocks.
@@ -222,6 +227,12 @@ func parseDualFormat(block1Str, block2Str, body, path string) (*AgentDef, error)
 	}
 	def.Sandbox = fm2.Sandbox
 
+	fields, err := validateReturnContract(fm2.ReturnContract)
+	if err != nil {
+		return nil, err
+	}
+	def.ReturnFields = fields
+
 	return def, nil
 }
 
@@ -271,6 +282,12 @@ func parseSingleFormat(fmStr, body, path string) (*AgentDef, error) {
 			return nil, err
 		}
 		def.Sandbox = sfm.Abbyfile.Sandbox
+
+		fields, err := validateReturnContract(sfm.Abbyfile.ReturnContract)
+		if err != nil {
+			return nil, err
+		}
+		def.ReturnFields = fields
 	}
 
 	return def, nil

@@ -80,6 +80,7 @@ The second frontmatter block declares tools and a fuller description:
 | `skills` | no | List of skill definitions for plugin output (see [Plugins guide](plugins.md)) |
 | `context_budget` | no | Tool-output caps and instructions behaviour (see [Context Budget guide](context-budget.md)) |
 | `sandbox` | no | Confinement for the built-in tools: `allowed_dirs`, `bash`, `allow_commands`, `max_command_timeout` (see [Tools guide → Sandbox](tools.md#sandbox)) |
+| `return_contract` | no | Named `fields` a `--subagent` reply must always include in full (see [Context Budget guide → Required report fields](context-budget.md#required-report-fields-return_contract)) |
 | `model` | no | Accepted, but not currently compiled into the binary (same as block 1) |
 
 #### Skills
@@ -124,7 +125,7 @@ abbyfile:
 You are a senior Go developer...
 ```
 
-The `abbyfile:` block accepts `tools`, `memory`, `custom_tools`, `skills`, `context_budget` and `sandbox`, with the same meaning as above. The file is parsed as dual-block first; the single-block form is used only when that fails, and it requires the `abbyfile:` key.
+The `abbyfile:` block accepts `tools`, `memory`, `custom_tools`, `skills`, `context_budget`, `sandbox` and `return_contract`, with the same meaning as above. The file is parsed as dual-block first; the single-block form is used only when that fails, and it requires the `abbyfile:` key.
 
 ## Available Tools
 

@@ -104,8 +104,30 @@ func returnProtocol(def *definition.AgentDef) string {
 		"You run in an isolated context window. When you finish, return ONLY:\n"+
 			"1. A ≤%d-line summary of what you did and the outcome.\n"+
 			"2. Concrete artifacts the caller needs (file paths, IDs, final values).\n"+
+			"%s"+
 			"Do NOT paste raw tool output, file dumps, or logs into your final message —\n"+
 			"they stay in your context, not the caller's. If the caller needs full detail,\n"+
 			"reference where it lives (%s) instead of inlining it.\n",
-		summaryLines(def), where)
+		summaryLines(def), returnFields(def.ReturnFields), where)
+}
+
+// returnFields renders the return_contract fields as item 3 of the return
+// protocol, or "" when there are none. They sit outside the summary cap so
+// a short summary can never squeeze out the evidence they carry.
+func returnFields(fields []definition.ReturnField) string {
+	if len(fields) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("3. Every one of these fields, each on its own line as `name: value`. They are\n" +
+		"   not part of the summary's line cap: always include each one in full, and\n" +
+		"   never shorten or drop one. Write `none` when a field does not apply.\n")
+	for _, f := range fields {
+		sb.WriteString("   - `" + f.Name + "`")
+		if f.Description != "" {
+			sb.WriteString(" — " + f.Description)
+		}
+		sb.WriteString("\n")
+	}
+	return sb.String()
 }
