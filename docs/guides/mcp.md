@@ -113,12 +113,18 @@ Use `go run` so code changes take effect without rebuilding:
 {
   "mcpServers": {
     "my-agent": {
-      "command": "/path/to/build/my-agent",
-      "args": ["serve-mcp"]
+      "type": "stdio",
+      "command": "/path/to/project/build/my-agent",
+      "args": [
+        "serve-mcp"
+      ],
+      "timeout": 40000
     }
   }
 }
 ```
+
+`timeout` is in milliseconds: the agent's largest tool limit (30s by default, or `sandbox.maxCommandTimeout` when it exposes `run_command`) plus 10s. Any `--env KEY=VALUE` values appear under `env`. abby only rewrites the keys it owns, so keys you add by hand are kept, and other entries are untouched.
 
 ### Multiple Agents
 
