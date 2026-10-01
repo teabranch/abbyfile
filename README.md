@@ -124,6 +124,15 @@ abby publish
 abby install github.com/you/my-agent
 ```
 
+### Run it as a sub-agent (optional)
+
+```bash
+abby build --subagent      # also writes build/.claude/agents/my-agent.md
+abby install my-agent      # installs the binary and .claude/agents/my-agent.md
+```
+
+The sub-agent runs in its own context window and returns a bounded summary. It gets the agent's own MCP tools (custom tools, memory) alongside Claude Code's native ones. Declare `return_contract` fields to make sure every reply includes them in full. An agent that only needs native tools can set `binary: false` in the Abbyfile to ship just the `.md`, with no compile step. `abby install` won't overwrite an agent file it didn't write without `--force`, and `abby doctor` flags edits and version drift. See the [Context Budget Guide](docs/guides/context-budget.md#the---subagent-flag).
+
 ## What You Get
 
 | | CLAUDE.md | Agent Skills | Sub-agents | Abbyfile |
@@ -134,7 +143,7 @@ abby install github.com/you/my-agent
 | **Persistent memory** | None | None | None | Key-value store per agent |
 | **Versioning** | Git history | None | None | Semantic versioning, pinnable releases |
 | **Distribution** | Copy the file | Folder copy | N/A | `abby install` from anywhere |
-| **Context isolation** | No | No | Yes | No by default; Yes via `abby build --subagent` |
+| **Context isolation** | No | No | Yes | No by default; Yes via `abby build --subagent`, with the agent's own MCP tools |
 | **Cost model** | One-time | Text in context | Baseline per call | Marginal per turn |
 | **Runtime config** | Edit the file | N/A | N/A | `config set model opus` — override without rebuilding |
 | **Context budget** | N/A | N/A | N/A | Tool-output shaping (line/byte caps, head-tail/spill) — [Context Budget Guide](docs/guides/context-budget.md) |
