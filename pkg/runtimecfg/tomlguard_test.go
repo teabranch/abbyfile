@@ -128,3 +128,57 @@ func TestParseTOMLHeader(t *testing.T) {
 		}
 	}
 }
+
+// A CRLF file with an LF-only multi-line string elsewhere: converting abby's
+// output back to CRLF wholesale would change that string's value, so the
+// edit is refused rather than silently altering an unrelated table.
+const mixedEndingsFixture = "[mcp_servers.agent]\r\ncommand = \"/old\"\r\n\r\n[keep]\r\nnote = '''\nline1\nline2'''\r\n"
+
+func TestTOMLEditRefusesMixedLineEndingsThatWouldChangeAString(t *testing.T) {
+	if _, _, _, err := upsertTOMLServer([]byte(mixedEndingsFixture), "agent", map[string]any{"command": "/new"}); err == nil {
+		t.Error("upsert must refuse an edit that would change keep.note")
+	} else if !strings.Contains(err.Error(), "line endings") {
+		t.Errorf("error should explain the line endings: %v", err)
+	}
+	if _, _, _, err := removeTOMLServer([]byte(mixedEndingsFixture), "agent"); err == nil {
+		t.Error("remove must refuse an edit that would change keep.note")
+	}
+}
+
+// Mixed line endings with no multi-line strings are harmless: the output is
+// CRLF throughout and every value is kept.
+func TestTOMLEditAllowsHarmlessMixedLineEndings(t *testing.T) {
+	in := "[mcp_servers.agent]\r\ncommand = \"/old\"\r\n\r\n[keep]\na = 1\n"
+	out, _, _, err := upsertTOMLServer([]byte(in), "agent", map[string]any{"command": "/new"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(strings.ReplaceAll(string(out), "\r\n", ""), "\n") {
+		t.Errorf("output should be CRLF throughout: %q", out)
+	}
+	var doc map[string]any
+	toml.Decode(string(out), &doc)
+	if keep, _ := doc["keep"].(map[string]any); keep["a"] != int64(1) {
+		t.Errorf("lost keep.a: %q", out)
+	}
+}
+
+// NaN != NaN, so a plain deep-equal guard refused every edit of a config
+// with a nan value anywhere; the guard treats two NaNs as equal.
+func TestTOMLEditKeepsNaNValues(t *testing.T) {
+	in := "[other]\nx = nan\ny = [1.0, nan]\n\n[mcp_servers.agent]\ncommand = \"/old\"\n"
+	out, _, _, err := upsertTOMLServer([]byte(in), "agent", map[string]any{"command": "/new"})
+	if err != nil {
+		t.Fatalf("upsert of a config with nan: %v", err)
+	}
+	if !strings.Contains(string(out), "x = nan") {
+		t.Errorf("lost other.x:\n%s", out)
+	}
+	if _, _, _, err := removeTOMLServer([]byte(in), "agent"); err != nil {
+		t.Fatalf("remove from a config with nan: %v", err)
+	}
+	// Still refuses a real change outside the entry.
+	if _, _, err := guardTOMLEdit(in, "[other]\nx = nan\ny = [2.0, nan]\n", "agent"); err == nil {
+		t.Error("guard must still refuse a changed value next to a nan")
+	}
+}
