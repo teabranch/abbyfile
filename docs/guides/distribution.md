@@ -212,7 +212,7 @@ Every command prints a summary table of what it changed (or, under `--dry-run`, 
 
 ```
 Runtime config changes:
-RUNTIME      SCOPE    METHOD  TARGET                     SERVER    BACKUP
+RUNTIME      SCOPE    METHOD  TARGET                      SERVER    BACKUP
 claude-code  project  file    /path/to/project/.mcp.json  my-agent  /path/to/project/.mcp.json.abbyfile.bak
 ```
 
@@ -224,7 +224,7 @@ abby plans every targeted runtime's change **before** applying any of them: if p
 
 ### Backups
 
-A backup is only made for a **file-method** change: before abby's first write to an existing config file in a session, it copies the original to `<file>.abbyfile.bak`, next to the file, with the same permissions, and never overwrites that backup afterwards — restore from it by hand if needed. A **CLI-method** change makes no backup (the BACKUP column shows `-`), since the runtime's own CLI is the one writing the file.
+A backup is only made for a **file-method** change: the first time abby writes to an existing config file, it copies the original to `<file>.abbyfile.bak`, next to the file, with the same permissions. That happens once per file, for as long as the `.abbyfile.bak` exists: abby never overwrites it, so later runs (in any session) make no new backup. Restore from it by hand if needed; delete it to let abby take a fresh one on its next write. A **CLI-method** change makes no backup (the BACKUP column shows `-`), since the runtime's own CLI is the one writing the file.
 
 abby doesn't touch your project's `.gitignore`. Since a project-scope backup such as `.mcp.json.abbyfile.bak` lands in the project root right next to a config file that's often committed, add `*.abbyfile.bak` to your project's `.gitignore` so a backup never gets committed by accident.
 
@@ -232,7 +232,7 @@ abby doesn't touch your project's `.gitignore`. Since a project-scope backup suc
 
 abby only ever sets `command`, `args`, `cwd` (project scope; Codex and Gemini only), the timeout key(s), `env` (only when `--env` is given), and — for Claude Code only — a constant `type: "stdio"`. Every other key already in an entry — and every other entry, table or key in the file — is preserved:
 
-- **JSON** (Claude Code, Gemini): the file is parsed and rewritten key-by-key, in order; untouched values are byte-identical apart from re-indentation, and numbers are never round-tripped through a float.
+- **JSON** (Claude Code, Gemini): the file is parsed and rewritten key-by-key, in order; untouched values are byte-identical apart from re-indentation, and numbers are never round-tripped through a float. The rewritten file always uses LF line endings (a CRLF JSON file becomes LF).
 - **TOML** (Codex): only the `[mcp_servers.<name>]` block (and its subtables) is replaced; comments and other tables elsewhere in the file are kept. Comments *inside* the replaced block are lost. The first edit to a file also normalizes any run of multiple blank lines between top-level tables down to a single blank line; a CRLF file stays CRLF.
 
 ### Refusals
@@ -242,6 +242,7 @@ abby refuses to touch a config file it can't safely round-trip, and writes nothi
 - The file isn't valid JSON/TOML (comments and trailing commas aren't valid JSON — Gemini's `settings.json` is JSON and doesn't support them).
 - A JSON object has a duplicate key — the error names the key.
 - A Codex entry is defined in inline-table form (`x = { ... }` instead of a `[mcp_servers.name]` block) — abby only edits the table form.
+- A TOML edit would change anything outside the `[mcp_servers.<name>]` entry (abby decodes the whole file before and after and compares; a mismatch means its line-level edit went wrong): `internal error: edit would change other parts of the file; abby did not modify it`.
 - The file changed on disk between plan and apply (for example, a running runtime rewrote it): abby re-plans once and retries, then refuses with an error naming the file.
 
 ## Entry fields
@@ -346,15 +347,19 @@ remove my-agent in /path/to/project/.mcp.json (claude-code, project scope, via f
     - {
     -   "type": "stdio",
     -   "command": "/path/to/project/.abbyfile/bin/my-agent",
-    -   "args": ["serve-mcp"],
+    -   "args": [
+    -     "serve-mcp"
+    -   ],
     -   "timeout": 130000
     - }
 
 Runtime config changes:
-RUNTIME      SCOPE    METHOD  TARGET                       SERVER    BACKUP
-claude-code  project  file    /path/to/project/.mcp.json  my-agent  -
+RUNTIME      SCOPE    METHOD  TARGET                      SERVER    BACKUP
+claude-code  project  file    /path/to/project/.mcp.json  my-agent  /path/to/project/.mcp.json.abbyfile.bak
 Uninstalled my-agent
 ```
+
+(Here `.mcp.json` was created by the install, so the uninstall's removal is abby's first write to an existing file and makes the one-time backup.)
 
 Uninstall performs three actions:
 
@@ -362,7 +367,7 @@ Uninstall performs three actions:
 2. **Unwires MCP** -- removes the entry from all detected runtime configs (or specify `--runtime`)
 3. **Removes from registry** -- cleans up `~/.abbyfile/registry.json`
 
-Every targeted runtime is attempted even if an earlier one fails. If any runtime's removal fails, abby prints the errors, **keeps the registry entry** (so `abby uninstall` can be re-run once the problem is fixed), and exits non-zero. Add `--dry-run` to preview the removal without deleting the binary, editing any config, or touching the registry.
+abby plans every targeted runtime's removal **before** deleting anything: if planning fails for any runtime (for example an existing config file that doesn't parse), it exits non-zero with the binary, every config and the registry entry untouched. Once planning succeeds, every removal is attempted even if an earlier one fails to apply; if any fails, abby prints the errors, **keeps the registry entry** (so `abby uninstall` can be re-run once the problem is fixed), and exits non-zero. Add `--dry-run` to preview the removal without deleting the binary, editing any config, or touching the registry.
 
 ## Registry
 

@@ -84,7 +84,8 @@ See the [Abbyfile Format Guide](./guides/abbyfile-format.md) for full details.
 ./build/abby build
 # Building my-agent...
 #   → ./build/my-agent
-# Updated .mcp.json (claude-code)
+# update my-agent in /path/to/project/.mcp.json (claude-code, project scope, via file):
+#   (the entry diff, then a "Runtime config changes:" summary table)
 
 # Target a specific runtime or all runtimes
 ./build/abby build --runtime codex    # → .codex/config.toml
@@ -135,8 +136,10 @@ See the [Abbyfile Format Guide](./guides/abbyfile-format.md) for full details.
   "mcpServers": {
     "my-agent": {
       "type": "stdio",
-      "command": "/path/to/build/my-agent",
-      "args": ["serve-mcp"],
+      "command": "/path/to/project/build/my-agent",
+      "args": [
+        "serve-mcp"
+      ],
       "timeout": 130000
     }
   }
