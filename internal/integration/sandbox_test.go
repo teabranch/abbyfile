@@ -27,7 +27,7 @@ func buildAgentWithSandbox(t *testing.T, name, sandboxYAML string) string {
 	os.WriteFile(filepath.Join(tmp, "Abbyfile"), []byte("version: \"1\"\nagents:\n  "+name+":\n    path: agents/"+name+".md\n    version: 0.1.0\n"), 0o644)
 	buildDir := filepath.Join(tmp, "build")
 	cmd := exec.Command(abbyBin, "build", "-f", filepath.Join(tmp, "Abbyfile"), "-o", buildDir, "--module-dir", projectRoot)
-	cmd.Dir = projectRoot
+	cmd.Dir = tmp
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("abby build: %v\n%s", err, out)
 	}

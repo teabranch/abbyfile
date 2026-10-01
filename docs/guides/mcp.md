@@ -70,8 +70,8 @@ picks the version; no configuration is needed.
 
 | Runtime | Local Config | Global Config | Format |
 |---------|-------------|---------------|--------|
-| Claude Code | `.mcp.json` | `~/.claude/mcp.json` | JSON `{"mcpServers": {...}}` |
-| Codex | `.codex/config.toml` | `~/.codex/config.toml` | TOML `[mcp_servers.name]` |
+| Claude Code | `.mcp.json` | `$CLAUDE_CONFIG_DIR/.claude.json` if set, else `~/.claude.json` | JSON `{"mcpServers": {...}}` |
+| Codex | `.codex/config.toml` | `$CODEX_HOME/config.toml` if set, else `~/.codex/config.toml` | TOML `[mcp_servers.name]` |
 | Gemini CLI | `.gemini/settings.json` | `~/.gemini/settings.json` | JSON `{"mcpServers": {...}}` |
 
 ## `.mcp.json` Configuration (Claude Code)

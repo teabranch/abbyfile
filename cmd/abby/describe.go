@@ -8,21 +8,76 @@ import (
 	"time"
 )
 
+type manifestTool struct {
+	Name string `json:"name"`
+}
+
+type manifestSandbox struct {
+	AllowedDirs       []string `json:"allowedDirs"`
+	Bash              string   `json:"bash"`
+	AllowCommands     []string `json:"allowCommands"`
+	MaxCommandTimeout string   `json:"maxCommandTimeout"`
+	Warnings          []string `json:"warnings"`
+}
+
 // agentManifest is the JSON output from --describe.
 type agentManifest struct {
-	Name        string `json:"name"`
-	Version     string `json:"version"`
-	Description string `json:"description"`
-	Memory      bool   `json:"memory"`
+	Name        string           `json:"name"`
+	Version     string           `json:"version"`
+	Description string           `json:"description"`
+	Memory      bool             `json:"memory"`
+	ToolTimeout string           `json:"toolTimeout"`
+	Tools       []manifestTool   `json:"tools"`
+	Sandbox     *manifestSandbox `json:"sandbox"`
+}
+
+// runtimeTimeoutMargin is added to the agent's largest limit so the runtime
+// never kills a call the server would allow (spec B3/C4).
+const runtimeTimeoutMargin = 10 * time.Second
+
+const defaultAgentToolTimeout = 30 * time.Second
+
+// runtimeTimeout is the runtime-side timeout for an agent: its largest
+// effective tool limit plus a margin; 0 (omit) when m is nil.
+func runtimeTimeout(m *agentManifest) time.Duration {
+	if m == nil {
+		return 0
+	}
+	limit := defaultAgentToolTimeout
+	if d, err := time.ParseDuration(m.ToolTimeout); err == nil && d > 0 {
+		limit = d
+	}
+	if m.Sandbox != nil {
+		for _, t := range m.Tools {
+			if t.Name == "run_command" {
+				if d, err := time.ParseDuration(m.Sandbox.MaxCommandTimeout); err == nil && d > limit {
+					limit = d
+				}
+			}
+		}
+	}
+	return limit + runtimeTimeoutMargin
 }
 
 // describeAgent runs a binary with --describe and parses the JSON manifest.
 // Used to verify a downloaded binary is a valid agent.
 func describeAgent(binaryPath string) (*agentManifest, error) {
+	return describeAgentIn(binaryPath, "")
+}
+
+// describeAgentIn is describeAgent, but runs the binary with its working
+// directory set to dir (when non-empty). doctor uses this to run --describe
+// in the agent's own project root, rather than doctor's own cwd, so a
+// sandbox with a relative allowedDirs entry (e.g. ".") reports the project's
+// directory instead of wherever `abby doctor` happened to be invoked from.
+func describeAgentIn(binaryPath, dir string) (*agentManifest, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, binaryPath, "--describe")
+	if dir != "" {
+		cmd.Dir = dir
+	}
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("running --describe on %s: %w", binaryPath, err)

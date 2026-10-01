@@ -84,7 +84,8 @@ See the [Abbyfile Format Guide](./guides/abbyfile-format.md) for full details.
 ./build/abby build
 # Building my-agent...
 #   → ./build/my-agent
-# Updated .mcp.json (claude-code)
+# update my-agent in /path/to/project/.mcp.json (claude-code, project scope, via file):
+#   (the entry diff, then a "Runtime config changes:" summary table)
 
 # Target a specific runtime or all runtimes
 ./build/abby build --runtime codex    # → .codex/config.toml
@@ -134,12 +135,18 @@ See the [Abbyfile Format Guide](./guides/abbyfile-format.md) for full details.
 {
   "mcpServers": {
     "my-agent": {
-      "command": "/path/to/build/my-agent",
-      "args": ["serve-mcp"]
+      "type": "stdio",
+      "command": "/path/to/project/build/my-agent",
+      "args": [
+        "serve-mcp"
+      ],
+      "timeout": 130000
     }
   }
 }
 ```
+
+(`type` and `timeout` are set for Claude Code; `timeout` is only present when `--describe` succeeds — see the [Distribution Guide](guides/distribution.md#entry-fields).)
 
 Or install the binary explicitly:
 
@@ -153,8 +160,8 @@ Supported runtimes:
 
 | Runtime | Local Config | Global Config |
 |---------|-------------|---------------|
-| Claude Code | `.mcp.json` | `~/.claude/mcp.json` |
-| Codex | `.codex/config.toml` | `~/.codex/config.toml` |
+| Claude Code | `.mcp.json` | `$CLAUDE_CONFIG_DIR/.claude.json` if set, else `~/.claude.json` |
+| Codex | `.codex/config.toml` | `$CODEX_HOME/config.toml` if set, else `~/.codex/config.toml` |
 | Gemini CLI | `.gemini/settings.json` | `~/.gemini/settings.json` |
 
 Your runtime auto-discovers the agent via MCP. It sees the agent's tools, can read its system prompt, and can interact with its memory.

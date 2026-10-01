@@ -510,25 +510,33 @@ Usage:
   abby build [flags]
 
 Flags:
-  -f, --file string      Path to Abbyfile (default: auto-detect Abbyfile or abbyfile.yaml)
-  -o, --output string    Output directory for binaries (default: "./build")
-      --agent string     Build a single agent by name
-      --plugin           Also generate a Claude Code plugin directory
-      --runtime string   Target runtime: auto, all, claude-code, codex, gemini (default: "auto")
+      --agent string           Build a single agent by name
+      --config-method string   auto (default; env ABBY_CONFIG_METHOD), cli, or file
+      --dry-run                Show planned changes without building or writing anything
+  -f, --file string            Path to Abbyfile
+  -h, --help                   help for build
+      --module-dir string      Use local module path instead of published version (dev/CI only)
+  -o, --output string          Output directory for binaries (default "./build")
+      --parallelism int        Max concurrent agent builds (0 = sequential)
+      --plugin                 Also generate a Claude Code plugin directory
+      --runtime string         Target runtime: auto, all, claude-code, codex, gemini (default "auto")
+      --subagent               Also emit a Claude Code sub-agent (.claude/agents/<name>.md)
 ```
 
 Parses the Abbyfile, generates Go source from each agent's `.md` file, and compiles standalone binaries. Also generates/updates MCP config for the target runtime(s).
 
 The `--runtime` flag controls which runtimes receive MCP config:
-- `auto` (default) — detects installed runtimes by checking for their global config directories, falls back to Claude Code
+- `auto` (default) — detects a runtime whose CLI is on `PATH` or whose config directory exists (never by checking whether `$HOME` exists), falls back to Claude Code
 - `all` — generates config for all supported runtimes (Claude Code, Codex, Gemini CLI)
 - `claude-code` / `codex` / `gemini` — targets a specific runtime
 
 | Runtime | Local Config | Global Config |
 |---------|-------------|---------------|
-| Claude Code | `.mcp.json` | `~/.claude/mcp.json` |
-| Codex | `.codex/config.toml` | `~/.codex/config.toml` |
+| Claude Code | `.mcp.json` | `$CLAUDE_CONFIG_DIR/.claude.json` if set, else `~/.claude.json` |
+| Codex | `.codex/config.toml` | `$CODEX_HOME/config.toml` if set, else `~/.codex/config.toml` |
 | Gemini CLI | `.gemini/settings.json` | `~/.gemini/settings.json` |
+
+(`~/.claude/mcp.json`, written by abby ≤ v0.11, is legacy — Claude Code never read it; see [Migrating from v0.11](guides/distribution.md#migrating-from-v011).)
 
 When `--plugin` is passed, each agent also gets a `<name>.claude-plugin/` directory in the output folder containing the binary, an MCP config, and any declared skills. See [Plugins guide](guides/plugins.md).
 
@@ -539,10 +547,15 @@ Usage:
   abby install [flags] <ref>...
 
 Flags:
-      --all             Install all agents from a repo (remote) or ./build/ (local)
-  -g, --global          Install globally to /usr/local/bin
-      --model string    Override the agent's model in ~/.abbyfile/<name>/config.yaml
-      --runtime string  Target runtime: auto, all, claude-code, codex, gemini (default: "auto")
+      --all                      Install all agents from a repo (remote) or ./build/ (local)
+      --config-method string     auto (default; env ABBY_CONFIG_METHOD), cli, or file
+      --dry-run                  Show planned changes without installing anything
+      --env stringArray          Set an environment variable for the MCP server (KEY=VALUE, repeatable)
+  -g, --global                   Install globally to /usr/local/bin
+  -h, --help                     help for install
+      --insecure-skip-checksum   Skip release checksum verification (use with care)
+      --model string             Override the agent's model in ~/.abbyfile/<name>/config.yaml
+      --runtime string           Target runtime: auto, all, claude-code, codex, gemini (default "auto")
 ```
 
 Installs agent binaries and wires them into the MCP config for detected (or specified) runtimes.
@@ -576,9 +589,11 @@ Bulk installs use best-effort error handling: failures are reported but don't st
 
 The `--model` flag cannot be combined with `--all` or multiple agents (it is agent-specific).
 
-Remote install downloads the binary for the current platform (`<agent>-<GOOS>-<GOARCH>`), verifies it with `--describe`, installs it, wires MCP, and tracks it in the registry. Set `GITHUB_TOKEN` for private repos.
+Remote install downloads the binary for the current platform (`<agent>-<GOOS>-<GOARCH>`), verifies its checksum against the release's `<agent>-sha256sums.txt`/`SHA256SUMS`/`checksums.txt` asset (fails without one, unless `--insecure-skip-checksum`), verifies it's a valid agent with `--describe`, installs it, wires MCP, and tracks it in the registry. Set `GITHUB_TOKEN` for private repos.
 
 Both local and remote installs are tracked in `~/.abbyfile/registry.json`.
+
+`--dry-run` copies no binary, writes no MCP config, and changes no registry entry (a remote install still downloads and checksum-verifies into a temp file, so the printed preview reflects a binary abby actually checked). `--env KEY=VALUE` (repeatable) sets the MCP server's `env`; without it, an existing entry's `env` is preserved. See the [Distribution Guide](guides/distribution.md#where-abby-registers-agents) for the full method-selection rule, entry fields, and checksum behavior.
 
 ## `abby publish`
 
@@ -587,9 +602,11 @@ Usage:
   abby publish [flags]
 
 Flags:
-  -f, --file string     Path to Abbyfile (default: auto-detect Abbyfile or abbyfile.yaml)
-      --agent string    Publish a single agent by name
-      --dry-run         Cross-compile only, skip GitHub Release creation
+      --agent string        Publish a single agent by name
+      --dry-run             Cross-compile only, skip GitHub Release creation
+  -f, --file string         Path to Abbyfile
+  -h, --help                help for publish
+      --module-dir string   Use local module path instead of published version (dev/CI only)
 ```
 
 Cross-compiles agent binaries for 4 platforms (darwin/amd64, darwin/arm64, linux/amd64, linux/arm64) and creates a GitHub Release via the `gh` CLI.
@@ -602,7 +619,11 @@ Requires the `gh` CLI to be installed and authenticated.
 
 ```
 Usage:
-  abby list
+  abby list [flags]
+
+Flags:
+  -h, --help   help for list
+      --json   Output as JSON
 ```
 
 Shows all installed agents from the registry (`~/.abbyfile/registry.json`). Displays name, version, source, scope, and path in a table.
@@ -616,7 +637,7 @@ Usage:
 
 Checks GitHub Releases for newer versions of installed agents and downloads updates. Only agents installed from a remote source can be updated.
 
-If no agent name is given, checks all remote-installed agents.
+If no agent name is given, checks all remote-installed agents. If any agent fails to update (including a release without a checksum asset), the others still run and the command exits non-zero.
 
 ## `abby uninstall`
 
@@ -625,10 +646,31 @@ Usage:
   abby uninstall <agent-name> [flags]
 
 Flags:
-      --runtime string  Target runtime: auto, all, claude-code, codex, gemini (default: "auto")
+      --config-method string   auto (default; env ABBY_CONFIG_METHOD), cli, or file
+      --dry-run                Show planned changes without removing anything
+  -h, --help                   help for uninstall
+      --runtime string         Target runtime: auto, all, claude-code, codex, gemini (default "auto")
 ```
 
-Removes an installed agent: deletes the binary, removes the MCP entry from all detected (or specified) runtime configs, and removes the entry from the registry.
+Removes an installed agent: deletes the binary, removes the MCP entry from all detected (or specified) runtime configs, and removes the entry from the registry. Every runtime's removal is planned before anything is deleted: a planning failure (e.g. an unparsable config file) leaves the binary, the configs and the registry entry untouched and exits non-zero. Once planned, every removal is attempted regardless of an earlier one's apply failure; if any fails, the registry entry is kept (so uninstall can be re-run) and the command exits non-zero.
+
+## `abby doctor`
+
+```
+Usage:
+  abby doctor [agent]... [flags]
+
+Flags:
+      --config-method string   Accepted for symmetry; doctor only reads config
+  -h, --help                   help for doctor
+      --runtime string         Runtimes to check: auto, all, claude-code, codex, gemini (default "auto")
+```
+
+Diagnoses one or more installed agents (all of them, if none are named) against their registry entries: the binary's presence and executable bit; `--describe` and the MCP handshake (both the 2026-07-28 `server/discover` and legacy 2025-11-25 `initialize` protocol eras), run in the agent's own project root; each targeted runtime's config entry (existence, binary path, and whether its timeout is stale versus the current binary); a reminder for Codex project-scope entries about project trust; and any entries left in the legacy `~/.claude/mcp.json` (written by abby ≤ v0.11, never read by Claude Code). `doctor` never writes, backs up, or modifies any config file. It exits non-zero if any check failed. See the [Distribution Guide](guides/distribution.md#abby-doctor) for sample output.
+
+## `ABBY_CONFIG_METHOD`
+
+Environment variable read by `abby build`, `abby install`, `abby uninstall` and `abby doctor` when their `--config-method` flag isn't given, and by `abby update`, which has no `--config-method` flag of its own — `ABBY_CONFIG_METHOD` is its only way to change the method. One of `auto` (default — CLI when it can express the entry, else a file edit), `cli` (require the CLI; error if a change can't use it), or `file` (always edit the config file directly). See [Where abby registers agents](guides/distribution.md#where-abby-registers-agents) for the full method-selection rule.
 
 ---
 

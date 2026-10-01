@@ -55,3 +55,23 @@ func TestParseChecksumFile_Empty(t *testing.T) {
 		t.Errorf("expected empty map, got %d entries", len(sums))
 	}
 }
+
+// Final review M-4: hex is compared case-insensitively and a leading "./" on
+// the file name is ignored.
+func TestParseChecksumFile_NormalizesCaseAndDotSlash(t *testing.T) {
+	sums := ParseChecksumFile("ABC123  ./agent-darwin-arm64\nDEF456 *./agent-linux-amd64\n")
+	if sums["agent-darwin-arm64"] != "abc123" {
+		t.Errorf("darwin = %q, want abc123 (lower-cased, ./ stripped)", sums["agent-darwin-arm64"])
+	}
+	if sums["agent-linux-amd64"] != "def456" {
+		t.Errorf("linux = %q, want def456", sums["agent-linux-amd64"])
+	}
+}
+
+func TestVerifyChecksum_CaseInsensitive(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.bin")
+	os.WriteFile(path, []byte("hello"), 0o644)
+	if err := VerifyChecksum(path, "2CF24DBA5FB0A30E26E83B2AC5B9E29E1B161E5C1FA7425E73043362938B9824"); err != nil {
+		t.Errorf("upper-case hex must match: %v", err)
+	}
+}

@@ -21,7 +21,7 @@ func TestList(t *testing.T) {
 
 	// List should show "No agents installed." when registry is empty.
 	cmd := exec.CommandContext(ctx, abbyBin, "list")
-	cmd.Env = append(os.Environ(), "HOME="+tmpHome)
+	cmd.Env = append(os.Environ(), "HOME="+tmpHome, "ABBY_CONFIG_METHOD=file")
 	out, err := cmd.Output()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {
@@ -54,7 +54,7 @@ func TestInstallLocalWithRegistry(t *testing.T) {
 	// Run install from the tmpDir (it looks for build/<name>).
 	cmd := exec.CommandContext(ctx, abbyBin, "install", "test-agent")
 	cmd.Dir = tmpDir
-	cmd.Env = append(os.Environ(), "HOME="+tmpHome)
+	cmd.Env = append(os.Environ(), "HOME="+tmpHome, "ABBY_CONFIG_METHOD=file")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("install failed: %v\n%s", err, out)
@@ -66,7 +66,7 @@ func TestInstallLocalWithRegistry(t *testing.T) {
 	// List should now show the agent.
 	cmd = exec.CommandContext(ctx, abbyBin, "list")
 	cmd.Dir = tmpDir
-	cmd.Env = append(os.Environ(), "HOME="+tmpHome)
+	cmd.Env = append(os.Environ(), "HOME="+tmpHome, "ABBY_CONFIG_METHOD=file")
 	out, err = cmd.Output()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {
@@ -127,7 +127,7 @@ func TestUninstall(t *testing.T) {
 
 	cmd := exec.CommandContext(ctx, abbyBin, "install", "test-agent")
 	cmd.Dir = tmpDir
-	cmd.Env = append(os.Environ(), "HOME="+tmpHome)
+	cmd.Env = append(os.Environ(), "HOME="+tmpHome, "ABBY_CONFIG_METHOD=file")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("install: %v\n%s", err, out)
 	}
@@ -135,7 +135,7 @@ func TestUninstall(t *testing.T) {
 	// Uninstall.
 	cmd = exec.CommandContext(ctx, abbyBin, "uninstall", "test-agent")
 	cmd.Dir = tmpDir
-	cmd.Env = append(os.Environ(), "HOME="+tmpHome)
+	cmd.Env = append(os.Environ(), "HOME="+tmpHome, "ABBY_CONFIG_METHOD=file")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("uninstall failed: %v\n%s", err, out)
@@ -153,7 +153,7 @@ func TestUninstall(t *testing.T) {
 	// List should be empty.
 	cmd = exec.CommandContext(ctx, abbyBin, "list")
 	cmd.Dir = tmpDir
-	cmd.Env = append(os.Environ(), "HOME="+tmpHome)
+	cmd.Env = append(os.Environ(), "HOME="+tmpHome, "ABBY_CONFIG_METHOD=file")
 	out, err = cmd.Output()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {
@@ -186,7 +186,7 @@ func TestInstallAllLocal(t *testing.T) {
 	// Run install --all from the tmpDir.
 	cmd := exec.CommandContext(ctx, abbyBin, "install", "--all")
 	cmd.Dir = tmpDir
-	cmd.Env = append(os.Environ(), "HOME="+tmpHome)
+	cmd.Env = append(os.Environ(), "HOME="+tmpHome, "ABBY_CONFIG_METHOD=file")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("install --all failed: %v\n%s", err, out)
@@ -205,7 +205,7 @@ func TestInstallAllLocal(t *testing.T) {
 	// List should show both agents.
 	cmd = exec.CommandContext(ctx, abbyBin, "list")
 	cmd.Dir = tmpDir
-	cmd.Env = append(os.Environ(), "HOME="+tmpHome)
+	cmd.Env = append(os.Environ(), "HOME="+tmpHome, "ABBY_CONFIG_METHOD=file")
 	out, err = cmd.Output()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {
@@ -257,7 +257,10 @@ agents:
 		"-f", filepath.Join(tmpDir, "Abbyfile"),
 		"--module-dir", projectRoot,
 	)
-	cmd.Dir = projectRoot
+	// publish writes to ./build/publish relative to its working directory
+	// (it has no output flag), so run it in the temp dir: it must never
+	// touch the repo's own build artifacts.
+	cmd.Dir = tmpDir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("publish --dry-run failed: %v\n%s", err, out)
@@ -267,8 +270,7 @@ agents:
 	}
 
 	// Verify binaries were created for all targets.
-	publishDir := filepath.Join(projectRoot, "build", "publish")
-	defer os.RemoveAll(publishDir)
+	publishDir := filepath.Join(tmpDir, "build", "publish")
 
 	for _, target := range []string{"darwin-amd64", "darwin-arm64", "linux-amd64", "linux-arm64"} {
 		p := filepath.Join(publishDir, "pub-test-"+target)

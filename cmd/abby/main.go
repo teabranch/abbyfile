@@ -40,6 +40,7 @@ and tool declarations, then run 'abby build' to get binaries.`,
 	cmd.AddCommand(newUninstallCommand())
 	cmd.AddCommand(newUpdateCommand())
 	cmd.AddCommand(newDiffCommand())
+	cmd.AddCommand(newDoctorCommand())
 
 	return cmd
 }

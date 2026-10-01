@@ -15,14 +15,15 @@ func VerifyChecksum(path, expected string) error {
 	if err != nil {
 		return fmt.Errorf("computing checksum: %w", err)
 	}
-	if got != expected {
+	// Hex digests are case-insensitive; some tools emit upper case.
+	if !strings.EqualFold(got, strings.TrimSpace(expected)) {
 		return fmt.Errorf("checksum mismatch: got %s, want %s", got, expected)
 	}
 	return nil
 }
 
 // ParseChecksumFile parses a SHA256SUMS-style file (hash followed by filename).
-// Returns a map of filename → hex hash.
+// Returns a map of filename → lower-case hex hash.
 func ParseChecksumFile(content string) map[string]string {
 	sums := make(map[string]string)
 	scanner := bufio.NewScanner(strings.NewReader(content))
@@ -34,9 +35,10 @@ func ParseChecksumFile(content string) map[string]string {
 		// Format: "<hash>  <filename>" or "<hash> <filename>"
 		parts := strings.Fields(line)
 		if len(parts) >= 2 {
-			hash := parts[0]
-			// filename may have a leading * (binary mode indicator)
-			name := strings.TrimPrefix(parts[1], "*")
+			hash := strings.ToLower(parts[0])
+			// filename may have a leading * (binary mode indicator) and,
+			// from `sha256sum ./file`, a leading "./".
+			name := strings.TrimPrefix(strings.TrimPrefix(parts[1], "*"), "./")
 			sums[name] = hash
 		}
 	}

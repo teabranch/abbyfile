@@ -49,6 +49,8 @@ func newBuildCommand() *cobra.Command {
 		parallelism  int
 		runtimeFlag  string
 		moduleDir    string
+		dryRun       bool
+		configMethod string
 	)
 
 	cmd := &cobra.Command{
@@ -60,7 +62,7 @@ and compiles standalone binaries into the output directory.
 Also generates/updates MCP config for detected runtimes (Claude Code, Codex, Gemini).
 Use --runtime to target a specific runtime or "all" for all supported runtimes.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runBuild(abbyfilePath, outputDir, agentName, pluginFlag, subagentFlag, parallelism, runtimeFlag, moduleDir)
+			return runBuild(abbyfilePath, outputDir, agentName, pluginFlag, subagentFlag, parallelism, runtimeFlag, moduleDir, configMethod, dryRun)
 		},
 	}
 
@@ -72,11 +74,13 @@ Use --runtime to target a specific runtime or "all" for all supported runtimes.`
 	cmd.Flags().IntVar(&parallelism, "parallelism", 0, "Max concurrent agent builds (0 = sequential)")
 	cmd.Flags().StringVar(&runtimeFlag, "runtime", "auto", "Target runtime: auto, all, claude-code, codex, gemini")
 	cmd.Flags().StringVar(&moduleDir, "module-dir", "", "Use local module path instead of published version (dev/CI only)")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show planned changes without building or writing anything")
+	cmd.Flags().StringVar(&configMethod, "config-method", "", "auto (default; env ABBY_CONFIG_METHOD), cli, or file")
 
 	return cmd
 }
 
-func runBuild(abbyfilePath, outputDir, agentName string, pluginOutput bool, subagentFlag bool, parallelism int, runtimeFlag, moduleDir string) error {
+func runBuild(abbyfilePath, outputDir, agentName string, pluginOutput bool, subagentFlag bool, parallelism int, runtimeFlag, moduleDir, configMethod string, dryRun bool) error {
 	if abbyfilePath == "" {
 		abbyfilePath = resolveAbbyfile()
 	}
@@ -132,30 +136,59 @@ func runBuild(abbyfilePath, outputDir, agentName string, pluginOutput bool, suba
 		}
 	}
 
+	cfgOpts, err := configOptions(configMethod)
+	if err != nil {
+		return err
+	}
+	writers, err := runtimecfg.Resolve(runtimeFlag, cfgOpts)
+	if err != nil {
+		return fmt.Errorf("resolving runtimes: %w", err)
+	}
+	opts := installOptions{DryRun: dryRun, Writers: writers, Out: os.Stdout, Err: os.Stderr}
+
+	absOut, _ := filepath.Abs(outputDir)
+
+	if dryRun {
+		entries := make(map[string]runtimecfg.ServerEntry, len(defs))
+		for name := range defs {
+			entries[name] = runtimecfg.ServerEntry{
+				Command: filepath.Join(absOut, name),
+				Args:    []string{"serve-mcp"},
+				Cwd:     cwdIfProject(runtimecfg.ScopeProject, opts),
+			}
+		}
+		applied, err := applyEntries(opts, runtimecfg.ScopeProject, entries)
+		printSummary(opts.Out, applied, opts.DryRun)
+		if err != nil {
+			return err
+		}
+		if pluginOutput || subagentFlag {
+			fmt.Fprintln(os.Stderr, "note: --dry-run skips --plugin/--subagent generation (no binaries were built)")
+		}
+		return nil
+	}
+
 	if err := builder.BuildAll(defs, cfg); err != nil {
 		return err
 	}
 
 	// Generate MCP config for target runtimes.
-	writers, err := runtimecfg.Resolve(runtimeFlag)
-	if err != nil {
-		return fmt.Errorf("resolving runtimes: %w", err)
-	}
-
-	absOut, _ := filepath.Abs(outputDir)
-	entries := make(map[string]runtimecfg.ServerEntry)
+	entries := make(map[string]runtimecfg.ServerEntry, len(defs))
 	for name := range defs {
+		binPath := filepath.Join(absOut, name)
+		m, _ := describeAgent(binPath)
 		entries[name] = runtimecfg.ServerEntry{
-			Command: filepath.Join(absOut, name),
+			Command: binPath,
 			Args:    []string{"serve-mcp"},
+			Cwd:     cwdIfProject(runtimecfg.ScopeProject, opts),
+			Timeout: runtimeTimeout(m),
 		}
 	}
 
-	for _, w := range writers {
-		if err := w.Merge(w.LocalPath(), entries); err != nil {
-			return fmt.Errorf("updating %s for %s: %w", w.LocalPath(), w.Runtime(), err)
-		}
-		fmt.Printf("Updated %s (%s)\n", w.LocalPath(), w.Runtime())
+	applied, err := applyEntries(opts, runtimecfg.ScopeProject, entries)
+	printSummary(opts.Out, applied, opts.DryRun)
+	if err != nil {
+		return err
 	}
 
 	// Generate plugin directories if --plugin flag is set.

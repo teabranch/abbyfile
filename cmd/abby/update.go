@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -32,6 +33,13 @@ If no agent name is given, checks all remote-installed agents.`,
 }
 
 func runUpdate(name string) error {
+	// Resolve up front, like install/uninstall: a bad ABBY_CONFIG_METHOD
+	// must fail the whole command, not be silently ignored per entry.
+	baseCfgOpts, err := configOptions("")
+	if err != nil {
+		return err
+	}
+
 	regPath, err := registry.DefaultPath()
 	if err != nil {
 		return err
@@ -47,11 +55,12 @@ func runUpdate(name string) error {
 		return nil
 	}
 
-	client := github.NewClient()
+	client := newGitHubClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	updated := 0
+	var all []appliedChange
+	updated, failed := 0, 0
 	for _, entry := range entries {
 		if name != "" && entry.Name != name {
 			continue
@@ -67,12 +76,14 @@ func runUpdate(name string) error {
 		ref, err := github.ParseRef(entry.Source)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s: could not parse source %q: %v\n", entry.Name, entry.Source, err)
+			failed++
 			continue
 		}
 
 		release, err := client.LatestRelease(ctx, ref)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s: could not check for updates: %v\n", entry.Name, err)
+			failed++
 			continue
 		}
 
@@ -80,6 +91,7 @@ func runUpdate(name string) error {
 		cmp, err := github.CompareVersions(entry.Version, latestVersion)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s: version comparison error: %v\n", entry.Name, err)
+			failed++
 			continue
 		}
 
@@ -94,13 +106,34 @@ func runUpdate(name string) error {
 		global := entry.Scope == "global"
 		ref.Version = latestVersion
 		newRef := fmt.Sprintf("github.com/%s/%s/%s@%s", ref.Owner, ref.Repo, ref.Agent, latestVersion)
-		writers := runtimecfg.Detect()
-		if err := runRemoteInstall(newRef, global, writers); err != nil {
+
+		// update may run from anywhere: resolve writers and the entry's Cwd
+		// against its own project root, not the process's cwd, and replace
+		// the binary at its existing registered location.
+		cfgOpts := baseCfgOpts
+		cfgOpts.ProjectRoot = projectRootFor(entry)
+		writers := runtimecfg.Detect(cfgOpts)
+
+		opts := installOptions{
+			Global:      global,
+			BinDir:      filepath.Dir(entry.Path),
+			ProjectRoot: cfgOpts.ProjectRoot,
+			Writers:     writers,
+			Out:         os.Stdout,
+			Err:         os.Stderr,
+		}
+
+		applied, err := runRemoteInstall(newRef, opts)
+		all = append(all, applied...)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s: update failed: %v\n", entry.Name, err)
+			failed++
 			continue
 		}
 		updated++
 	}
+
+	printSummary(os.Stdout, all, false)
 
 	if name != "" {
 		if _, ok := reg.Get(name); !ok {
@@ -108,6 +141,9 @@ func runUpdate(name string) error {
 		}
 	}
 
+	if failed > 0 {
+		return fmt.Errorf("%d agent(s) failed to update", failed)
+	}
 	if updated == 0 {
 		fmt.Println("All agents are up to date.")
 	}

@@ -11,6 +11,8 @@ import (
 
 func newUninstallCommand() *cobra.Command {
 	var runtimeFlag string
+	var dryRun bool
+	var configMethod string
 
 	cmd := &cobra.Command{
 		Use:   "uninstall <agent-name>",
@@ -20,20 +22,22 @@ runtimes, and removes it from the registry. Use --runtime to target a
 specific runtime or "all" for all supported runtimes.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			writers, err := runtimecfg.Resolve(runtimeFlag)
+			cfgOpts, err := configOptions(configMethod)
 			if err != nil {
 				return err
 			}
-			return runUninstall(args[0], writers)
+			return runUninstall(args[0], runtimeFlag, cfgOpts, dryRun)
 		},
 	}
 
 	cmd.Flags().StringVar(&runtimeFlag, "runtime", "auto", "Target runtime: auto, all, claude-code, codex, gemini")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show planned changes without removing anything")
+	cmd.Flags().StringVar(&configMethod, "config-method", "", "auto (default; env ABBY_CONFIG_METHOD), cli, or file")
 
 	return cmd
 }
 
-func runUninstall(name string, writers []runtimecfg.ConfigWriter) error {
+func runUninstall(name, runtimeFlag string, cfgOpts runtimecfg.Options, dryRun bool) error {
 	regPath, err := registry.DefaultPath()
 	if err != nil {
 		return err
@@ -48,30 +52,52 @@ func runUninstall(name string, writers []runtimecfg.ConfigWriter) error {
 		return fmt.Errorf("agent %q is not installed (not found in registry)", name)
 	}
 
-	// Remove binary.
-	if err := os.Remove(entry.Path); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("removing binary: %w", err)
+	// uninstall may run from anywhere; resolve config paths against the
+	// entry's own project root, not the process's cwd.
+	cfgOpts.ProjectRoot = projectRootFor(entry)
+	writers, err := runtimecfg.Resolve(runtimeFlag, cfgOpts)
+	if err != nil {
+		return err
 	}
-	fmt.Printf("Removed %s\n", entry.Path)
+
+	opts := installOptions{
+		Global:      entry.Scope == "global",
+		DryRun:      dryRun,
+		ProjectRoot: cfgOpts.ProjectRoot,
+		Writers:     writers,
+		Out:         os.Stdout,
+		Err:         os.Stderr,
+	}
+
+	// Plan every runtime's removal before touching anything: a planning
+	// failure (e.g. an unparsable config file) must abort with the binary
+	// and the registry entry still in place, so the user can fix it and
+	// retry.
+	scope := scopeFor(opts.Global)
+	planned, err := planRemovals(opts, scope, name)
+	if err != nil {
+		return err
+	}
+
+	if dryRun {
+		fmt.Fprintf(opts.Out, "would remove %s\n", entry.Path)
+	} else {
+		// Remove binary.
+		if err := os.Remove(entry.Path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("removing binary: %w", err)
+		}
+		fmt.Fprintf(opts.Out, "Removed %s\n", entry.Path)
+	}
 
 	// Unwire from MCP config for all target runtimes.
-	global := entry.Scope == "global"
-	for _, w := range writers {
-		var cfgPath string
-		if global {
-			cfgPath, err = w.GlobalPath()
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: could not resolve global path for %s: %v\n", w.Runtime(), err)
-				continue
-			}
-		} else {
-			cfgPath = w.LocalPath()
-		}
-		if err := w.Remove(cfgPath, name); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not update %s (%s): %v\n", cfgPath, w.Runtime(), err)
-		} else {
-			fmt.Printf("Updated %s (%s)\n", cfgPath, w.Runtime())
-		}
+	applied, err := commitRemovals(opts, planned, name)
+	printSummary(opts.Out, applied, opts.DryRun)
+	if err != nil {
+		return err
+	}
+
+	if dryRun {
+		return nil
 	}
 
 	// Remove from registry.
@@ -79,6 +105,6 @@ func runUninstall(name string, writers []runtimecfg.ConfigWriter) error {
 	if err := reg.Save(); err != nil {
 		return fmt.Errorf("saving registry: %w", err)
 	}
-	fmt.Printf("Uninstalled %s\n", name)
+	fmt.Fprintf(opts.Out, "Uninstalled %s\n", name)
 	return nil
 }
