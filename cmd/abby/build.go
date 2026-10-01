@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/teabranch/abbyfile/pkg/builder"
+	"github.com/teabranch/abbyfile/pkg/builtins"
 	"github.com/teabranch/abbyfile/pkg/definition"
 	"github.com/teabranch/abbyfile/pkg/plugin"
 	"github.com/teabranch/abbyfile/pkg/runtimecfg"
@@ -174,9 +175,14 @@ func runBuild(abbyfilePath, outputDir, agentName string, pluginOutput bool, suba
 
 	// Generate MCP config for target runtimes.
 	entries := make(map[string]runtimecfg.ServerEntry, len(defs))
+	manifests := make(map[string]*agentManifest, len(defs))
 	for name := range defs {
 		binPath := filepath.Join(absOut, name)
-		m, _ := describeAgent(binPath)
+		m, err := describeAgent(binPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: %v\n", err)
+		}
+		manifests[name] = m
 		entries[name] = runtimecfg.ServerEntry{
 			Command: binPath,
 			Args:    []string{"serve-mcp"},
@@ -223,6 +229,7 @@ func runBuild(abbyfilePath, outputDir, agentName string, pluginOutput bool, suba
 			p, err := subagent.Generate(def, subagent.GenerateConfig{
 				OutputDir: outputDir,
 				Model:     "", // model hint not yet threaded from Abbyfile; wire when available
+				MCPTools:  agentOwnTools(manifests[name]),
 			})
 			if err != nil {
 				return fmt.Errorf("generating sub-agent for %s: %w", name, err)
@@ -232,4 +239,25 @@ func runBuild(abbyfilePath, outputDir, agentName string, pluginOutput bool, suba
 	}
 
 	return nil
+}
+
+// agentOwnTools returns the MCP tools a built agent serves beyond the
+// built-ins (its custom and memory tools), from its --describe manifest.
+// The built-ins are left out because the sub-agent gets the native
+// Claude Code tool of the same kind instead. nil when m is nil.
+func agentOwnTools(m *agentManifest) []string {
+	if m == nil {
+		return nil
+	}
+	builtin := make(map[string]bool)
+	for _, d := range builtins.All() {
+		builtin[d.Name] = true
+	}
+	var own []string
+	for _, t := range m.Tools {
+		if !builtin[t.Name] {
+			own = append(own, t.Name)
+		}
+	}
+	return own
 }
