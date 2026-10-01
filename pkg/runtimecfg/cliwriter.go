@@ -194,23 +194,7 @@ func commandLine(name string, args []string) string {
 // redactEnvJSON returns entry with each env value replaced by redacted, for
 // display. entry itself is not modified.
 func redactEnvJSON(entry jsonObject) jsonObject {
-	v, ok := entry.get("env")
-	if !ok {
-		return entry
-	}
-	env, err := parseJSONObject(v)
-	if err != nil {
-		return entry
-	}
-	masked := make(jsonObject, len(env))
-	for i, f := range env {
-		masked[i] = jsonField{Key: f.Key, Value: json.RawMessage(`"` + redacted + `"`)}
-	}
-	b, err := masked.compact()
-	if err != nil {
-		return entry
-	}
-	return entry.with("env", b)
+	return maskEnvJSON(entry, func(string, json.RawMessage) string { return redacted })
 }
 
 // addJSONCmd is claude's "mcp add-json" for entry, displayed with its env
@@ -272,9 +256,10 @@ func (w *writer) cliAddChange(scope Scope, name string, e ServerEntry, existing 
 	for _, c := range cmds {
 		lines = append(lines, "$ "+commandLine(cliName(w.r), c.display))
 	}
+	shownBefore, shownAfter := jsonPreviewPair(existing, after)
 	c := Change{Runtime: w.r, Scope: scope, Method: MethodCLI, Target: path, Server: name,
 		Noop:    existing != nil && renderJSONPreview(existing) == renderJSONPreview(after),
-		Preview: lineDiff(renderJSONPreview(existing), renderJSONPreview(after)) + strings.Join(lines, "\n") + "\n"}
+		Preview: lineDiff(shownBefore, shownAfter) + strings.Join(lines, "\n") + "\n"}
 	c.apply = func() (string, error) {
 		for i, cmd := range cmds {
 			var err error
@@ -310,7 +295,8 @@ func (w *writer) cliRemoveChange(scope Scope, name string, existing jsonObject) 
 	path, _ := w.ConfigPath(scope)
 	c := Change{Runtime: w.r, Scope: scope, Method: MethodCLI, Target: path, Server: name, Remove: true, Noop: existing == nil}
 	cmd := plainCmd("mcp", "remove", "-s", string(scope), name)
-	c.Preview = lineDiff(renderJSONPreview(existing), "") + "$ " + commandLine(cliName(w.r), cmd.display) + "\n"
+	shownBefore, _ := jsonPreviewPair(existing, nil)
+	c.Preview = lineDiff(shownBefore, "") + "$ " + commandLine(cliName(w.r), cmd.display) + "\n"
 	c.apply = func() (string, error) { return "", w.runRemove(scope, cmd) }
 	return c, nil
 }

@@ -116,3 +116,58 @@ func TestCommitRestoresOwnerRealChown(t *testing.T) {
 		}
 	}
 }
+
+// A config file (and any directories) that root creates on a user's behalf
+// — e.g. `sudo abby install --global` with no ~/.codex yet — belongs to the
+// owner of the nearest existing ancestor directory, not to root.
+func TestCommitNewFileInheritsAncestorOwnerUnderRoot(t *testing.T) {
+	base := t.TempDir()
+	fi, _ := os.Stat(base)
+	st := fi.Sys().(*syscall.Stat_t)
+	if st.Uid == 0 {
+		t.Skip("temp dir is owned by root; nothing to inherit")
+	}
+	p := filepath.Join(base, "a", "b", "cfg.toml")
+
+	var files, dirs []string
+	oldEuid, oldChown, oldChownPath := geteuid, chownFile, chownPath
+	defer func() { geteuid, chownFile, chownPath = oldEuid, oldChown, oldChownPath }()
+	geteuid = func() int { return 0 }
+	chownFile = func(f *os.File, uid, gid int) error {
+		if uid != int(st.Uid) || gid != int(st.Gid) {
+			t.Errorf("chown file to %d:%d, want %d:%d", uid, gid, st.Uid, st.Gid)
+		}
+		files = append(files, f.Name())
+		return nil
+	}
+	chownPath = func(path string, uid, gid int) error {
+		if uid != int(st.Uid) || gid != int(st.Gid) {
+			t.Errorf("chown %s to %d:%d, want %d:%d", path, uid, gid, st.Uid, st.Gid)
+		}
+		dirs = append(dirs, path)
+		return nil
+	}
+
+	s, _ := ReadSnapshot(p)
+	if _, err := s.Commit([]byte("v1")); err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 {
+		t.Errorf("file chowns = %v, want 1 (the new file)", files)
+	}
+	want := []string{filepath.Join(base, "a"), filepath.Join(base, "a", "b")}
+	if len(dirs) != 2 || dirs[0] != want[0] || dirs[1] != want[1] {
+		t.Errorf("dir chowns = %v, want %v (only the directories Commit created)", dirs, want)
+	}
+
+	// Not root: nothing is chowned.
+	files, dirs = nil, nil
+	geteuid = func() int { return int(st.Uid) }
+	s, _ = ReadSnapshot(filepath.Join(base, "c", "cfg.toml"))
+	if _, err := s.Commit([]byte("v1")); err != nil {
+		t.Fatal(err)
+	}
+	if len(files)+len(dirs) != 0 {
+		t.Errorf("chowns as non-root = %v %v, want none", files, dirs)
+	}
+}

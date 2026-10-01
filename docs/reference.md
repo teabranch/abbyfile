@@ -666,7 +666,7 @@ Flags:
       --runtime string         Runtimes to check: auto, all, claude-code, codex, gemini (default "auto")
 ```
 
-Diagnoses one or more installed agents (all of them, if none are named) against their registry entries: the binary's presence and executable bit; `--describe` and the MCP handshake (both the 2026-07-28 `server/discover` and legacy 2025-11-25 `initialize` protocol eras), run in the agent's own project root; each targeted runtime's config entry (existence, binary path, and whether its timeout is stale versus the current binary); a reminder for Codex project-scope entries about project trust; and any entries left in the legacy `~/.claude/mcp.json` (written by abby ≤ v0.11, never read by Claude Code). `doctor` never writes, backs up, or modifies any config file. It exits non-zero if any check failed. See the [Distribution Guide](guides/distribution.md#abby-doctor) for sample output.
+Diagnoses one or more installed agents (all of them, if none are named) against their registry entries: the binary's presence and executable bit; `--describe` and the MCP handshake (both the 2026-07-28 `server/discover` and legacy 2025-11-25 `initialize` protocol eras), run in the agent's own project root; each targeted runtime's config entry (existence, binary path, and whether its timeout is stale versus the current binary, including a Codex entry with no `tool_timeout_sec`, which gets Codex's 60s default); a reminder for Codex project-scope entries about project trust; and any entries left in the legacy `~/.claude/mcp.json` (written by abby ≤ v0.11, never read by Claude Code). `doctor` never writes, backs up, or modifies any config file. It exits non-zero if any check failed. See the [Distribution Guide](guides/distribution.md#abby-doctor) for sample output.
 
 ## `ABBY_CONFIG_METHOD`
 
@@ -789,6 +789,6 @@ func Generate(def *definition.AgentDef, skills []SkillFile, cfg GenerateConfig) 
 Creates a `<outputDir>/<name>.claude-plugin/` directory containing:
 
 - `.claude-plugin/plugin.json` — name, version, description, `"abbyfile": true`
-- `.mcp.json` — `{ "mcpServers": { "<name>": { "command": "./<name>", "args": ["serve-mcp"] } } }`
+- `.mcp.json` — one `mcpServers.<name>` entry with `command: "./<name>"` and `args: ["serve-mcp"]` (no `type` or `timeout`; the plugin runs the bundled binary)
 - `<name>` — copy of the compiled binary (executable)
 - `skills/<skill-name>/SKILL.md` — for each skill, with frontmatter (name, description) + content

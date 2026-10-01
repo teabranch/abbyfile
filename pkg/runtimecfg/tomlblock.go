@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"math"
 	"reflect"
 	"strings"
 
@@ -211,6 +212,10 @@ func detachTails(segs []segment) []segment {
 // written.
 var errTOMLOtherParts = errors.New("internal error: edit would change other parts of the file; abby did not modify it")
 
+// errTOMLMixedEndings refuses an edit of a file that mixes CRLF and LF line
+// endings in a way abby can't write back without changing a value.
+var errTOMLMixedEndings = errors.New("the file mixes CRLF and LF line endings, and writing it back would change a multi-line string; convert it to one line ending style first")
+
 // guardTOMLEdit decodes the original text and the edited text in full and
 // checks that, once mcp_servers.<name> is taken out of both (and mcp_servers
 // itself when that leaves it empty), the documents are identical. This catches
@@ -227,10 +232,75 @@ func guardTOMLEdit(original, edited, name string) (map[string]any, bool, error) 
 	}
 	withoutServer(in, name)
 	outEntry, outOK := withoutServer(out, name)
-	if !reflect.DeepEqual(in, out) {
+	if !tomlEqual(in, out) {
 		return nil, false, errTOMLOtherParts
 	}
 	return outEntry, outOK, nil
+}
+
+// restoreLineEndings converts the edited (LF) text back to CRLF when the
+// original had CRLF. A file that mixes CRLF and bare LF can't round-trip
+// exactly: its LF lines become CRLF, which changes the value of any
+// multi-line string they belong to, so for such a file the result is
+// checked against the original bytes and refused if any value outside the
+// entry would change.
+func restoreLineEndings(original []byte, result string, crlf bool, name string) ([]byte, error) {
+	if !crlf {
+		return []byte(result), nil
+	}
+	result = strings.ReplaceAll(result, "\n", "\r\n")
+	mixed := bytes.Count(original, []byte("\n")) != bytes.Count(original, []byte("\r\n"))
+	if mixed {
+		if _, _, err := guardTOMLEdit(string(original), result, name); err != nil {
+			return nil, errTOMLMixedEndings
+		}
+	}
+	return []byte(result), nil
+}
+
+// tomlEqual is reflect.DeepEqual for decoded TOML documents, except that two
+// NaN floats are equal (a config with "x = nan" must still be editable).
+func tomlEqual(a, b any) bool {
+	switch av := a.(type) {
+	case map[string]any:
+		bv, ok := b.(map[string]any)
+		if !ok || len(av) != len(bv) {
+			return false
+		}
+		for k, v := range av {
+			w, ok := bv[k]
+			if !ok || !tomlEqual(v, w) {
+				return false
+			}
+		}
+		return true
+	case []any:
+		bv, ok := b.([]any)
+		if !ok || len(av) != len(bv) {
+			return false
+		}
+		for i := range av {
+			if !tomlEqual(av[i], bv[i]) {
+				return false
+			}
+		}
+		return true
+	case []map[string]any:
+		bv, ok := b.([]map[string]any)
+		if !ok || len(av) != len(bv) {
+			return false
+		}
+		for i := range av {
+			if !tomlEqual(av[i], bv[i]) {
+				return false
+			}
+		}
+		return true
+	case float64:
+		bv, ok := b.(float64)
+		return ok && (av == bv || (math.IsNaN(av) && math.IsNaN(bv)))
+	}
+	return reflect.DeepEqual(a, b)
 }
 
 // withoutServer removes mcp_servers.<name> from a freshly decoded document
@@ -400,12 +470,9 @@ func upsertTOMLServer(data []byte, name string, set map[string]any) (out []byte,
 		return nil, nil, nil, errTOMLOtherParts
 	}
 
-	// Convert line endings at the END, exactly once, only if input had CRLF
-	if crlf {
-		result = strings.ReplaceAll(result, "\n", "\r\n")
+	if out, err = restoreLineEndings(data, result, crlf, name); err != nil {
+		return nil, nil, nil, err
 	}
-
-	out = []byte(result)
 	return out, before, after, nil
 }
 
@@ -475,12 +542,9 @@ func removeTOMLServer(data []byte, name string) (out []byte, before map[string]a
 		return nil, nil, false, errTOMLOtherParts
 	}
 
-	// Convert line endings at the END, exactly once, only if input had CRLF
-	if crlf {
-		result = strings.ReplaceAll(result, "\n", "\r\n")
+	if out, err = restoreLineEndings(data, result, crlf, name); err != nil {
+		return nil, nil, false, err
 	}
-
-	out = []byte(result)
 	return out, existing, true, nil
 }
 

@@ -55,7 +55,8 @@ func (w *writer) Lookup(scope Scope, name string) (ServerEntry, bool, error) {
 	return entryFromJSON(o), ok, nil
 }
 
-// edit computes the new file content for data; before/after are rendered entries for previews.
+// edit computes the new file content for data; before/after are rendered
+// entries for previews (env values redacted), changed compares them unredacted.
 type edit func(data []byte) (out []byte, before, after string, changed bool, err error)
 
 func (w *writer) addEdit(name string, e ServerEntry) edit {
@@ -65,8 +66,9 @@ func (w *writer) addEdit(name string, e ServerEntry) edit {
 			if err != nil {
 				return nil, "", "", false, err
 			}
-			beforeStr, afterStr := renderTOMLPreview(name, before), renderTOMLPreview(name, after)
-			return out, beforeStr, afterStr, beforeStr != afterStr, nil
+			changed := renderTOMLPreview(name, before) != renderTOMLPreview(name, after)
+			shownBefore, shownAfter := tomlPreviewPair(name, before, after)
+			return out, shownBefore, shownAfter, changed, nil
 		}
 	}
 	return func(data []byte) ([]byte, string, string, bool, error) {
@@ -74,8 +76,9 @@ func (w *writer) addEdit(name string, e ServerEntry) edit {
 		if err != nil {
 			return nil, "", "", false, err
 		}
-		beforeStr, afterStr := renderJSONPreview(before), renderJSONPreview(after)
-		return out, beforeStr, afterStr, beforeStr != afterStr, nil
+		changed := renderJSONPreview(before) != renderJSONPreview(after)
+		shownBefore, shownAfter := jsonPreviewPair(before, after)
+		return out, shownBefore, shownAfter, changed, nil
 	}
 }
 
@@ -83,12 +86,14 @@ func (w *writer) removeEdit(name string) edit {
 	if w.isTOML() {
 		return func(data []byte) ([]byte, string, string, bool, error) {
 			out, before, found, err := removeTOMLServer(data, name)
-			return out, renderTOMLPreview(name, before), "", found, err
+			shown, _ := tomlPreviewPair(name, before, nil)
+			return out, shown, "", found, err
 		}
 	}
 	return func(data []byte) ([]byte, string, string, bool, error) {
 		out, before, found, err := removeJSONServer(data, name)
-		return out, renderJSONPreview(before), "", found, err
+		shown, _ := jsonPreviewPair(before, nil)
+		return out, shown, "", found, err
 	}
 }
 

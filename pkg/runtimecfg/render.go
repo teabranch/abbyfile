@@ -10,6 +10,10 @@ import (
 // CodexStartupTimeoutSec is written as startup_timeout_sec for Codex entries.
 const CodexStartupTimeoutSec = 30
 
+// CodexDefaultToolTimeout is the tool timeout Codex applies to an entry with
+// no tool_timeout_sec.
+const CodexDefaultToolTimeout = 60 * time.Second
+
 // ownedJSON renders the keys abby owns for a JSON runtime entry.
 func ownedJSON(r Runtime, e ServerEntry) jsonObject {
 	m := func(v any) json.RawMessage { b, _ := json.Marshal(v); return b }

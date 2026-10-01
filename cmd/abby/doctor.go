@@ -184,8 +184,11 @@ func diagnoseAgent(e registry.Entry, d doctorDeps) []check {
 		if err != nil || !ok {
 			continue
 		}
-		if want > 0 && entry.Timeout > 0 && entry.Timeout < want {
+		switch {
+		case want > 0 && entry.Timeout > 0 && entry.Timeout < want:
 			cs = append(cs, check{statusWarn, fmt.Sprintf("%s timeout is %s but the agent may run for up to %s — reinstall to refresh it", w.Runtime(), entry.Timeout, want)})
+		case want > runtimecfg.CodexDefaultToolTimeout && entry.Timeout == 0 && w.Runtime() == runtimecfg.Codex:
+			cs = append(cs, check{statusWarn, fmt.Sprintf("%s has no tool_timeout_sec (Codex default %ds) but the agent may run for up to %s — reinstall to set it", w.Runtime(), int(runtimecfg.CodexDefaultToolTimeout.Seconds()), want)})
 		}
 		if w.Runtime() == runtimecfg.Codex && scope == runtimecfg.ScopeProject {
 			cs = append(cs, check{statusWarn, "Codex loads project .codex/config.toml only in trusted projects"})

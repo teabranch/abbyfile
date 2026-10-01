@@ -159,3 +159,36 @@ func TestPrintChecks(t *testing.T) {
 		t.Errorf("failed=%v out=%q", failed, out.String())
 	}
 }
+
+// A Codex entry with no tool_timeout_sec gets Codex's 60s default, which can
+// be shorter than the agent's own limit; doctor says so. A long enough
+// default is not flagged, and other runtimes' missing timeouts never are.
+func TestDiagnoseCodexMissingToolTimeout(t *testing.T) {
+	d := chdir(t)
+	bin := filepath.Join(d, "agent")
+	os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755)
+	os.MkdirAll(filepath.Join(d, ".codex"), 0o755)
+	os.WriteFile(filepath.Join(d, ".codex", "config.toml"), []byte("[mcp_servers.agent]\ncommand = \""+bin+"\"\nargs = [\"serve-mcp\"]\n"), 0o600)
+	writers := append(fileWriters(runtimecfg.Codex), fileWriters(runtimecfg.ClaudeCode)...)
+	cc, _ := writers[1].PlanAdd(runtimecfg.ScopeProject, "agent", runtimecfg.ServerEntry{Command: bin, Args: []string{"serve-mcp"}})
+	cc.Apply()
+
+	diagnose := func(toolTimeout string) string {
+		deps := doctorDeps{
+			describe: func(string, string) (*agentManifest, error) {
+				return &agentManifest{Name: "agent", ToolTimeout: toolTimeout}, nil
+			},
+			writers: writers,
+		}
+		return textOf(diagnoseAgent(registry.Entry{Name: "agent", Path: bin, Scope: "local"}, deps))
+	}
+	if s := diagnose("2m"); !strings.Contains(s, "codex has no tool_timeout_sec (Codex default 60s)") || !strings.Contains(s, "2m10s") {
+		t.Errorf("want a missing-timeout warning for Codex:\n%s", s)
+	}
+	if s := diagnose("30s"); strings.Contains(s, "tool_timeout_sec") {
+		t.Errorf("a 40s need fits Codex's 60s default:\n%s", s)
+	}
+	if s := diagnose("2m"); strings.Contains(s, "claude-code has no") || strings.Contains(s, "claude-code timeout") {
+		t.Errorf("no default is assumed for Claude Code:\n%s", s)
+	}
+}
