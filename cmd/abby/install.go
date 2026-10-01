@@ -25,6 +25,7 @@ func newInstallCommand() *cobra.Command {
 	var configMethod string
 	var envFlags []string
 	var insecureSkipChecksum bool
+	var force bool
 
 	cmd := &cobra.Command{
 		Use:   "install [flags] <ref>...",
@@ -79,6 +80,7 @@ Override settings at install time:
 				Global:       global,
 				DryRun:       dryRun,
 				SkipChecksum: insecureSkipChecksum,
+				Force:        force,
 				Writers:      writers,
 				Env:          env,
 				Out:          os.Stdout,
@@ -125,6 +127,7 @@ Override settings at install time:
 	cmd.Flags().StringVar(&configMethod, "config-method", "", "auto (default; env ABBY_CONFIG_METHOD), cli, or file")
 	cmd.Flags().StringArrayVar(&envFlags, "env", nil, "Set an environment variable for the MCP server (KEY=VALUE, repeatable)")
 	cmd.Flags().BoolVar(&insecureSkipChecksum, "insecure-skip-checksum", false, "Skip release checksum verification (use with care)")
+	cmd.Flags().BoolVar(&force, "force", false, "Replace an existing .claude/agents/<name>.md that abby did not install or that was edited since")
 
 	return cmd
 }
@@ -182,6 +185,7 @@ func runBulkLocalInstall(opts installOptions) ([]appliedChange, error) {
 	}
 
 	var agents []string
+	binaries := make(map[string]bool)
 	for _, e := range entries {
 		if e.IsDir() || strings.HasPrefix(e.Name(), ".") || e.Name() == "abby" || e.Name() == "publish" {
 			continue
@@ -191,10 +195,12 @@ func runBulkLocalInstall(opts installOptions) ([]appliedChange, error) {
 			continue
 		}
 		agents = append(agents, e.Name())
+		binaries[e.Name()] = true
 	}
+	agents = append(agents, builtFileOnlyAgents(binaries)...)
 
 	if len(agents) == 0 {
-		return nil, fmt.Errorf("no agent binaries found in build/ (run 'abby build' first)")
+		return nil, fmt.Errorf("no agent binaries or sub-agent files found in build/ (run 'abby build' first)")
 	}
 
 	fmt.Fprintf(opts.Out, "Installing %d agent(s) from ./build/...\n", len(agents))
@@ -288,9 +294,18 @@ func installMany(refs []string, opts installOptions, isRemote bool) ([]appliedCh
 }
 
 func runLocalInstall(name string, opts installOptions) ([]appliedChange, error) {
+	// Check the sub-agent file before touching anything, so a refusal to
+	// overwrite leaves no binary copied and no config written.
+	fp, err := planAgentFile(name, opts)
+	if err != nil {
+		return nil, err
+	}
 	src := filepath.Join("build", name)
 	if _, err := os.Stat(src); err != nil {
-		return nil, fmt.Errorf("binary not found: %s (run 'abby build' first)", src)
+		if fp != nil {
+			return installFileOnly(name, fp, opts)
+		}
+		return nil, fmt.Errorf("nothing to install for %q: neither %s nor %s exists (run 'abby build' first)", name, src, builtAgentFile(name))
 	}
 
 	binDir := opts.BinDir
@@ -308,6 +323,10 @@ func runLocalInstall(name string, opts installOptions) ([]appliedChange, error) 
 	// describeAgent runs the source binary directly; no need to wait for the
 	// copy below.
 	m, _ := describeAgent(src)
+	if fp != nil && m != nil && fp.Version != m.Version {
+		fmt.Fprintf(opts.Err, "note: skipping %s: it is v%s but the binary is v%s (rebuild with abby build --subagent to refresh it)\n", fp.Src, fp.Version, m.Version)
+		fp = nil
+	}
 	entry := runtimecfg.ServerEntry{
 		Command: absDst,
 		Args:    []string{"serve-mcp"},
@@ -326,6 +345,9 @@ func runLocalInstall(name string, opts installOptions) ([]appliedChange, error) 
 
 	if opts.DryRun {
 		fmt.Fprintf(opts.Out, "would install %s → %s\n", src, dst)
+		if fp != nil {
+			_ = writeAgentFile(fp, opts) // DryRun: prints only
+		}
 		return commitPlanned(opts, planned)
 	}
 
@@ -346,16 +368,17 @@ func runLocalInstall(name string, opts installOptions) ([]appliedChange, error) 
 		return applied, err
 	}
 
-	// Track in registry.
-	version := ""
+	tracked := registry.Entry{Name: name, Source: "local", Path: absDst, Scope: regScopeFor(opts.Global)}
 	if m != nil {
-		version = m.Version
+		tracked.Version = m.Version
 	}
-	regScope := "local"
-	if opts.Global {
-		regScope = "global"
+	if fp != nil {
+		if err := writeAgentFile(fp, opts); err != nil {
+			return applied, err
+		}
+		tracked.AgentFile, tracked.AgentFileSHA256 = fp.Dst, fp.SHA256
 	}
-	if err := trackInstall(name, "local", version, absDst, regScope); err != nil {
+	if err := trackInstall(tracked); err != nil {
 		return applied, err
 	}
 	return applied, nil
@@ -482,11 +505,7 @@ func runRemoteInstall(ref string, opts installOptions) ([]appliedChange, error) 
 
 	// Track in registry.
 	source := fmt.Sprintf("github.com/%s/%s/%s", parsed.Owner, parsed.Repo, parsed.Agent)
-	regScope := "local"
-	if opts.Global {
-		regScope = "global"
-	}
-	if err := trackInstall(parsed.Agent, source, manifest.Version, absDst, regScope); err != nil {
+	if err := trackInstall(registry.Entry{Name: parsed.Agent, Source: source, Version: manifest.Version, Path: absDst, Scope: regScopeFor(opts.Global)}); err != nil {
 		return applied, err
 	}
 	return applied, nil
@@ -501,7 +520,7 @@ func installBinDir(global bool) string {
 	return filepath.Join(".abbyfile", "bin")
 }
 
-func trackInstall(name, source, version, path, scope string) error {
+func trackInstall(e registry.Entry) error {
 	regPath, err := registry.DefaultPath()
 	if err != nil {
 		return err
@@ -510,14 +529,16 @@ func trackInstall(name, source, version, path, scope string) error {
 	if err != nil {
 		return err
 	}
-	reg.Set(registry.Entry{
-		Name:    name,
-		Source:  source,
-		Version: version,
-		Path:    path,
-		Scope:   scope,
-	})
+	reg.Set(e)
 	return reg.Save()
+}
+
+// regScopeFor is the registry's scope label for an install.
+func regScopeFor(global bool) string {
+	if global {
+		return "global"
+	}
+	return "local"
 }
 
 // findChecksumAsset looks for a SHA256SUMS file in the release assets.

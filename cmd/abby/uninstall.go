@@ -18,7 +18,8 @@ func newUninstallCommand() *cobra.Command {
 		Use:   "uninstall <agent-name>",
 		Short: "Remove an installed agent",
 		Long: `Removes an agent binary, unwires it from MCP config for all detected
-runtimes, and removes it from the registry. Use --runtime to target a
+runtimes, removes its installed sub-agent file (unless edited since install),
+and removes it from the registry. Use --runtime to target a
 specific runtime or "all" for all supported runtimes.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -69,30 +70,13 @@ func runUninstall(name, runtimeFlag string, cfgOpts runtimecfg.Options, dryRun b
 		Err:         os.Stderr,
 	}
 
-	// Plan every runtime's removal before touching anything: a planning
-	// failure (e.g. an unparsable config file) must abort with the binary
-	// and the registry entry still in place, so the user can fix it and
-	// retry.
-	scope := scopeFor(opts.Global)
-	planned, err := planRemovals(opts, scope, name)
-	if err != nil {
-		return err
-	}
-
-	if dryRun {
-		fmt.Fprintf(opts.Out, "would remove %s\n", entry.Path)
-	} else {
-		// Remove binary.
-		if err := os.Remove(entry.Path); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("removing binary: %w", err)
+	// A binary: false agent has no binary and no MCP config entry.
+	if entry.Path != "" {
+		if err := removeBinaryAndConfig(entry, opts); err != nil {
+			return err
 		}
-		fmt.Fprintf(opts.Out, "Removed %s\n", entry.Path)
 	}
-
-	// Unwire from MCP config for all target runtimes.
-	applied, err := commitRemovals(opts, planned, name)
-	printSummary(opts.Out, applied, opts.DryRun)
-	if err != nil {
+	if err := removeAgentFile(entry, opts); err != nil {
 		return err
 	}
 
@@ -107,4 +91,31 @@ func runUninstall(name, runtimeFlag string, cfgOpts runtimecfg.Options, dryRun b
 	}
 	fmt.Fprintf(opts.Out, "Uninstalled %s\n", name)
 	return nil
+}
+
+// removeBinaryAndConfig removes an agent's binary and unwires it from MCP
+// config for all target runtimes.
+func removeBinaryAndConfig(entry registry.Entry, opts installOptions) error {
+	// Plan every runtime's removal before touching anything: a planning
+	// failure (e.g. an unparsable config file) must abort with the binary
+	// and the registry entry still in place, so the user can fix it and
+	// retry.
+	scope := scopeFor(opts.Global)
+	planned, err := planRemovals(opts, scope, entry.Name)
+	if err != nil {
+		return err
+	}
+
+	if opts.DryRun {
+		fmt.Fprintf(opts.Out, "would remove %s\n", entry.Path)
+	} else {
+		if err := os.Remove(entry.Path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("removing binary: %w", err)
+		}
+		fmt.Fprintf(opts.Out, "Removed %s\n", entry.Path)
+	}
+
+	applied, err := commitRemovals(opts, planned, entry.Name)
+	printSummary(opts.Out, applied, opts.DryRun)
+	return err
 }

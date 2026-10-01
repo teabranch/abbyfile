@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/teabranch/abbyfile/pkg/definition"
@@ -86,6 +87,7 @@ func Generate(def *definition.AgentDef, cfg GenerateConfig) (string, error) {
 	sb.WriteString(def.PromptBody)
 	sb.WriteString("\n\n## Return Protocol\n")
 	sb.WriteString(returnProtocol(def))
+	sb.WriteString("\n" + marker(def.Name, def.Version) + "\n")
 
 	path := filepath.Join(agentsDir, def.Name+".md")
 	if err := os.WriteFile(path, []byte(sb.String()), 0o644); err != nil {
@@ -130,4 +132,23 @@ func returnFields(fields []definition.ReturnField) string {
 		sb.WriteString("\n")
 	}
 	return sb.String()
+}
+
+// The provenance marker is the file's last line. abby install uses it to
+// tell a generated file from a hand-written one and to read its version.
+// It stays at the end because the frontmatter must come first.
+func marker(name, version string) string {
+	return fmt.Sprintf("<!-- abbyfile: %s v%s -->", name, version)
+}
+
+var markerRe = regexp.MustCompile(`(?m)^<!-- abbyfile: (\S+) v(\S*) -->\s*\z`)
+
+// ParseMarker returns the agent name and version from a generated file's
+// trailing marker; ok is false when the file has none.
+func ParseMarker(content []byte) (name, version string, ok bool) {
+	m := markerRe.FindSubmatch(content)
+	if m == nil {
+		return "", "", false
+	}
+	return string(m[1]), string(m[2]), true
 }

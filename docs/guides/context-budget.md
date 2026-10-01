@@ -172,7 +172,9 @@ they stay in your context, not the caller's. If the caller needs full detail,
 reference where it lives (a file path) instead of inlining it.
 ```
 
-For an agent with `memory:` set, the last line reads "a file path, or a memory key the caller can fetch with memory_read" instead.
+The file's last line is a provenance marker, `<!-- abbyfile: <name> v<version> -->`, which `abby install` uses to recognise a generated file and `abby doctor` uses to spot version drift (see [Installing sub-agent files](../reference.md#installing-sub-agent-files)).
+
+For an agent with `memory:` set, the protocol's last line reads "a file path, or a memory key the caller can fetch with memory_read" instead.
 
 The summary cap (`≤25-line` above) comes from the `summary_lines` in the agent's frontmatter (25 if unset; a `config set context_budget.summary_lines` doesn't change an already-emitted file). When Claude Code's Task tool spawns this file, it runs in its own context window — only the bounded summary text returns to the caller.
 

@@ -202,3 +202,20 @@ func TestGenerate_NoReturnContractNoFieldsSection(t *testing.T) {
 		t.Fatalf("unexpected fields section without a return_contract:\n%s", s)
 	}
 }
+
+func TestGenerate_EndsWithProvenanceMarker(t *testing.T) {
+	s := generateString(t, &definition.AgentDef{Name: "rev", Version: "1.2.3", PromptBody: "x"}, GenerateConfig{})
+	if !strings.HasSuffix(s, "\n<!-- abbyfile: rev v1.2.3 -->\n") {
+		t.Fatalf("missing trailing marker:\n%s", s)
+	}
+	name, version, ok := ParseMarker([]byte(s))
+	if !ok || name != "rev" || version != "1.2.3" {
+		t.Fatalf("ParseMarker = %q, %q, %v; want rev, 1.2.3, true", name, version, ok)
+	}
+}
+
+func TestParseMarker_HandWrittenFile(t *testing.T) {
+	if _, _, ok := ParseMarker([]byte("---\nname: a\n---\n\nHand written.\n")); ok {
+		t.Fatal("ParseMarker accepted a file without a marker")
+	}
+}

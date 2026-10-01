@@ -180,7 +180,7 @@ abby build --agent foo  # build a single agent
 abby build --plugin     # also generate Claude Code plugin directories
 ```
 
-Flags: `-f` (Abbyfile path), `-o` (output dir), `--agent` (single agent), `--plugin` (generate plugin dir), `--subagent` (also emit a Claude Code sub-agent), `--parallelism` (max concurrent builds), `--runtime` (target runtime: auto, all, claude-code, codex, gemini), `--config-method` (auto, cli, file), `--dry-run` (show planned changes without building or writing anything).
+Flags: `-f` (Abbyfile path), `-o` (output dir), `--agent` (single agent), `--plugin` (generate plugin dir), `--subagent` (also emit a Claude Code sub-agent that can call the agent's own MCP tools), `--parallelism` (max concurrent builds), `--runtime` (target runtime: auto, all, claude-code, codex, gemini), `--config-method` (auto, cli, file), `--dry-run` (show planned changes without building or writing anything).
 
 ## What is a plugin?
 

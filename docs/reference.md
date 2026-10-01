@@ -541,6 +541,8 @@ The `--runtime` flag controls which runtimes receive MCP config:
 
 When `--plugin` is passed, each agent also gets a `<name>.claude-plugin/` directory in the output folder containing the binary, an MCP config, and any declared skills. See [Plugins guide](guides/plugins.md).
 
+`--subagent` (or `--plugin`) also writes `<output>/.claude/agents/<name>.md`, whose `tools:` line grants the agent's own MCP tools as `mcp__<name>__<tool>` alongside its native tools (see [Context Budget guide → `--subagent`](guides/context-budget.md#the---subagent-flag)). An agent marked `binary: false` in the Abbyfile always gets this file and nothing else: no compile, no MCP config entry (see [Agents without a binary](guides/abbyfile-format.md#agents-without-a-binary)). Every emitted file ends with a provenance marker line, `<!-- abbyfile: <name> v<version> -->`, which `abby install` and `abby doctor` read.
+
 ## `abby install`
 
 ```
@@ -552,6 +554,7 @@ Flags:
       --config-method string     auto (default; env ABBY_CONFIG_METHOD), cli, or file
       --dry-run                  Show planned changes without installing anything
       --env stringArray          Set an environment variable for the MCP server (KEY=VALUE, repeatable)
+      --force                    Replace an existing .claude/agents/<name>.md that abby did not install or that was edited since
   -g, --global                   Install globally to /usr/local/bin
   -h, --help                     help for install
       --insecure-skip-checksum   Skip release checksum verification (use with care)
@@ -593,6 +596,16 @@ The `--model` flag cannot be combined with `--all` or multiple agents (it is age
 Remote install downloads the binary for the current platform (`<agent>-<GOOS>-<GOARCH>`), verifies its checksum against the release's `<agent>-sha256sums.txt`/`SHA256SUMS`/`checksums.txt` asset (fails without one, unless `--insecure-skip-checksum`), verifies it's a valid agent with `--describe`, installs it, wires MCP, and tracks it in the registry. Set `GITHUB_TOKEN` for private repos.
 
 Both local and remote installs are tracked in `~/.abbyfile/registry.json`.
+
+### Installing sub-agent files
+
+A local install also installs the agent's sub-agent file when `abby build` emitted one (`build/.claude/agents/<name>.md`, from `--subagent` or `binary: false`). It goes where Claude Code discovers sub-agents: `<project>/.claude/agents/<name>.md`, or `~/.claude/agents/<name>.md` with `--global`. A `binary: false` agent installs only this file: no binary and no MCP config entry. `--all` picks these agents up alongside the binaries.
+
+- **Overwrite protection.** If the destination already exists, install replaces it only when it is identical, or is the file abby installed earlier and nobody has edited since (checked against the digest kept in the registry). Anything else, such as a hand-maintained agent file, is refused with an error naming `--force`, and nothing is installed. The check runs before the binary is copied.
+- **Version check.** For a compiled agent, a built file whose marker version differs from the binary's version is stale, so it is skipped with a note; rebuild with `--subagent` to refresh it.
+- **Source check.** A built file without a matching provenance marker is refused; rebuild it with `abby build`.
+
+Remote installs don't install sub-agent files, since releases don't carry them.
 
 `--dry-run` copies no binary, writes no MCP config, and changes no registry entry (a remote install still downloads and checksum-verifies into a temp file, so the printed preview reflects a binary abby actually checked). `--env KEY=VALUE` (repeatable) sets the MCP server's `env`; without it, an existing entry's `env` is preserved. See the [Distribution Guide](guides/distribution.md#where-abby-registers-agents) for the full method-selection rule, entry fields, and checksum behavior.
 
@@ -653,7 +666,7 @@ Flags:
       --runtime string         Target runtime: auto, all, claude-code, codex, gemini (default "auto")
 ```
 
-Removes an installed agent: deletes the binary, removes the MCP entry from all detected (or specified) runtime configs, and removes the entry from the registry. Every runtime's removal is planned before anything is deleted: a planning failure (e.g. an unparsable config file) leaves the binary, the configs and the registry entry untouched and exits non-zero. Once planned, every removal is attempted regardless of an earlier one's apply failure; if any fails, the registry entry is kept (so uninstall can be re-run) and the command exits non-zero.
+Removes an installed agent: deletes the binary, removes the MCP entry from all detected (or specified) runtime configs, deletes its installed sub-agent file, and removes the entry from the registry. A sub-agent file edited since install is left in place, with a note. A `binary: false` agent has only the file to remove. Every runtime's removal is planned before anything is deleted: a planning failure (e.g. an unparsable config file) leaves the binary, the configs and the registry entry untouched and exits non-zero. Once planned, every removal is attempted regardless of an earlier one's apply failure; if any fails, the registry entry is kept (so uninstall can be re-run) and the command exits non-zero.
 
 ## `abby doctor`
 
@@ -667,7 +680,7 @@ Flags:
       --runtime string         Runtimes to check: auto, all, claude-code, codex, gemini (default "auto")
 ```
 
-Diagnoses one or more installed agents (all of them, if none are named) against their registry entries: the binary's presence and executable bit; `--describe` and the MCP handshake (both the 2026-07-28 `server/discover` and legacy 2025-11-25 `initialize` protocol eras), run in the agent's own project root; each targeted runtime's config entry (existence, binary path, and whether its timeout is stale versus the current binary, including a Codex entry with no `tool_timeout_sec`, which gets Codex's 60s default); a reminder for Codex project-scope entries about project trust; and any entries left in the legacy `~/.claude/mcp.json` (written by abby ≤ v0.11, never read by Claude Code). `doctor` never writes, backs up, or modifies any config file. It exits non-zero if any check failed. See the [Distribution Guide](guides/distribution.md#abby-doctor) for sample output.
+Diagnoses one or more installed agents (all of them, if none are named) against their registry entries: the binary's presence and executable bit; `--describe` and the MCP handshake (both the 2026-07-28 `server/discover` and legacy 2025-11-25 `initialize` protocol eras), run in the agent's own project root; each targeted runtime's config entry (existence, binary path, and whether its timeout is stale versus the current binary, including a Codex entry with no `tool_timeout_sec`, which gets Codex's 60s default); a reminder for Codex project-scope entries about project trust; any entries left in the legacy `~/.claude/mcp.json` (written by abby ≤ v0.11, never read by Claude Code); and, for an agent whose sub-agent file was installed, whether that file is missing (a failure), edited since install, or at a different version from the agent (both warnings). A `binary: false` agent gets only the sub-agent file checks. `doctor` never writes, backs up, or modifies any config file. It exits non-zero if any check failed. See the [Distribution Guide](guides/distribution.md#abby-doctor) for sample output.
 
 ## `ABBY_CONFIG_METHOD`
 
@@ -682,9 +695,12 @@ type Entry struct {
     Name        string `json:"name"`
     Source      string `json:"source"`      // "local" or "github.com/owner/repo/agent"
     Version     string `json:"version"`
-    Path        string `json:"path"`        // absolute path to installed binary
+    Path        string `json:"path"`        // absolute path to installed binary; "" for a binary: false agent
     Scope       string `json:"scope"`       // "local" or "global"
     InstalledAt string `json:"installedAt"` // RFC3339 timestamp
+
+    AgentFile       string `json:"agentFile,omitempty"`       // installed .claude/agents/<name>.md
+    AgentFileSHA256 string `json:"agentFileSha256,omitempty"` // its digest when abby wrote it
 }
 ```
 

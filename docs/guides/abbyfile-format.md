@@ -49,7 +49,7 @@ agents:
     binary: false
 ```
 
-For such an agent, `abby build` writes `build/.claude/agents/<name>.md` (with or without `--subagent`) and nothing else: no Go build, no binary, no MCP config entry. Its `tools` are listed as native Claude Code tools, governed by Claude Code's permissions. It can't declare `custom_tools` or `memory`, and it can't be built with `--plugin`, since each of those needs a binary; `abby build` stops with an error that says which. A `sandbox:` block is accepted but has no effect. `abby publish` skips the agent.
+For such an agent, `abby build` writes `build/.claude/agents/<name>.md` (with or without `--subagent`) and nothing else: no Go build, no binary, no MCP config entry. Its `tools` are listed as native Claude Code tools, governed by Claude Code's permissions. It can't declare `custom_tools` or `memory`, and it can't be built with `--plugin`, since each of those needs a binary; `abby build` stops with an error that says which. A `sandbox:` block is accepted but has no effect. `abby publish` skips the agent. To put the file in a project, use `abby install` (see [Installing sub-agent files](../reference.md#installing-sub-agent-files)).
 
 ## Agent .md Files (Dual Frontmatter)
 
