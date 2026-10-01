@@ -19,9 +19,12 @@ make all          # fmtcheck → vet → test → build
 make build        # build the abby CLI → build/abby
 make agents       # build agent binaries from Abbyfile
 make integration  # end-to-end tests against built binary
-make install      # install abby CLI to /usr/local/bin
-make clean        # remove build artifacts
+make bench        # benchmarks (also bench-integration, bench-report, bench-all)
+make install      # install abby CLI to /usr/local/bin (or $PREFIX/bin)
+make clean        # remove build/, .abbyfile/, .mcp.json, .codex/config.toml, .gemini/settings.json
 ```
+
+`make agents` (and any `abby build` in the repo) writes project-scope MCP config for every detected runtime, possibly through the `claude`/`gemini` CLIs. Add `--dry-run` to preview, or set `ABBY_CONFIG_METHOD=file` to keep abby away from the runtime CLIs. `make clean` deletes those config files outright.
 
 ## Testing
 
@@ -33,6 +36,7 @@ make test
 make integration
 
 # Manual end-to-end
+make build && ./build/abby build --dry-run   # preview the MCP config changes
 make build && ./build/abby build
 ./build/go-pro validate
 ./build/go-pro --describe
@@ -58,18 +62,15 @@ git commit -m "Bump version to 0.3.0 for release"
 git push
 ```
 
-3. **CI does the rest.** The pipeline runs 4 jobs in order:
+3. **CI does the rest.** The pipeline runs 4 jobs. On a push to main, `e2e-install` and `check-version` run in parallel after `test`, and `release` waits for all three:
 
 ```
-test → e2e-install → check-version → release
-       ↓                ↓               ↓
-       Build & verify   Compare const   Cross-compile for
-       test agent       vs git tags     4 platforms, create
-                                        GitHub Release + tag
+test ─┬─ e2e-install ───┬─ release
+      └─ check-version ─┘
 ```
 
-- **test**: lint, vet, unit tests, integration tests
-- **e2e-install**: builds CLI, creates a test agent, publishes (dry-run), installs, verifies
+- **test**: format check, vet, unit tests (`-race`), integration tests (also runs on pull requests)
+- **e2e-install**: builds the CLI, creates a test agent, publishes a real GitHub Release for it (binaries + checksum file), installs it from that release (checksum-verified), runs `--describe`/`--version`/`validate`, then deletes the release
 - **check-version**: extracts `cliVersion` from source, checks if `v<version>` tag exists
 - **release**: if tag is new, cross-compiles (`darwin/linux × amd64/arm64`), creates GitHub Release with tag `v<version>`
 
@@ -108,17 +109,24 @@ build/              Compiled binaries (abby CLI + agents)
 
 pkg/agent/          Core runtime: New(), Execute(), functional options
 pkg/builtins/       Shared tool implementations (read, write, edit, bash, glob, grep)
+pkg/sandbox/        Built-in tool sandbox: path confinement, command allowlist, argv parsing
 pkg/definition/     Abbyfile YAML + agent .md parser
 pkg/builder/        Code generation + go build compilation
-pkg/tools/          Tool registry, executor, validation
+pkg/tools/          Tool registry, executor, validation, output shaping
 pkg/memory/         File-based KV store, limits, concurrency-safe manager
 pkg/prompt/         Embed.FS loader with override support
-pkg/mcp/            MCP-over-stdio bridge
+pkg/config/         Runtime overrides (~/.abbyfile/<name>/config.yaml)
+pkg/mcp/            MCP-over-stdio bridge (2026-07-28 and older protocol eras)
 pkg/plugin/         Claude Code plugin directory generation (--plugin)
+pkg/subagent/       Claude Code sub-agent file generation (--subagent)
+pkg/runtimecfg/     Runtime MCP config writers (Claude Code, Codex, Gemini; CLI and file methods)
+pkg/fsutil/         Atomic writes, ownership preservation, file snapshots
 pkg/registry/       Installed agents tracking (~/.abbyfile/registry.json)
-pkg/github/         GitHub Releases client for remote install/update
-internal/cli/       Cobra commands: root, run-tool, memory, serve-mcp, validate
-cmd/abby/      CLI: build, install, publish, list, update, uninstall
+pkg/github/         GitHub Releases client for remote install/update, checksum verification
+internal/cli/       Cobra commands: root, run-tool, memory, config, serve-mcp, validate
+internal/integration/  Integration tests (build tag: integration)
+benchmarks/         Context-cost benchmarks
+cmd/abby/      CLI: build, install, publish, list, update, uninstall, doctor, diff
 ```
 
 ## CLI Reference
@@ -129,12 +137,19 @@ abby build                   # build all agents (auto-finds Abbyfile or abbyfile
 abby build --agent my-agent  # build a single agent
 abby build -o ./dist         # custom output directory
 abby build --plugin          # also generate Claude Code plugin directories
+abby build --subagent        # also emit .claude/agents/<name>.md
+abby build --dry-run         # show planned MCP config changes, build nothing
 
 # Install
 abby install my-agent                            # install locally from ./build/
-abby install -g my-agent                         # install globally (/usr/local/bin/)
-abby install github.com/owner/repo/agent         # install from GitHub Releases
+abby install -g my-agent                         # install globally (/usr/local/bin/, user-scope MCP config)
+abby install github.com/owner/repo/agent         # install from GitHub Releases (checksum-verified)
 abby install github.com/owner/repo/agent@1.0.0   # specific version
+abby install --all                               # every agent in ./build/
+abby install --dry-run my-agent                  # preview every change, write nothing
+abby install --runtime codex my-agent            # auto (default), all, claude-code, codex, gemini
+abby install --env KEY=VALUE my-agent            # set env on the MCP entry (repeatable)
+abby install --config-method file my-agent       # auto | cli | file (or ABBY_CONFIG_METHOD)
 
 # Publish
 abby publish                 # cross-compile + create GitHub Release
@@ -146,7 +161,10 @@ abby list                    # show installed agents
 abby update                  # update all remote agents
 abby update my-agent         # update a specific agent
 abby uninstall my-agent      # remove binary + MCP entry + registry
+abby doctor                  # check installed agents: binary, config entries, handshake, sandbox
 ```
+
+See the [Distribution guide](guides/distribution.md) for where each runtime's config lives (Claude Code user scope is `~/.claude.json`, or `$CLAUDE_CONFIG_DIR/.claude.json`) and how entries are written.
 
 ## Built-in Tools
 
@@ -161,4 +179,4 @@ Agents declare tools by Claude Code name in their `.md` frontmatter:
 | `Glob` | `glob_files` | File pattern matching |
 | `Grep` | `grep_search` | Regex content search |
 
-Memory tools (`memory_read`, `memory_write`, `memory_list`, `memory_delete`) are added automatically when `memory` is set.
+Memory tools (`memory_read`, `memory_write`, `memory_list`, `memory_delete`, `memory_search`) are added automatically when `memory` is set.

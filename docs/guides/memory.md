@@ -17,7 +17,7 @@ agent.WithMemory(true),
 This does two things:
 
 1. Creates a `FileStore` at `~/.abbyfile/<name>/memory/`
-2. Registers four builtin tools: `memory_read`, `memory_write`, `memory_list`, `memory_delete`
+2. Registers five builtin tools: `memory_read`, `memory_write`, `memory_list`, `memory_delete`, `memory_search`
 
 ## CLI Commands
 
@@ -38,6 +38,9 @@ Memory is accessible directly from the command line:
 
 # Delete a key
 ./my-agent memory delete notes
+
+# Remove keys whose TTL has expired (see Limits Configuration)
+./my-agent memory gc
 ```
 
 ## MCP Exposure
@@ -52,6 +55,7 @@ Claude Code can call these tools during conversations:
 - `memory_write` -- `{"key": "notes", "value": "content"}` -- write a value
 - `memory_list` -- `{}` -- list all keys
 - `memory_delete` -- `{"key": "notes"}` -- delete a key
+- `memory_search` -- `{"pattern": "Go"}` -- substring search across all values; returns matching `{key, line}` pairs as JSON
 
 These tools have appropriate MCP annotations:
 
@@ -67,6 +71,11 @@ IdempotentHint:  true
 
 // memory_delete
 OpenWorldHint: false
+
+// memory_search
+ReadOnlyHint:   true
+IdempotentHint: true
+OpenWorldHint:  false
 ```
 
 ### 2. Resources
@@ -87,12 +96,14 @@ A `memory-context` prompt template is registered:
 
 Each key is stored as a file at `~/.abbyfile/<name>/memory/<key>.md`. Keys:
 
-- Must not be empty
+- Must not be empty, `.` or `..`
 - Must not contain path separators (`/` or `\`)
 - Are case-sensitive
 - Map directly to filenames (with `.md` extension)
 
-Values are stored as plain text. There is no structured data format enforced -- store whatever text makes sense for your agent.
+Values are stored as plain text. There is no structured data format enforced -- store whatever text makes sense for your agent. Each write also updates a `<key>.meta.json` sidecar (created/updated timestamps, TTL), which `memory list` skips.
+
+If the agent uses `context_budget.on_overflow: spill`, overflowing tool output is stored here too, as `spill-<tool>-<hash>` keys. They show up in `memory list` and count toward the limits below (see the [Context Budget guide](./context-budget.md#spill)).
 
 ## Limits Configuration
 
@@ -103,6 +114,7 @@ agent.WithMemoryLimits(memory.Limits{
     MaxKeys:       100,      // maximum number of keys (0 = unlimited)
     MaxValueBytes: 10240,    // maximum size per value in bytes (0 = unlimited)
     MaxTotalBytes: 1048576,  // maximum total storage in bytes (0 = unlimited)
+    TTL:           72 * time.Hour, // keys expire this long after their last write (0 = never)
 })
 ```
 
@@ -113,6 +125,10 @@ Limits are enforced on write and append operations:
 - `MaxTotalBytes`: checked against the sum of all stored values, accounting for the key being overwritten
 
 When a limit is exceeded, the operation returns an error and the write does not happen.
+
+With a `TTL`, reading an expired key returns an error, but the file stays on disk (and keeps counting toward `MaxKeys`/`MaxTotalBytes`) until `./my-agent memory gc` deletes it.
+
+Limits can also be overridden at runtime under `memory_limits:` in `~/.abbyfile/<name>/config.yaml` (`max_keys`, `max_value_bytes`, `max_total_bytes`, `ttl` as a duration string such as `"72h"`). `config set` does not cover these fields, so edit the file by hand; `config reset memory_limits` clears the whole block.
 
 Limits appear in the `--describe` manifest:
 
