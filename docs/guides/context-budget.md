@@ -22,7 +22,7 @@ Both layers share one config surface: the `context_budget:` frontmatter block, o
 | Default | On (see [Defaults](#defaults) below) | Off — opt-in |
 | Enforced by | `pkg/tools/shaper.go`, hooked into `Executor.Run` | `pkg/subagent`, emitted at build time |
 
-Output shaping is on by default and protects every agent's own tools. Sub-agent emission is an additional, opt-in layer for callers who want true isolation (the runtime keeps the sub-agent's tool chatter out of the main conversation entirely, seeing only the final summary). The two don't stack automatically — see the note under [`--subagent`](#the---subagent-flag).
+Output shaping is on by default and protects every agent's own tools. Sub-agent emission is an additional, opt-in layer for callers who want true isolation (the runtime keeps the sub-agent's tool chatter out of the main conversation entirely, seeing only the final summary). Inside a sub-agent, the agent's own MCP tools (custom and memory tools) still go through Layer B; the native Claude Code tools it is given do not — see the note under [`--subagent`](#the---subagent-flag).
 
 ## The `context_budget:` Frontmatter Block
 
@@ -169,14 +169,56 @@ You run in an isolated context window. When you finish, return ONLY:
 2. Concrete artifacts the caller needs (file paths, IDs, final values).
 Do NOT paste raw tool output, file dumps, or logs into your final message —
 they stay in your context, not the caller's. If the caller needs full detail,
-reference where it lives (a path or memory:// URI) instead of inlining it.
+reference where it lives (a file path) instead of inlining it.
 ```
+
+The file's last line is a provenance marker, `<!-- abbyfile: <name> v<version> -->`, which `abby install` uses to recognise a generated file and `abby doctor` uses to spot version drift (see [Installing sub-agent files](../reference.md#installing-sub-agent-files)).
+
+For an agent with `memory:` set, the protocol's last line reads "a file path, or a memory key the caller can fetch with memory_read" instead.
 
 The summary cap (`≤25-line` above) comes from the `summary_lines` in the agent's frontmatter (25 if unset; a `config set context_budget.summary_lines` doesn't change an already-emitted file). When Claude Code's Task tool spawns this file, it runs in its own context window — only the bounded summary text returns to the caller.
 
-Note that `tools:` lists the agent's declared tools by their Claude Code names (`Read`, `Bash`, …). Inside the sub-agent those are Claude Code's own built-in tools, not the packaged binary's MCP tools, so Layer B shaping and the abby [sandbox](./tools.md#sandbox) don't apply to them; Claude Code's own permission settings do.
+The `tools:` line has two parts:
+
+- **Native tools.** The agent's declared tools by their Claude Code names (`Read`, `Bash`, …). Inside the sub-agent these are Claude Code's own built-in tools, not the binary's MCP versions, so Layer B shaping and the abby [sandbox](./tools.md#sandbox) don't apply to them; Claude Code's own permission settings and hooks do.
+- **The agent's own MCP tools.** Every tool the built binary serves beyond the built-ins (its `custom_tools` and, with `memory:` set, the `memory_*` tools), named `mcp__<agent>__<tool>`. `abby build` reads them from the binary's `--describe` output, so the list always matches what the binary serves. These calls go through the binary, so Layer B shaping applies to them.
+
+For example, an agent declaring `tools: [Read, Bash]`, one custom tool `lint` and memory gets:
+
+```yaml
+tools: Read, Bash, mcp__linty__lint, mcp__linty__memory_delete, mcp__linty__memory_list, mcp__linty__memory_read, mcp__linty__memory_search, mcp__linty__memory_write
+```
+
+The `mcp__<agent>__` prefix matches the project `.mcp.json` entry that `abby build` writes, keyed by the agent name. If an agent declares no native tools, `tools:` is omitted entirely and the sub-agent inherits every tool in the session, MCP tools included.
+
+A custom tool name may contain `.` (MCP allows it), but abby writes it into `mcp__<agent>__<tool>` unchanged. If Claude Code renames such a tool when it exposes it, that entry won't match; prefer `-` or `_` in custom tool names for agents you emit as sub-agents.
 
 `--plugin` also emits the sub-agent file (in addition to the plugin directory); `--subagent` is for when you want the sub-agent artifact without the full plugin wrapper.
+
+### Required report fields (`return_contract:`)
+
+A line cap alone can squeeze out the part of a report the caller depends on, such as a verdict and its evidence. Declare those parts as named fields, in block 2 of a dual-frontmatter file or under `abbyfile:` in a single-block file:
+
+```yaml
+return_contract:
+  fields:
+    - name: verdict
+      description: functionally verified, or only deployed and health-green
+    - name: proof
+      description: the command and output that shows it
+```
+
+The Return Protocol then gains a third item:
+
+```markdown
+3. Every one of these fields, each on its own line as `name: value`. They are
+   not part of the summary's line cap: always include each one in full, and
+   never shorten or drop one. Write `none` when a field does not apply.
+   - `verdict` — functionally verified, or only deployed and health-green
+   - `proof` — the command and output that shows it
+```
+
+Field names follow the agent-name rules (letters, digits, `-`, `_`) and must be unique; `description` is optional. This is an instruction in the sub-agent's prompt, not a check: nothing verifies the final message. To enforce it, check the reply yourself, for example in a Claude Code `SubagentStop` hook. The fields only appear in the sub-agent file, which `abby build` writes with `--subagent` or `--plugin`, and always for a `binary: false` agent.
 
 ## Instructions Behavior (`eager_instructions`)
 

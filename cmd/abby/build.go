@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/teabranch/abbyfile/pkg/builder"
+	"github.com/teabranch/abbyfile/pkg/builtins"
 	"github.com/teabranch/abbyfile/pkg/definition"
 	"github.com/teabranch/abbyfile/pkg/plugin"
 	"github.com/teabranch/abbyfile/pkg/runtimecfg"
@@ -104,7 +105,8 @@ func runBuild(abbyfilePath, outputDir, agentName string, pluginOutput bool, suba
 		Parallelism:   parallelism,
 	}
 
-	defs := make(map[string]*definition.AgentDef)
+	defs := make(map[string]*definition.AgentDef)     // compiled agents
+	fileOnly := make(map[string]*definition.AgentDef) // binary: false
 
 	for name, ref := range af.Agents {
 		if agentName != "" && name != agentName {
@@ -123,10 +125,17 @@ func runBuild(abbyfilePath, outputDir, agentName string, pluginOutput bool, suba
 		// Use the Abbyfile key as the binary name, version from Abbyfile.
 		def.Name = name
 		def.Version = ref.Version
-		defs[name] = def
+		if ref.BuildsBinary() {
+			defs[name] = def
+			continue
+		}
+		if err := checkFileOnly(def, pluginOutput); err != nil {
+			return err
+		}
+		fileOnly[name] = def
 	}
 
-	if agentName != "" && len(defs) == 0 {
+	if agentName != "" && len(defs)+len(fileOnly) == 0 {
 		return fmt.Errorf("agent %q not found in Abbyfile", agentName)
 	}
 
@@ -165,6 +174,17 @@ func runBuild(abbyfilePath, outputDir, agentName string, pluginOutput bool, suba
 		if pluginOutput || subagentFlag {
 			fmt.Fprintln(os.Stderr, "note: --dry-run skips --plugin/--subagent generation (no binaries were built)")
 		}
+		for _, name := range slices.Sorted(maps.Keys(fileOnly)) {
+			fmt.Fprintf(opts.Out, "would write %s\n", filepath.Join(outputDir, ".claude", "agents", name+".md"))
+		}
+		return nil
+	}
+
+	// binary: false agents need no compiler and no MCP config entry.
+	if err := emitSubagents(fileOnly, nil, outputDir); err != nil {
+		return err
+	}
+	if len(defs) == 0 {
 		return nil
 	}
 
@@ -174,9 +194,14 @@ func runBuild(abbyfilePath, outputDir, agentName string, pluginOutput bool, suba
 
 	// Generate MCP config for target runtimes.
 	entries := make(map[string]runtimecfg.ServerEntry, len(defs))
+	manifests := make(map[string]*agentManifest, len(defs))
 	for name := range defs {
 		binPath := filepath.Join(absOut, name)
-		m, _ := describeAgent(binPath)
+		m, err := describeAgent(binPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: %v\n", err)
+		}
+		manifests[name] = m
 		entries[name] = runtimecfg.ServerEntry{
 			Command: binPath,
 			Args:    []string{"serve-mcp"},
@@ -219,17 +244,59 @@ func runBuild(abbyfilePath, outputDir, agentName string, pluginOutput bool, suba
 	// Generate a Claude Code sub-agent (.claude/agents/<name>.md) if requested,
 	// or implicitly alongside the plugin directory.
 	if pluginOutput || subagentFlag {
-		for name, def := range defs {
-			p, err := subagent.Generate(def, subagent.GenerateConfig{
-				OutputDir: outputDir,
-				Model:     "", // model hint not yet threaded from Abbyfile; wire when available
-			})
-			if err != nil {
-				return fmt.Errorf("generating sub-agent for %s: %w", name, err)
-			}
-			fmt.Fprintf(os.Stderr, "→ %s\n", p)
+		return emitSubagents(defs, manifests, outputDir)
+	}
+	return nil
+}
+
+// checkFileOnly validates an agent marked binary: false.
+func checkFileOnly(def *definition.AgentDef, pluginOutput bool) error {
+	if err := definition.CheckAgentFileOnly(def); err != nil {
+		return err
+	}
+	if pluginOutput {
+		return fmt.Errorf("agent %q has binary: false; --plugin packages a binary, so build it without --plugin", def.Name)
+	}
+	if def.Sandbox != nil {
+		fmt.Fprintf(os.Stderr, "note: agent %q has binary: false, so its sandbox: block has no effect (its native tools follow Claude Code's permissions)\n", def.Name)
+	}
+	return nil
+}
+
+// emitSubagents writes .claude/agents/<name>.md for each agent, granting
+// each one the MCP tools its built binary serves (manifests may be nil).
+func emitSubagents(defs map[string]*definition.AgentDef, manifests map[string]*agentManifest, outputDir string) error {
+	for _, name := range slices.Sorted(maps.Keys(defs)) {
+		p, err := subagent.Generate(defs[name], subagent.GenerateConfig{
+			OutputDir: outputDir,
+			Model:     "", // model hint not yet threaded from Abbyfile; wire when available
+			MCPTools:  agentOwnTools(manifests[name]),
+		})
+		if err != nil {
+			return fmt.Errorf("generating sub-agent for %s: %w", name, err)
+		}
+		fmt.Fprintf(os.Stderr, "→ %s\n", p)
+	}
+	return nil
+}
+
+// agentOwnTools returns the MCP tools a built agent serves beyond the
+// built-ins (its custom and memory tools), from its --describe manifest.
+// The built-ins are left out because the sub-agent gets the native
+// Claude Code tool of the same kind instead. nil when m is nil.
+func agentOwnTools(m *agentManifest) []string {
+	if m == nil {
+		return nil
+	}
+	builtin := make(map[string]bool)
+	for _, d := range builtins.All() {
+		builtin[d.Name] = true
+	}
+	var own []string
+	for _, t := range m.Tools {
+		if !builtin[t.Name] {
+			own = append(own, t.Name)
 		}
 	}
-
-	return nil
+	return own
 }

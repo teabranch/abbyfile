@@ -32,9 +32,24 @@ agents:
 | `agents.<name>.path` | yes | Path to the agent's `.md` file (relative to Abbyfile) |
 | `agents.<name>.version` | yes | Semantic version for the built binary |
 | `agents.<name>.dependencies` | no | Names of other agents in this Abbyfile. Validated (each must exist, and an agent can't depend on itself); not otherwise used by the build |
+| `agents.<name>.binary` | no | `false` skips compiling the agent: `abby build` only writes its sub-agent file (see [Agents without a binary](#agents-without-a-binary)). Default `true` |
 | `publish.targets` | no | List of `{os, arch}` pairs that `abby publish` cross-compiles for, replacing the default four (`darwin`/`linux` × `amd64`/`arm64`) |
 
 The agent **name** (the YAML key, e.g. `go-pro`) becomes the binary name. It must start with a letter or digit and contain only letters, digits, `-` and `_`. The **version** here overrides anything in the `.md` file.
+
+### Agents without a binary
+
+An agent that uses only Claude Code's own tools gains nothing from a compiled binary. Mark it `binary: false` to version and ship just its sub-agent file:
+
+```yaml
+agents:
+  reviewer:
+    path: .claude/agents/reviewer.md
+    version: 0.4.0
+    binary: false
+```
+
+For such an agent, `abby build` writes `build/.claude/agents/<name>.md` (with or without `--subagent`) and nothing else: no Go build, no binary, no MCP config entry. Its `tools` are listed as native Claude Code tools, governed by Claude Code's permissions. It can't declare `custom_tools` or `memory`, and it can't be built with `--plugin`, since each of those needs a binary; `abby build` stops with an error that says which. A `sandbox:` block is accepted but has no effect. `abby publish` skips the agent. To put the file in a project, use `abby install` (see [Installing sub-agent files](../reference.md#installing-sub-agent-files)).
 
 ## Agent .md Files (Dual Frontmatter)
 
@@ -80,6 +95,7 @@ The second frontmatter block declares tools and a fuller description:
 | `skills` | no | List of skill definitions for plugin output (see [Plugins guide](plugins.md)) |
 | `context_budget` | no | Tool-output caps and instructions behaviour (see [Context Budget guide](context-budget.md)) |
 | `sandbox` | no | Confinement for the built-in tools: `allowed_dirs`, `bash`, `allow_commands`, `max_command_timeout` (see [Tools guide → Sandbox](tools.md#sandbox)) |
+| `return_contract` | no | Named `fields` a `--subagent` reply must always include in full (see [Context Budget guide → Required report fields](context-budget.md#required-report-fields-return_contract)) |
 | `model` | no | Accepted, but not currently compiled into the binary (same as block 1) |
 
 #### Skills
@@ -124,7 +140,7 @@ abbyfile:
 You are a senior Go developer...
 ```
 
-The `abbyfile:` block accepts `tools`, `memory`, `custom_tools`, `skills`, `context_budget` and `sandbox`, with the same meaning as above. The file is parsed as dual-block first; the single-block form is used only when that fails, and it requires the `abbyfile:` key.
+The `abbyfile:` block accepts `tools`, `memory`, `custom_tools`, `skills`, `context_budget`, `sandbox` and `return_contract`, with the same meaning as above. The file is parsed as dual-block first; the single-block form is used only when that fails, and it requires the `abbyfile:` key.
 
 ## Available Tools
 

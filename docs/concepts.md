@@ -256,7 +256,7 @@ Built-in tools run inside a sandbox declared by the agent's `sandbox:` frontmatt
 - You want maximum portability (just markdown folders)
 
 **Use Sub-agents when:**
-- You need context isolation (verbose output shouldn't pollute main context) — note: an Abbyfile agent built with `abby build --subagent` also gets this, running in its own context window and returning a bounded summary; see the [Context Budget Guide](./guides/context-budget.md)
+- You need context isolation (verbose output shouldn't pollute main context) — note: an Abbyfile agent built with `abby build --subagent` also gets this, running in its own context window with the agent's own MCP tools and returning a bounded summary (an agent that needs only native tools can skip the binary with `binary: false`); see the [Context Budget Guide](./guides/context-budget.md#the---subagent-flag)
 - The task is exploratory or one-shot (no persistent state needed)
 - You're delegating independent work units
 

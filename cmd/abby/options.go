@@ -17,6 +17,9 @@ type installOptions struct {
 	Global       bool
 	DryRun       bool
 	SkipChecksum bool // Task 7
+	// Force lets install replace a sub-agent file it did not write, or
+	// one edited since it did.
+	Force bool
 	// BinDir overrides the binary install directory; "" means
 	// installBinDir(Global). update sets this to the entry's existing
 	// directory so a re-install replaces the binary in place.

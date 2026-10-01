@@ -15,9 +15,14 @@ type Entry struct {
 	Name        string `json:"name"`
 	Source      string `json:"source"` // "local" or "github.com/owner/repo/agent"
 	Version     string `json:"version"`
-	Path        string `json:"path"`                  // absolute path to installed binary
+	Path        string `json:"path"`                  // absolute path to installed binary; "" for a binary: false agent
 	Scope       string `json:"scope"`                 // "local" or "global"
 	InstalledAt string `json:"installedAt,omitempty"` // RFC3339 timestamp
+	// AgentFile is the absolute path of the installed Claude Code sub-agent
+	// file, and AgentFileSHA256 its digest when abby wrote it, so doctor
+	// can report later edits. Both empty when no file was installed.
+	AgentFile       string `json:"agentFile,omitempty"`
+	AgentFileSHA256 string `json:"agentFileSha256,omitempty"`
 }
 
 // Registry is a collection of installed agent entries.

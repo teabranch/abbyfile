@@ -77,7 +77,7 @@ func newDoctorCommand() *cobra.Command {
 				if deps.writers, err = runtimecfg.Resolve(runtimeFlag, perEntry); err != nil {
 					return err
 				}
-				if printChecks(cmd.OutOrStdout(), fmt.Sprintf("%s (v%s, %s, %s)", e.Name, e.Version, e.Scope, e.Path), diagnoseAgent(e, deps)) {
+				if printChecks(cmd.OutOrStdout(), fmt.Sprintf("%s (v%s, %s, %s)", e.Name, e.Version, e.Scope, installedPath(e)), diagnoseAgent(e, deps)) {
 					failed = true
 				}
 			}
@@ -117,6 +117,12 @@ func doctorTargets(reg *registry.Registry, names []string) ([]registry.Entry, er
 }
 
 func diagnoseAgent(e registry.Entry, d doctorDeps) []check {
+	if e.Path == "" { // binary: false: only a sub-agent file was installed
+		if e.AgentFile == "" {
+			return []check{{statusFail, "registry entry has neither a binary nor an agent file — reinstall with `abby install`"}}
+		}
+		return agentFileChecks(e)
+	}
 	var cs []check
 	fi, err := os.Stat(e.Path)
 	if err != nil || fi.Mode()&0o111 == 0 {
@@ -194,7 +200,7 @@ func diagnoseAgent(e registry.Entry, d doctorDeps) []check {
 			cs = append(cs, check{statusWarn, "Codex loads project .codex/config.toml only in trusted projects"})
 		}
 	}
-	return cs
+	return append(cs, agentFileChecks(e)...)
 }
 
 // legacyChecks reports entries in ~/.claude/mcp.json (written by abby <= v0.11; never read by Claude Code).

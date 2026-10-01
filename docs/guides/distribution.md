@@ -34,7 +34,7 @@ abby publish              Cross-compile + create GitHub Release
 abby install <ref>        Download from GitHub Releases + wire MCP
 abby update [name]        Check for newer version, re-download
 abby list                 Show installed agents
-abby uninstall <name>     Remove binary, MCP entry, registry entry
+abby uninstall <name>     Remove binary, MCP entry, sub-agent file, registry entry
 ```
 
 All installed agents are tracked in a registry at `~/.abbyfile/registry.json`.
@@ -181,6 +181,8 @@ abby install -g my-agent               # /usr/local/bin/ + global MCP config + r
 abby install --runtime codex my-agent  # target Codex specifically
 ```
 
+A local install also installs the agent's sub-agent file, if `abby build` emitted one (`--subagent`, or an agent marked `binary: false`), into `.claude/agents/` (or `~/.claude/agents/` with `-g`). It won't overwrite a file abby didn't write, or one edited since, without `--force`. See [Installing sub-agent files](../reference.md#installing-sub-agent-files).
+
 ## Where abby registers agents
 
 abby registers each installed agent as an MCP server entry in the target runtime's own config file. `--runtime` (default `auto`) selects which runtimes a given command targets: `auto` detects installed runtimes (falling back to Claude Code, project scope, if none is detected), `all` targets every supported runtime, or name one directly (`claude-code`, `codex`, `gemini`).
@@ -274,7 +276,8 @@ Pass `--insecure-skip-checksum` to bypass this, with a prominent warning printed
 - `--describe` succeeds, run in the agent's own project root (so a sandbox's `allowed_dirs` reports the agent's directory, not wherever `doctor` was invoked from) — and shows the effective sandbox and any sandbox warnings;
 - the MCP handshake succeeds on both protocol eras (`server/discover` for 2026-07-28, `initialize` for the legacy 2025-11-25);
 - each targeted runtime has an entry for the agent, it points at the registered binary, and its timeout isn't stale versus what the current binary needs (a warning suggests reinstalling);
-- Codex project-scope entries get a reminder that Codex only loads `.codex/config.toml` in trusted projects.
+- Codex project-scope entries get a reminder that Codex only loads `.codex/config.toml` in trusted projects;
+- an installed sub-agent file exists (a failure if not), hasn't been edited since install, and carries the same version as the agent (warnings otherwise). A `binary: false` agent gets only these checks.
 
 It also reports any entries left in the legacy `~/.claude/mcp.json` (written by abby ≤ v0.11; Claude Code never reads that file), with a removal hint. `doctor` only ever reads config — it never writes, backs up, or creates a `.abbyfile.bak`. It exits non-zero if any check failed; warnings alone don't fail the command. `--runtime` and `--config-method` are accepted like the other commands, for symmetry.
 
@@ -288,6 +291,10 @@ my-agent (v1.0.0, local, /Users/you/project/.abbyfile/bin/my-agent)
   ✓ serve-mcp speaks 2026-07-28 (server/discover)
   ✓ serve-mcp speaks 2025-11-25 (initialize)
   ✓ claude-code /Users/you/project/.mcp.json → /Users/you/project/.abbyfile/bin/my-agent
+  ✓ agent file /Users/you/project/.claude/agents/my-agent.md
+reviewer (v0.4.0, local, /Users/you/project/.claude/agents/reviewer.md)
+  ✓ agent file /Users/you/project/.claude/agents/reviewer.md
+  ! agent file edited since install — `abby install --force reviewer` restores the built version
 legacy config
   ! /Users/you/.claude/mcp.json has entries old-agent written by abby < v0.12; Claude Code never reads this file — reinstall them with `abby install --global`, then delete /Users/you/.claude/mcp.json
 ```

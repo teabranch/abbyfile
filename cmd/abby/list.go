@@ -70,7 +70,7 @@ func runList(jsonOutput bool) error {
 		if len(installed) > 10 {
 			installed = installed[:10] // show date only
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", e.Name, e.Version, e.Source, e.Scope, installed, e.Path)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", e.Name, e.Version, e.Source, e.Scope, installed, installedPath(e))
 	}
 	return w.Flush()
 }
