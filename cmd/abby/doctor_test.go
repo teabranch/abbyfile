@@ -182,7 +182,7 @@ func TestDiagnoseCodexMissingToolTimeout(t *testing.T) {
 		}
 		return textOf(diagnoseAgent(registry.Entry{Name: "agent", Path: bin, Scope: "local"}, deps))
 	}
-	if s := diagnose("2m"); !strings.Contains(s, "codex has no tool_timeout_sec (Codex default 1m0s)") || !strings.Contains(s, "2m10s") {
+	if s := diagnose("2m"); !strings.Contains(s, "codex has no tool_timeout_sec (Codex default 60s)") || !strings.Contains(s, "2m10s") {
 		t.Errorf("want a missing-timeout warning for Codex:\n%s", s)
 	}
 	if s := diagnose("30s"); strings.Contains(s, "tool_timeout_sec") {

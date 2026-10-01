@@ -789,6 +789,6 @@ func Generate(def *definition.AgentDef, skills []SkillFile, cfg GenerateConfig) 
 Creates a `<outputDir>/<name>.claude-plugin/` directory containing:
 
 - `.claude-plugin/plugin.json` — name, version, description, `"abbyfile": true`
-- `.mcp.json` — `{ "mcpServers": { "<name>": { "command": "./<name>", "args": ["serve-mcp"] } } }`
+- `.mcp.json` — one `mcpServers.<name>` entry with `command: "./<name>"` and `args: ["serve-mcp"]` (no `type` or `timeout`; the plugin runs the bundled binary)
 - `<name>` — copy of the compiled binary (executable)
 - `skills/<skill-name>/SKILL.md` — for each skill, with frontmatter (name, description) + content

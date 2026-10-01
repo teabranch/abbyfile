@@ -84,8 +84,11 @@ Claude Code discovers MCP servers through `.mcp.json` in the project root.
 {
   "mcpServers": {
     "my-agent": {
+      "type": "stdio",
       "command": "./my-agent",
-      "args": ["serve-mcp"]
+      "args": [
+        "serve-mcp"
+      ]
     }
   }
 }
@@ -134,12 +137,18 @@ Register multiple agents in the same `.mcp.json`:
 {
   "mcpServers": {
     "go-pro": {
+      "type": "stdio",
       "command": "./build/go-pro",
-      "args": ["serve-mcp"]
+      "args": [
+        "serve-mcp"
+      ]
     },
     "tool-eng": {
+      "type": "stdio",
       "command": "./build/tool-eng",
-      "args": ["serve-mcp"]
+      "args": [
+        "serve-mcp"
+      ]
     }
   }
 }
