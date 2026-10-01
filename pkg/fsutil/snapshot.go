@@ -60,7 +60,8 @@ func ReadSnapshot(path string) (*Snapshot, error) {
 // (same mode) and returns that path; otherwise backupPath is "". Returns
 // ErrChangedOnDisk, writing nothing, if the file no longer matches Data.
 // When running as root and the existing file belongs to another user, the
-// new file and the backup are chowned to that user before their renames.
+// new file and the backup are chowned to that user before their renames; a
+// file that didn't exist takes the owner of its nearest existing directory.
 func (s *Snapshot) Commit(data []byte) (backupPath string, err error) {
 	current, readErr := os.ReadFile(s.Target)
 	switch {
@@ -71,13 +72,21 @@ func (s *Snapshot) Commit(data []byte) (backupPath string, err error) {
 	case readErr != nil && s.Exists:
 		return "", fmt.Errorf("%s: %w (it was deleted)", s.Path, ErrChangedOnDisk)
 	}
+	ancestor, missing := missingDirs(filepath.Dir(s.Target))
 	if err := os.MkdirAll(filepath.Dir(s.Target), 0o755); err != nil {
 		return "", fmt.Errorf("creating directory for %s: %w", s.Path, err)
 	}
-	// Under root, keep a user's file (and its backup) owned by that user.
+	// Under root, keep a user's file (and its backup) owned by that user; a
+	// new file, and any directories just created for it, go to the owner of
+	// the directory they were created in.
 	var restoreOwner func(*os.File) error
 	if s.Exists {
 		restoreOwner = restoreOwnerFunc(s.Target)
+	} else {
+		var err error
+		if restoreOwner, err = inheritOwnerFunc(ancestor, missing); err != nil {
+			return "", err
+		}
 	}
 	if s.Exists {
 		bp := s.Target + BackupSuffix
@@ -95,4 +104,22 @@ func (s *Snapshot) Commit(data []byte) (backupPath string, err error) {
 		return backupPath, fmt.Errorf("writing %s: %w", s.Path, err)
 	}
 	return backupPath, nil
+}
+
+// missingDirs returns the nearest existing ancestor of dir (dir itself when
+// it exists) and the directories below it that don't exist yet, outermost
+// first.
+func missingDirs(dir string) (ancestor string, missing []string) {
+	for {
+		if _, err := os.Stat(dir); err == nil {
+			break
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		missing = append([]string{dir}, missing...)
+		dir = parent
+	}
+	return dir, missing
 }

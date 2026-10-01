@@ -3,15 +3,17 @@
 package fsutil
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"syscall"
 )
 
-// geteuid and chownFile are replaced in tests.
+// geteuid, chownFile and chownPath are replaced in tests.
 var (
 	geteuid   = os.Geteuid
 	chownFile = func(f *os.File, uid, gid int) error { return f.Chown(uid, gid) }
+	chownPath = os.Lchown
 )
 
 // ownerToRestore decides whether a rewrite of the file described by fi, by a
@@ -39,4 +41,26 @@ func restoreOwnerFunc(path string) func(*os.File) error {
 		return nil
 	}
 	return func(f *os.File) error { return chownFile(f, o.uid, o.gid) }
+}
+
+// inheritOwnerFunc is restoreOwnerFunc for a file that doesn't exist yet:
+// under root, the directories in created (made by Commit, outermost first)
+// are chowned now to the owner of ancestor, the nearest directory that
+// already existed, and the returned hook chowns the new file the same way.
+// It returns nil when no chown is needed.
+func inheritOwnerFunc(ancestor string, created []string) (func(*os.File) error, error) {
+	fi, err := os.Stat(ancestor)
+	if err != nil {
+		return nil, nil
+	}
+	o, need := ownerToRestore(fi, geteuid())
+	if !need {
+		return nil, nil
+	}
+	for _, d := range created {
+		if err := chownPath(d, o.uid, o.gid); err != nil {
+			return nil, fmt.Errorf("setting owner of %s: %w", d, err)
+		}
+	}
+	return func(f *os.File) error { return chownFile(f, o.uid, o.gid) }, nil
 }
