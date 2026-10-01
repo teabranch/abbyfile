@@ -47,7 +47,7 @@ The system prompt reaches Claude Code through multiple channels:
 3. **`get_instructions` MCP tool** -- returns the prompt text; registered only when `eager_instructions` is false (the default), in which case the handshake carries a stub pointing at it
 4. **`system` MCP prompt template** -- available via the MCP prompts API
 
-The tool, flag and prompt template return the same prompt text (or its override); the `get_instructions` tool additionally appends a `## Model Preference` section when a model hint is configured.
+The tool, flag and prompt template return the same prompt text (or its override). When a model hint is configured, the `get_instructions` tool and the full (eager) handshake instructions additionally append a `## Model Preference` section; the flag and the prompt template do not.
 
 ## Override for Development
 

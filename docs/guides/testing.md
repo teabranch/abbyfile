@@ -62,6 +62,32 @@ func TestBuiltinTool(t *testing.T) {
 }
 ```
 
+### Sandboxed Builtins
+
+The shipped builtins (`read_file`, `run_command`, …) are context-aware (`HandlerCtx`) and read their [sandbox](tools.md#sandbox) from the context. Build a sandbox rooted at a temp dir and call `HandlerCtx` directly:
+
+```go
+func TestReadFile_OutsideDenied(t *testing.T) {
+    root, _ := filepath.EvalSymlinks(t.TempDir()) // resolve e.g. macOS /var -> /private/var
+    sb, err := sandbox.New(sandbox.Config{}, root) // zero Config = sandbox.Default(): allowed_dirs ["."] = root
+    if err != nil {
+        t.Fatal(err)
+    }
+    ctx := sandbox.NewContext(context.Background(), sb)
+
+    var readFile *tools.Definition
+    for _, d := range builtins.All() {
+        if d.Name == "read_file" {
+            readFile = d
+        }
+    }
+    _, err = readFile.HandlerCtx(ctx, map[string]any{"path": "/etc/hosts"})
+    // err: path "/etc/hosts" is outside the allowed directories (...)
+}
+```
+
+Calling `Handler` instead runs under the default sandbox with no deadline. See `pkg/builtins/sandbox_helpers_test.go` and `files_sandbox_test.go` for the helpers and the full suite.
+
 ### Timeout Testing
 
 ```go
@@ -242,6 +268,8 @@ func TestBridge(t *testing.T) {
 
 Test memory resources, prompts, and error handling in the same pattern. See `pkg/mcp/bridge_test.go` for the full test suite.
 
+Agents speak both protocol eras (MCP 2026-07-28 via `server/discover`, and `initialize` for 2025-11-25 / 2025-06-18 clients). To pin a client to one era, pass `&gomcp.ClientSessionOptions{ProtocolVersion: "2025-11-25"}` to `client.Connect` and check `session.InitializeResult().ProtocolVersion`. `pkg/mcp/conformance_test.go` covers this (`TestDualEra`) and checks that tool, prompt and resource lists don't change between connections (`TestListsInvariantAcrossConnections`); `pkg/mcp/wire_test.go` holds a golden `tools/list` wire test.
+
 ## Integration Testing
 
 Integration tests build the binary and exercise all subcommands. They live in `internal/integration/` and use the `//go:build integration` tag.
@@ -250,30 +278,48 @@ Integration tests build the binary and exercise all subcommands. They live in `i
 # Run integration tests
 make integration
 # Equivalent to:
-go test -tags integration -race -count=1 -timeout 60s ./internal/integration/
+go test -tags integration -race -count=1 -timeout 120s ./internal/integration/
 ```
 
 Integration tests are not included in the normal `go test ./...` run.
 
 ### Test Setup
 
-The `TestMain` function builds the binary once for all tests:
+The `TestMain` function builds the abby CLI once, then uses it to build a test agent from a temp Abbyfile against the local module:
 
 ```go
 //go:build integration
 
 func TestMain(m *testing.M) {
+    // Never touch a real runtime: force the file method (no `claude`/`gemini`
+    // CLI calls) and ignore the developer's own runtime config dirs.
+    os.Setenv("ABBY_CONFIG_METHOD", "file")
+    os.Unsetenv("CLAUDE_CONFIG_DIR")
+    os.Unsetenv("CODEX_HOME")
+
+    projectRoot := findProjectRoot()
     tmp, _ := os.MkdirTemp("", "abbyfile-integration-*")
     defer os.RemoveAll(tmp)
 
-    binaryPath = filepath.Join(tmp, "my-agent")
-    cmd := exec.Command("go", "build", "-o", binaryPath, "./cmd/my-agent")
-    cmd.Dir = findProjectRoot()
+    abbyBin = filepath.Join(tmp, "abby-cli")
+    cmd := exec.Command("go", "build", "-o", abbyBin, "./cmd/abby")
+    cmd.Dir = projectRoot
     cmd.Run()
 
+    // ... write tmp/Abbyfile and tmp/agents/test-agent.md ...
+
+    buildDir := filepath.Join(tmp, "build")
+    cmd = exec.Command(abbyBin, "build", "-f", filepath.Join(tmp, "Abbyfile"),
+        "-o", buildDir, "--module-dir", projectRoot)
+    cmd.Dir = tmp
+    cmd.Run()
+
+    binaryPath = filepath.Join(buildDir, "test-agent")
     os.Exit(m.Run())
 }
 ```
+
+Tests that run `abby` commands also give each child process its own `HOME=<t.TempDir()>`, so the registry and user-scope configs (`~/.claude.json`, `~/.codex/`, `~/.gemini/`) stay in the temp dir.
 
 ### Important: Use `cmd.Output()`, not `CombinedOutput()`
 
@@ -323,10 +369,12 @@ make fmt          # auto-format all files
 make fmtcheck     # check formatting (CI-friendly, fails on unformatted)
 make vet          # static analysis
 make test         # unit tests with race detector
-make build        # build all binaries
+make build        # build the abby CLI → build/abby
 make integration  # integration tests (builds binary first)
-make clean        # remove built binaries
+make clean        # remove build/, .abbyfile/, .mcp.json, .codex/config.toml, .gemini/settings.json
 ```
+
+`make clean` deletes those runtime config files in the repo root outright, including any entries you added by hand.
 
 ## CI Setup Patterns
 
@@ -334,9 +382,9 @@ A typical CI workflow:
 
 ```yaml
 steps:
-  - uses: actions/setup-go@v5
+  - uses: actions/setup-go@v6
     with:
-      go-version: '1.24'
+      go-version-file: go.mod
 
   - name: Lint and test
     run: make all
@@ -431,7 +479,13 @@ func TestPublishDryRun(t *testing.T) {
 }
 ```
 
-Distribution tests use `HOME` override for registry isolation and reuse the test agent binary built by `TestMain`.
+Distribution tests use `HOME` override for registry isolation, run with `ABBY_CONFIG_METHOD=file`, and reuse the test agent binary built by `TestMain`. The same suite also covers:
+
+- `TestInstallAllLocal` (`install --all` from `./build/`)
+- `install_config_test.go` -- `install --dry-run --runtime all` writes nothing, and install through a fake `claude` CLI on `PATH`
+- `doctor_test.go` -- `abby doctor` after an install, including from an unrelated directory
+- `sandbox_test.go` -- the sandbox end to end through a built agent
+- `stdio_test.go` -- stdout carries only JSON-RPC in both protocol eras, even with sandbox warnings
 
 ### Unit Testing the Registry
 
@@ -475,21 +529,27 @@ func TestGetRelease(t *testing.T) {
 
 ## Test Count
 
-The project currently has 110+ passing tests across all packages:
+The project currently has 500+ unit tests across all packages:
 
 ```
-pkg/agent       -- agent creation, options, defaults
-pkg/tools       -- registry, executor, validation
+pkg/agent       -- agent creation, options, defaults, sandbox wiring
+pkg/tools       -- registry, executor, validation, shaping, spill, process groups
 pkg/memory      -- file store, limits, concurrency, manager tools
 pkg/prompt      -- loader, override, paths
-pkg/builtins    -- builtin tool implementations
-pkg/definition  -- Abbyfile + agent .md parsing (including skills)
-pkg/builder     -- code generation templates
-pkg/mcp         -- bridge, tools, annotations, resources, prompts
+pkg/builtins    -- builtin tool implementations, sandbox confinement
+pkg/sandbox     -- path confinement, command allowlist, argv parsing
+pkg/definition  -- Abbyfile + agent .md parsing (skills, context_budget, sandbox)
+pkg/builder     -- code generation templates, build notes
+pkg/config      -- config.yaml loading and overrides
+pkg/mcp         -- bridge, tools, annotations, resources, prompts, protocol eras
 pkg/plugin      -- plugin directory generation
+pkg/subagent    -- sub-agent file emission
 pkg/registry    -- installed agents tracking, atomic save/load
-pkg/github      -- GitHub Releases client, version comparison, ref parsing
-internal/cli    -- root command, validate, flags
+pkg/runtimecfg  -- runtime config writers (CLI + file), JSON/TOML edits, redaction
+pkg/fsutil      -- atomic writes, ownership, snapshots
+pkg/github      -- GitHub Releases client, checksums, version comparison, ref parsing
+internal/cli    -- root command, validate, config, flags
+cmd/abby        -- install, update, doctor, checksum, config-change planning
 ```
 
-Plus integration tests that exercise the full binary end-to-end, including distribution commands (list, install, uninstall, publish --dry-run).
+Plus integration tests that exercise the full binary end-to-end, including distribution commands (list, install, uninstall, doctor, publish --dry-run), and benchmarks under `benchmarks/` (see `make bench`).

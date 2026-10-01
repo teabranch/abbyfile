@@ -67,7 +67,7 @@ You are a helpful coding assistant. Use your tools to read and modify files.
 ```
 
 **Block 1** sets identity: `name` and `memory` (any value enables it).
-**Block 2** sets capabilities: `tools` (comma-separated), `description`, and optionally `skills` for plugin output.
+**Block 2** sets capabilities: `tools` (comma-separated), `description`, and optionally `skills` for plugin output, `context_budget` for tool-output shaping, and `sandbox` for built-in tool confinement.
 **Body** is the system prompt baked into the binary.
 
 Run `abby build` and the framework generates Go source and compiles a standalone binary — no Go code required. Add `--plugin` to also generate a Claude Code plugin directory with skills. See the [Abbyfile Format Guide](./guides/abbyfile-format.md) for full details.
@@ -86,6 +86,7 @@ Plugin directory              .claude-plugin/ with binary, MCP config, skills
        v
 agent.Execute()        Wire Cobra CLI, register tools, init memory
        |
+       +-- effectiveSandbox()        Resolve compiled sandbox + config.yaml overrides
        +-- prompt.NewLoader()        Load embedded prompt (or override)
        +-- tools.NewRegistry()       Register all tool definitions
        +-- memory.NewFileStore()     Init file-based KV store (if enabled)
@@ -94,14 +95,14 @@ agent.Execute()        Wire Cobra CLI, register tools, init memory
        +-- cli.NewRunToolCommand()   Add run-tool subcommand
        +-- cli.NewServeMCPCommand()  Add serve-mcp subcommand
        +-- cli.NewValidateCommand()  Add validate subcommand
-       +-- cli.NewMemoryCommand()    Add memory subcommand group (if enabled)
        +-- cli.NewConfigCommand()    Add config subcommand (get/set/reset/path)
+       +-- cli.NewMemoryCommand()    Add memory subcommand group (if enabled)
        |
        v
 cmd.Execute()          Run the Cobra command tree
 ```
 
-`abby build` parses the Abbyfile and each agent's `.md` file, generates Go source with the prompt embedded, and compiles a standalone binary. With `--plugin`, it also generates a Claude Code plugin directory wrapping the binary with its MCP config and any declared skills. At runtime, `Execute()` creates the prompt loader, tool registry, memory store, and the full Cobra CLI tree, then hands off to Cobra.
+`abby build` parses the Abbyfile and each agent's `.md` file, generates Go source with the prompt embedded, and compiles a standalone binary. With `--plugin`, it also generates a Claude Code plugin directory wrapping the binary with its MCP config and any declared skills. At runtime, `Execute()` resolves the effective sandbox, creates the prompt loader, tool registry, memory store, and the full Cobra CLI tree, then hands off to Cobra.
 
 ## Distribution Lifecycle
 
@@ -117,16 +118,16 @@ abby publish      Cross-compile for darwin/linux × amd64/arm64
 GitHub Releases        Versioned binary assets per platform
        |
        v
-abby install      Download binary → verify (--describe) → wire MCP
+abby install      Download binary → verify checksum + --describe → plan → wire MCP
        |               Track in ~/.abbyfile/registry.json
        v
-abby update       Check for newer release → re-download → replace
+abby update       Check for newer release → re-download + verify → replace in place
        |
        v
 abby uninstall    Remove binary + MCP entry + registry entry
 ```
 
-The registry at `~/.abbyfile/registry.json` tracks every installed agent with its source (local or remote), version, path, and scope. `abby list` shows all tracked agents.
+The registry at `~/.abbyfile/registry.json` tracks every installed agent with its source (local or remote), version, path, and scope. `abby list` shows all tracked agents, and `abby doctor` checks each one: binary, runtime config entries, MCP handshake, and effective sandbox. `install`, `build` and `uninstall` take `--dry-run` to preview every config change without writing anything. See the [Distribution Guide](./guides/distribution.md).
 
 ### Repository Structure
 
@@ -155,7 +156,7 @@ my-agent/
 
 **As a publisher**, you maintain the repo, write the prompt and tool definitions, and run `abby publish` to create a GitHub Release with cross-compiled binaries. Versioning follows semver — bump the version in the Abbyfile, publish, and consumers get a deterministic upgrade path.
 
-**As a consumer**, you run `abby install github.com/org/repo/agent` and the framework handles everything: downloading the right binary for your OS/arch, verifying it, wiring the MCP entry, and tracking it for future updates. You never touch Go, YAML, or config files.
+**As a consumer**, you run `abby install github.com/org/repo/agent` and the framework handles everything: downloading the right binary for your OS/arch, verifying it against the release checksum, wiring the MCP entry, and tracking it for future updates. You never touch Go, YAML, or config files.
 
 ### Repository Patterns
 
@@ -222,12 +223,13 @@ While the binary ships with compiled defaults, consumers can override certain se
 ```bash
 ./my-agent config set model opus        # override the model hint
 ./my-agent config set tool_timeout 120s # override tool timeout
+./my-agent config set sandbox.allow_commands '["go test ./..."]'  # allow a command
 ./my-agent config get                   # show all (compiled + overrides)
 ./my-agent config reset model           # revert to compiled default
 ./my-agent config path                  # print config file location
 ```
 
-Overridable fields: `model`, `tool_timeout`, `memory_limits`, `command_policy`. Overrides are loaded at startup — the `--describe` manifest and MCP server instructions reflect the effective (post-override) values.
+Overridable fields: `model`, `tool_timeout`, `memory_limits`, `command_policy`, `context_budget.*`, and `sandbox.*` (see the [Reference](./reference.md#config) for which can be set from the CLI). Overrides are loaded at startup — the `--describe` manifest and MCP server instructions reflect the effective (post-override) values, so restart the runtime session after a change.
 
 Install-time overrides are also supported:
 
@@ -236,6 +238,10 @@ abby install --model opus github.com/acme/my-agent
 ```
 
 This writes the override to `config.yaml` during install so it takes effect immediately.
+
+## Tool Sandbox
+
+Built-in tools run inside a sandbox declared by the agent's `sandbox:` frontmatter block. File tools (`read_file`, `write_file`, `edit_file`, `glob_files`, `grep_search`) only touch paths inside `allowed_dirs` (default: the working directory the runtime starts the server in). `run_command` runs only commands listed in `allow_commands`, with no shell, capped at `max_command_timeout` (default 120s); `bash: unrestricted` runs commands through `sh -c` instead. With no allowlist, `run_command` refuses every call. Every opt-out prints a warning, and a broken override never widens access. See [Tools → Sandbox](./guides/tools.md#sandbox).
 
 ## When to Use What
 

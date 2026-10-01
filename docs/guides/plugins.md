@@ -13,17 +13,20 @@ Abbyfile can optionally generate a [Claude Code plugin](https://docs.anthropic.c
 The binary is always the core artifact. The plugin is an optional output format that adds richer Claude Code integration.
 
 ```
-abby build              → build/my-agent + .mcp.json          (default)
-abby build --plugin     → build/my-agent + .mcp.json          (same as above)
-                               build/my-agent.claude-plugin/       (new)
+abby build              → build/my-agent + MCP config for detected runtimes   (default)
+abby build --plugin     → build/my-agent + MCP config for detected runtimes   (same as above)
+                          build/my-agent.claude-plugin/                       (new)
+                          build/.claude/agents/my-agent.md                    (sub-agent, see Context Budget guide)
 ```
+
+The MCP config step is the same as a plain `abby build` (project-scope entries in `.mcp.json`, `.codex/config.toml` and/or `.gemini/settings.json`; see the [Distribution guide](./distribution.md)). `--plugin` also emits the `--subagent` file described in the [Context Budget guide](./context-budget.md#the---subagent-flag). With `--dry-run`, nothing is built, so the plugin and sub-agent outputs are skipped.
 
 ## Plugin Directory Layout
 
 ```
 build/my-agent.claude-plugin/
   .claude-plugin/plugin.json     # plugin metadata
-  .mcp.json                      # MCP config pointing to local binary
+  .mcp.json                      # MCP config: command "./my-agent", args ["serve-mcp"]
   my-agent                       # copy of compiled binary
   skills/
     review-pr/SKILL.md           # skill files (if declared)
@@ -38,6 +41,8 @@ Skills are markdown files referenced in the agent's `.md` frontmatter (block 2):
 ---
 description: "A Go development assistant"
 tools: Read, Write, Bash
+sandbox:
+  allow_commands: ["go test ./..."]
 skills:
   - name: review-pr
     description: "Review a pull request for quality"
@@ -66,6 +71,8 @@ abby build --plugin
 
 This builds the binary (as normal) **and** generates the plugin directory in the output folder.
 
+The bundled binary carries its compiled-in [sandbox](./tools.md#sandbox): file tools stay inside `sandbox.allowed_dirs` (default: the directory the server is started in), and a `Bash` agent needs `sandbox.allow_commands` (or `sandbox.bash: unrestricted`) before `run_command` will run anything.
+
 ## Testing Locally
 
 Load the plugin directory directly in Claude Code:
@@ -89,6 +96,8 @@ memory: project
 ---
 description: "A Go development assistant"
 tools: Read, Write, Bash
+sandbox:
+  allow_commands: ["go test ./...", "go vet ./..."]
 skills:
   - name: review-pr
     description: "Review a Go pull request"

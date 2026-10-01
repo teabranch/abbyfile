@@ -18,11 +18,11 @@ Both layers share one config surface: the `context_budget:` frontmatter block, o
 | | Layer B: output shaping | Layer A: sub-agent isolation |
 |---|---|---|
 | What it does | Shrinks individual tool outputs (head-tail elision, spill-to-URI, or passthrough) | Runs the whole agent in a separate context window via the runtime's Task tool |
-| Where it applies | Always, in MCP-server mode and inside an emitted sub-agent | Only when built with `abby build --subagent` (or `--plugin`) |
+| Where it applies | Always, on the agent's own tools (`serve-mcp` and `run-tool`) | Only when built with `abby build --subagent` (or `--plugin`) |
 | Default | On (see [Defaults](#defaults) below) | Off — opt-in |
 | Enforced by | `pkg/tools/shaper.go`, hooked into `Executor.Run` | `pkg/subagent`, emitted at build time |
 
-Output shaping is on by default and protects every agent, whether or not it's ever run as a sub-agent. Sub-agent emission is an additional, opt-in layer for callers who want true isolation (the runtime keeps the packaged agent's tool chatter out of the main conversation entirely, seeing only the final summary).
+Output shaping is on by default and protects every agent's own tools. Sub-agent emission is an additional, opt-in layer for callers who want true isolation (the runtime keeps the sub-agent's tool chatter out of the main conversation entirely, seeing only the final summary). The two don't stack automatically — see the note under [`--subagent`](#the---subagent-flag).
 
 ## The `context_budget:` Frontmatter Block
 
@@ -71,10 +71,10 @@ Validation happens at parse time (`pkg/definition/agent.go`'s `validateContextBu
 
 ### `head-tail` (default)
 
-Keeps the first `head_lines` and last `tail_lines`, replacing the middle with a marker:
+Keeps the first `head_lines` and last `tail_lines`, replacing the middle with a marker (the elided line count, then the size of the whole original output):
 
 ```
-[… 1,860 lines / 240 KB elided — full output not returned …]
+[… 1860 lines / 245760 bytes elided — full output not returned …]
 ```
 
 The assembled preview is then hard-truncated to `max_output_bytes` as a backstop, so it's a guaranteed floor even against pathological input (e.g. one 10 MB line). Use this for tools whose most useful signal is at the start (a summary or error banner) and the end (the final result), such as build logs and test runners.
@@ -98,11 +98,11 @@ If a spill write fails (or no sink is available), the shaper never drops the cap
 
 **Accumulation.** Every distinct overflowing output writes a new key, `spill-<tool>-<hash>` (content-addressed by a hash of the raw output), into the same store as the agent's own `memory_write`/`memory_read` tools — nothing currently evicts or rotates these keys. If the agent sets capacity limits via `agent.WithMemoryLimits(memory.Limits{...})` (see [Memory Guide](./memory.md#limits-configuration)), accumulated spill keys count toward `MaxKeys`/`MaxTotalBytes` alongside the agent's own writes, and enough spill traffic can make a later `memory_write` call fail once a limit is reached. A spill whose value is itself larger than `MaxValueBytes` fails to write and falls back to the `head-tail` degrade path described above, on that call only.
 
-If you use `on_overflow: spill` together with memory limits, consider also setting a `TTL` (`memory.Limits{TTL: 72 * time.Hour}` at build time, or the equivalent `ttl` duration string, e.g. `"72h"`, under `memory_limits:` in `~/.abbyfile/<name>/config.yaml` at runtime — `config set` does not yet expose `memory_limits.*` fields, so a runtime override means hand-editing that file) so old entries expire. This only marks a key as expired for `Read`/`memory_read` (`pkg/memory/store.go`'s `checkExpired`); nothing currently deletes the underlying file or excludes it from `Keys()`, so it does **not** shrink the `MaxKeys`/`MaxTotalBytes` accounting and does not by itself stop spill accumulation from reaching those limits. Dedicated eviction/rotation for spill keys is a tracked follow-up, not implemented in this release.
+If you use `on_overflow: spill` together with memory limits, consider also setting a `TTL` (`memory.Limits{TTL: 72 * time.Hour}` at build time, or the equivalent `ttl` duration string, e.g. `"72h"`, under `memory_limits:` in `~/.abbyfile/<name>/config.yaml` at runtime — `config set` does not yet expose `memory_limits.*` fields, so a runtime override means hand-editing that file) so old entries expire. Expiry on its own only makes `Read`/`memory_read` fail for that key (`pkg/memory/store.go`'s `checkExpired`); the file stays on disk and in `Keys()`, so it still counts toward `MaxKeys`/`MaxTotalBytes`. Run `./my-agent memory gc` to delete expired keys and free that capacity. Nothing runs `gc` automatically, and there is no dedicated eviction or rotation for spill keys yet.
 
 ### `passthrough`
 
-Returns the raw output unchanged, regardless of size. This is the explicit opt-out — use it (or set the caps to `0`) to restore today's unbounded behavior for a tool you know is always small, or while debugging shaping itself.
+Returns the raw output unchanged, regardless of size. This is the explicit opt-out — use it (or set the caps to `0`) to restore unshaped output for a tool you know is always small, or while debugging shaping itself. (Subprocess output from custom CLI tools and `run_command` is still capped at 10 MB in memory before shaping; see the [Tools guide](./tools.md#sandbox).)
 
 ## Defaults
 
@@ -146,7 +146,7 @@ context_budget.on_overflow: head-tail (compiled)
 context_budget.eager_instructions: false (compiled)
 ```
 
-`context_budget.head_lines`, `context_budget.tail_lines`, and `context_budget.summary_lines` accept `config set` writes and take effect at runtime (they're applied the same way as every other field in `applyConfigOverrides`), but are not yet included in `config get`'s output — check `~/.abbyfile/<name>/config.yaml` directly if you need to confirm an override for those three fields. `per_tool` overrides are authoring-only (frontmatter) for now; they are not exposed through `config set`.
+`context_budget.head_lines`, `context_budget.tail_lines`, and `context_budget.summary_lines` accept `config set` writes and are applied at runtime the same way as every other field (`applyConfigOverrides`), though `summary_lines` is only read when `abby build` emits the sub-agent file, so a runtime override of it changes nothing visible. All three are not yet included in `config get`'s output — check `~/.abbyfile/<name>/config.yaml` directly if you need to confirm an override for those three fields. `per_tool` overrides are authoring-only (frontmatter) for now; they are not exposed through `config set`.
 
 Overrides are stored per-field, so setting one doesn't clobber the others — you can override just `on_overflow` and leave everything else at its compiled default.
 
@@ -160,7 +160,7 @@ abby build --subagent
 → build/.claude/agents/my-agent.md      # Claude Code sub-agent definition
 ```
 
-The emitted file carries the agent's `name`, `description`, `tools`, and `model` hint as frontmatter, followed by the agent's prompt body, followed by a **Return Protocol** section:
+The emitted file carries the agent's `name`, `description` and `tools` as frontmatter (a `model` field is supported by the generator, but `abby build` doesn't pass one yet, so it is omitted), followed by the agent's prompt body, followed by a **Return Protocol** section:
 
 ```markdown
 ## Return Protocol
@@ -172,7 +172,9 @@ they stay in your context, not the caller's. If the caller needs full detail,
 reference where it lives (a path or memory:// URI) instead of inlining it.
 ```
 
-The summary cap (`≤25-line` above) comes from the agent's effective `summary_lines`. When Claude Code's Task tool spawns this file, it runs in its own context window — only the bounded summary text returns to the caller. Layer B still shapes tool output *inside* that isolated window, so the material the LLM is summarizing from is already lean.
+The summary cap (`≤25-line` above) comes from the `summary_lines` in the agent's frontmatter (25 if unset; a `config set context_budget.summary_lines` doesn't change an already-emitted file). When Claude Code's Task tool spawns this file, it runs in its own context window — only the bounded summary text returns to the caller.
+
+Note that `tools:` lists the agent's declared tools by their Claude Code names (`Read`, `Bash`, …). Inside the sub-agent those are Claude Code's own built-in tools, not the packaged binary's MCP tools, so Layer B shaping and the abby [sandbox](./tools.md#sandbox) don't apply to them; Claude Code's own permission settings do.
 
 `--plugin` also emits the sub-agent file (in addition to the plugin directory); `--subagent` is for when you want the sub-agent artifact without the full plugin wrapper.
 

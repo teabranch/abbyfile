@@ -44,7 +44,7 @@ Sets the timeout for tool execution. Default: `30 * time.Second`. Applies to bot
 
 ### `WithMemory(enabled bool) Option`
 
-Enables or disables persistent memory. Default: `false`. When enabled, creates a `FileStore` at `~/.abbyfile/<name>/memory/` and registers four memory tools (`memory_read`, `memory_write`, `memory_list`, `memory_delete`).
+Enables or disables persistent memory. Default: `false`. When enabled, creates a `FileStore` at `~/.abbyfile/<name>/memory/` and registers five memory tools (`memory_read`, `memory_write`, `memory_list`, `memory_delete`, `memory_search`).
 
 ### `WithMemoryLimits(limits memory.Limits) Option`
 
@@ -122,6 +122,7 @@ Commands:
   append <key> <value>    Append content to an existing memory key
   list                    List all memory keys
   delete <key>            Delete a key from memory
+  gc                      Remove expired memory keys
 ```
 
 ### `config`
@@ -452,7 +453,7 @@ func (m *Manager) Tools() []*tools.Definition
 func (m *Manager) FormatKeysAsContext() string
 ```
 
-`Tools()` returns four builtin tool definitions: `memory_read`, `memory_write`, `memory_list`, `memory_delete`.
+`Tools()` returns five builtin tool definitions: `memory_read`, `memory_write`, `memory_list`, `memory_delete`, `memory_search`.
 
 `FormatKeysAsContext()` returns a string like `"Available memory keys: notes, config"` or empty string if no keys.
 

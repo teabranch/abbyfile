@@ -34,6 +34,7 @@ No Go code. No manual config. Just `abby build`.
 - **[MCP Integration](docs/guides/mcp.md)** — Multi-runtime integration via MCP
 - **[Testing](docs/guides/testing.md)** — Unit, integration, and MCP testing
 - **[Benchmarks](docs/guides/benchmarks.md)** — Token cost methodology and results
+- **[Context Budget](docs/guides/context-budget.md)** — Tool-output shaping and sub-agent isolation
 - **[Reference](docs/reference.md)** — All options, subcommands, flags, types
 - **[FAQ](docs/faq.md)** — Common questions
 - **[Development](docs/development.md)** — Contributing to Abbyfile
@@ -77,6 +78,8 @@ tools: Read, Write, Bash
 
 You are a helpful coding assistant. Use your tools to read and modify files.
 ```
+
+Built-in tools are sandboxed: file tools stay inside the working directory, and `Bash` (`run_command`) refuses every call until you list commands under `sandbox.allow_commands` in the second block. See [Tools → Sandbox](docs/guides/tools.md#sandbox).
 
 ### 2. Build and use
 
@@ -128,7 +131,7 @@ Agent Binary
   +-- validate               -> check wiring
 ```
 
-**Supported runtimes:** Claude Code (`.mcp.json`), Codex (`.codex/config.toml`), Gemini CLI (`.gemini/settings.json`).
+**Supported runtimes:** Claude Code (`.mcp.json`; `~/.claude.json` with `--global`), Codex (`.codex/config.toml`; `~/.codex/config.toml`), Gemini CLI (`.gemini/settings.json`; `~/.gemini/settings.json`). See [Where abby registers agents](docs/guides/distribution.md#where-abby-registers-agents).
 
 ---
 

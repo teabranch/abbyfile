@@ -57,7 +57,7 @@ abby install github.com/acme/my-agent
 abby install --all github.com/acme/agent-suite
 ```
 
-That last command downloads the right binaries for your platform, wires them into your MCP-compatible runtime (Claude Code, Codex, Gemini CLI — auto-detected), and tracks them for future updates. No cloning, no building from source, no editing config files.
+That last command downloads the right binaries for your platform, verifies them against the release checksum, wires them into your MCP-compatible runtime (Claude Code, Codex, Gemini CLI — auto-detected), and tracks them for future updates. No cloning, no building from source, no editing config files. Add `--dry-run` to preview every config change first, and run `abby doctor` to check an installed agent end to end.
 
 **The runtime is the brain. The binary is the body** — it provides the instructions, the hands (tools), and the memory. The runtime loads the agent's prompt, discovers its tools via MCP, and handles all reasoning. Abbyfile auto-generates the right MCP config for whichever runtimes you have installed.
 
@@ -75,7 +75,7 @@ Agent Binary
   +-- validate               -> check wiring
 ```
 
-**Supported runtimes:** Claude Code (`.mcp.json`), Codex (`.codex/config.toml`), Gemini CLI (`.gemini/settings.json`). Use `--runtime auto` (default) to auto-detect, or target a specific runtime with `--runtime codex`.
+**Supported runtimes:** Claude Code (`.mcp.json`; `~/.claude.json` with `--global`), Codex (`.codex/config.toml`; `~/.codex/config.toml`), Gemini CLI (`.gemini/settings.json`; `~/.gemini/settings.json`). Use `--runtime auto` (default) to auto-detect, or target a specific runtime with `--runtime codex`. abby uses the runtime's own CLI where it can express the entry, otherwise a backed-up edit of the config file — see [Where abby registers agents](docs/guides/distribution.md#where-abby-registers-agents).
 
 ## Quick Start
 
@@ -104,6 +104,8 @@ tools: Read, Write, Bash
 
 You are a helpful coding assistant. Use your tools to read and modify files.
 ```
+
+Built-in tools are sandboxed: file tools stay inside the working directory, and `Bash` (`run_command`) refuses every call until you list commands under `sandbox.allow_commands` in the second block. See [Tools → Sandbox](docs/guides/tools.md#sandbox).
 
 ### 2. Build and use
 
@@ -152,9 +154,12 @@ abby install --model opus github.com/acme/my-agent
 
 # Show all config (compiled defaults + overrides)
 ./my-agent config get
+
+# Loosen or tighten the tool sandbox
+./my-agent config set sandbox.allow_commands '["go test ./..."]'
 ```
 
-Overrides are stored at `~/.abbyfile/<name>/config.yaml`. The model hint is surfaced to the runtime via MCP server instructions. See the [model-override example](examples/model-override/) for a complete setup.
+Overrides are stored at `~/.abbyfile/<name>/config.yaml`. The model hint is surfaced to the runtime via MCP server instructions. Restart the runtime session after a `config set` so it picks up the change. See the [model-override example](examples/model-override/) for a complete setup.
 
 ## Install
 

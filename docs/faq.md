@@ -30,7 +30,7 @@ Quick decision guide:
 - **Need context isolation?** Use Sub-agents — separate context windows for exploratory or one-shot tasks
 - **Need tools + memory + versioning?** Use Abbyfile — executable MCP tools, persistent memory, and one-command distribution at marginal context cost
 
-These approaches compose well together. An Abbyfile agent can coexist with skills in the same project, and sub-agents can invoke Abbyfile agents' MCP tools. See the **[benchmark comparison](docs/guides/benchmarks.md#skills-vs-sub-agents-vs-abbyfile)** for measured cost data.
+These approaches compose well together. An Abbyfile agent can coexist with skills in the same project, and sub-agents can invoke Abbyfile agents' MCP tools. See the **[benchmark comparison](./guides/benchmarks.md#skills-vs-sub-agents-vs-abbyfile)** for measured cost data.
 
 ## Can I use this without Claude Code?
 
@@ -56,7 +56,7 @@ abby publish --agent my-agent
 abby install github.com/your-org/repo/my-agent
 ```
 
-This cross-compiles for macOS and Linux (amd64 + arm64), creates a GitHub Release via the `gh` CLI, and lets anyone install with a single command.
+This cross-compiles for macOS and Linux (amd64 + arm64), creates a GitHub Release via the `gh` CLI with an `<agent>-sha256sums.txt` checksum asset, and lets anyone install with a single command.
 
 Other options:
 
@@ -75,9 +75,10 @@ Use the `config` subcommand:
 ./my-agent config set tool_timeout 120s   # override tool timeout
 ./my-agent config get                     # see all settings with source
 ./my-agent config reset model             # revert to compiled default
+./my-agent config set sandbox.allow_commands '["go test ./..."]'  # sandbox override
 ```
 
-Overrides are stored at `~/.abbyfile/<name>/config.yaml`. You can also set overrides at install time: `abby install --model opus github.com/owner/repo/agent`.
+Overrides are stored at `~/.abbyfile/<name>/config.yaml`. `context_budget.*` and `sandbox.*` fields can be set the same way. Restart the runtime session (for example Claude Code) after a change — a running MCP session keeps the old settings. You can also set overrides at install time: `abby install --model opus github.com/owner/repo/agent`.
 
 ## What about secrets and configuration?
 
@@ -99,6 +100,14 @@ func myTool() *tools.Definition {
 
 The binary reads env vars at runtime. Nothing sensitive is compiled in.
 
+To have the runtime pass an env var to the MCP server, set it on the entry at install time with the repeatable `--env KEY=VALUE` flag. Project-scope config files are often committed, so prefer a `${VAR}` reference over a literal secret (Claude Code and Gemini CLI expand it):
+
+```bash
+abby install --env 'DEPLOY_TOKEN=${DEPLOY_TOKEN}' github.com/owner/repo/agent
+```
+
+`--dry-run` and the change summary show env values as `***`. See [Entry fields](./guides/distribution.md#entry-fields).
+
 ## How is memory stored?
 
 Plain text files at `~/.abbyfile/<agent-name>/memory/`. Each key is a `.md` file. The content is whatever string the agent writes -- there is no enforced format. You can inspect and edit memory files directly:
@@ -112,7 +121,7 @@ cat ~/.abbyfile/my-agent/memory/notes.md
 
 Not directly. Each agent has its own memory directory based on its name. If two agents need to share state, they can:
 
-- Read each other's files from the filesystem (if the builtin tool allows it)
+- Read each other's files from the filesystem (only if that directory is inside the reading agent's `sandbox.allowed_dirs`)
 - Use a shared external store (database, file) accessed via custom tools
 - Have Claude Code mediate between them using MCP tool calls
 
@@ -127,6 +136,17 @@ The `validate` subcommand catches this:
 At runtime, `run-tool` returns an error: `tool "lint": command "golangci-lint" not found in PATH`.
 
 The MCP bridge returns the error to the client with `IsError: true`.
+
+## Why does `run_command` refuse every call?
+
+Built-in tools are sandboxed. An agent with `tools: Bash` needs commands listed in `sandbox.allow_commands` (or `sandbox.bash: unrestricted`); until then `run_command` refuses every call, and `abby build` prints a note. Restricted mode runs commands without a shell, so pipes, redirects and `&&` need `bash: unrestricted`. File tools are likewise confined to `sandbox.allowed_dirs` (default: the working directory).
+
+```yaml
+sandbox:
+  allow_commands: ["go test ./...", "go vet ./..."]
+```
+
+See [Tools → Sandbox](./guides/tools.md#sandbox).
 
 ## How do I update the system prompt?
 
@@ -160,7 +180,7 @@ abby build --agent foo  # build a single agent
 abby build --plugin     # also generate Claude Code plugin directories
 ```
 
-Flags: `-f` (Abbyfile path), `-o` (output dir), `--agent` (single agent), `--plugin` (generate plugin dir), `--runtime` (target runtime: auto, all, claude-code, codex, gemini).
+Flags: `-f` (Abbyfile path), `-o` (output dir), `--agent` (single agent), `--plugin` (generate plugin dir), `--subagent` (also emit a Claude Code sub-agent), `--parallelism` (max concurrent builds), `--runtime` (target runtime: auto, all, claude-code, codex, gemini), `--config-method` (auto, cli, file), `--dry-run` (show planned changes without building or writing anything).
 
 ## What is a plugin?
 
@@ -191,6 +211,8 @@ Skills require the `--plugin` flag — they are a plugin feature, not a binary f
 
 ## How do I debug MCP communication?
 
+Start with `abby doctor`: it checks each installed agent's binary, its entry in every runtime config, the MCP handshake on both protocol eras, and the effective sandbox. See [`abby doctor`](./guides/distribution.md#abby-doctor).
+
 Agent logs go to stderr. Redirect them:
 
 ```bash
@@ -201,7 +223,7 @@ The MCP protocol itself runs over stdin/stdout. The separation means logs never 
 
 ## What MCP SDK does Abbyfile use?
 
-The official Go MCP SDK: `github.com/modelcontextprotocol/go-sdk`. Version `v1.4.0` as of the current `go.mod`.
+The official Go MCP SDK: `github.com/modelcontextprotocol/go-sdk`. Version `v1.8.0` as of the current `go.mod`. Agents speak MCP 2026-07-28 (`server/discover`) and still accept legacy `initialize` clients on 2025-11-25 and 2025-06-18 — see [Protocol Versions](./guides/mcp.md#protocol-versions).
 
 ## How do I publish an agent?
 
@@ -220,7 +242,23 @@ abby install github.com/owner/repo/agent-name
 abby install github.com/owner/repo/agent-name@1.0.0
 ```
 
-This downloads the binary for your platform, verifies it with `--describe`, installs it, and wires up MCP. Set `GITHUB_TOKEN` for private repos.
+This downloads the binary for your platform, verifies it against the release's checksum asset and with `--describe`, installs it, and wires up MCP. The checksum is mandatory: a release without one fails to install unless you pass `--insecure-skip-checksum`. Add `--dry-run` to preview every change without installing anything. For private repos, set `GITHUB_TOKEN` or log in with `gh auth login`. See the [Distribution Guide](./guides/distribution.md#checksums).
+
+## Where does abby register agents?
+
+In each runtime's own config file — project scope by default, user scope with `--global`:
+
+| Runtime | Project | `--global` |
+|---------|---------|------------|
+| Claude Code | `./.mcp.json` | `$CLAUDE_CONFIG_DIR/.claude.json` if set, else `~/.claude.json` |
+| Codex | `./.codex/config.toml` | `$CODEX_HOME/config.toml` if set, else `~/.codex/config.toml` |
+| Gemini CLI | `./.gemini/settings.json` | `~/.gemini/settings.json` |
+
+abby uses the runtime's CLI when it can express the entry (Codex always uses the file), otherwise it edits the file, making a one-time `<file>.abbyfile.bak` backup first. Force one method with `--config-method cli|file` or `ABBY_CONFIG_METHOD`. See [Where abby registers agents](./guides/distribution.md#where-abby-registers-agents).
+
+## My global agent doesn't show up in Claude Code, and I have a `~/.claude/mcp.json`
+
+abby versions before v0.12 wrote user-scope entries to `~/.claude/mcp.json`, which Claude Code never reads. `abby doctor` reports those leftovers. Reinstall the agents with `abby install --global` (which writes `~/.claude.json`), then delete `~/.claude/mcp.json`.
 
 ## How do I update installed agents?
 
@@ -230,6 +268,8 @@ abby update my-agent     # update a specific agent
 ```
 
 Only agents installed from a remote source can be auto-updated. For locally-built agents, rebuild and reinstall.
+
+`update` always verifies the release checksum (there is no bypass flag), replaces the binary at its existing path, and keeps any `env` set on the runtime entries. If any agent fails to update, the rest still run and the command exits non-zero.
 
 ## Where is the registry file?
 
@@ -241,4 +281,4 @@ Only agents installed from a remote source can be auto-updated. For locally-buil
 abby uninstall my-agent
 ```
 
-This removes the binary, unwires it from all detected runtime configs, and removes it from the registry.
+This removes the binary, unwires it from all detected runtime configs, and removes it from the registry. Add `--dry-run` to preview the removal. If a config removal fails, the registry entry is kept so you can fix the problem and re-run `abby uninstall`.

@@ -301,11 +301,12 @@ agent.WithTools(builtinTools()...),
 
 ## Memory Tools (Automatic)
 
-When memory is enabled (`WithMemory(true)`), four builtin tools are automatically registered:
+When memory is enabled (`WithMemory(true)`), five builtin tools are automatically registered:
 
 - `memory_read` -- read a value by key
 - `memory_write` -- write a value (overwrites existing)
 - `memory_list` -- list all keys
 - `memory_delete` -- delete a key
+- `memory_search` -- search for a substring across all memory values
 
 These appear in `--describe` and are exposed via MCP. You do not register them manually. See the [Memory Guide](./memory.md) for details.
