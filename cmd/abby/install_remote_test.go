@@ -56,3 +56,22 @@ func TestRemoteInstallVerifiesBeforeExecuting(t *testing.T) {
 		t.Fatal("the downloaded binary was executed before its checksum was verified")
 	}
 }
+
+// A bare ref to a dotted repo defaults the agent name to "my.repo", which is
+// not a valid file name: refuse before contacting GitHub, and say how to fix it.
+func TestRemoteInstallRejectsDefaultedDottedAgentName(t *testing.T) {
+	chdir(t)
+	t.Setenv("HOME", t.TempDir())
+	old := newGitHubClient
+	newGitHubClient = func() *github.Client {
+		t.Fatal("GitHub must not be contacted for an invalid agent name")
+		return nil
+	}
+	defer func() { newGitHubClient = old }()
+
+	opts := installOptions{Writers: fileWriters(runtimecfg.ClaudeCode), Out: os.Stdout, Err: os.Stderr}
+	_, err := runRemoteInstall("github.com/o/my.repo", opts)
+	if err == nil || !strings.Contains(err.Error(), `github.com/o/my.repo/<agent>`) {
+		t.Fatalf("err = %v, want a hint to name the agent explicitly", err)
+	}
+}

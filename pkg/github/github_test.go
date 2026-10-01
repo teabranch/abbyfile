@@ -53,6 +53,18 @@ func TestParseRef(t *testing.T) {
 		{input: "github.com/owner/repo/a/b", wantErr: true},
 		{input: "github.com/owner/repo/a.b@1.0.0", wantErr: true},
 		{input: "github.com/owner/..", wantErr: true},
+		// A defaulted agent name (repo name) is not validated here: dotted repo
+		// names are common and `install --all` never uses the defaulted name
+		// (runRemoteInstall re-checks it for single installs). Owner and repo
+		// still must be safe path segments.
+		{
+			input: "github.com/owner/my.repo",
+			want:  ReleaseRef{Owner: "owner", Repo: "my.repo", Agent: "my.repo"},
+		},
+		{input: "github.com/owner/.", wantErr: true},
+		{input: "github.com/../repo", wantErr: true},
+		{input: "github.com/owner/re po", wantErr: true},
+		{input: "github.com/-owner/repo", wantErr: true},
 	}
 
 	for _, tt := range tests {

@@ -29,6 +29,10 @@ type ReleaseRef struct {
 // name like ".." or "-x" must never get that far.
 var validAgentName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
 
+// validRefSegment matches a safe GitHub owner or repo path segment: GitHub's
+// character set, starting alphanumeric (so "." and ".." are rejected).
+var validRefSegment = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
+
 // ValidAgentName reports whether name is an acceptable agent name.
 func ValidAgentName(name string) bool { return validAgentName.MatchString(name) }
 
@@ -103,13 +107,21 @@ func ParseRef(ref string) (ReleaseRef, error) {
 		Repo:    parts[1],
 		Version: version,
 	}
+	for _, seg := range []struct{ kind, val string }{{"owner", r.Owner}, {"repo", r.Repo}} {
+		if !validRefSegment.MatchString(seg.val) {
+			return ReleaseRef{}, fmt.Errorf("invalid %s %q in %q: must match %s", seg.kind, seg.val, ref, validRefSegment)
+		}
+	}
 	if len(parts) == 3 {
 		r.Agent = parts[2]
+		if !ValidAgentName(r.Agent) {
+			return ReleaseRef{}, fmt.Errorf("invalid agent name %q in %q: must match %s", r.Agent, ref, validAgentName)
+		}
 	} else {
-		r.Agent = parts[1] // default agent name = repo name
-	}
-	if !ValidAgentName(r.Agent) {
-		return ReleaseRef{}, fmt.Errorf("invalid agent name %q in %q: must match %s", r.Agent, ref, validAgentName)
+		// Default agent name = repo name. Not validated here: dotted repo
+		// names are common and `install --all` never uses this default;
+		// runRemoteInstall re-checks it before it becomes a file name.
+		r.Agent = parts[1]
 	}
 	return r, nil
 }

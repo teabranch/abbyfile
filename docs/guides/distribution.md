@@ -119,6 +119,10 @@ abby install github.com/owner/repo/agent-name@1.2.0
 abby install github.com/owner/my-agent
 abby install github.com/owner/my-agent@1.0.0
 
+# Agent names use letters, digits, - and _. A repo whose name has a dot
+# needs the agent named explicitly (install --all works either way)
+abby install github.com/owner/my.repo/my-agent
+
 # Install globally
 abby install -g github.com/owner/repo/agent-name
 ```

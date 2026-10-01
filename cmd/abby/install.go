@@ -366,10 +366,11 @@ func runRemoteInstall(ref string, opts installOptions) ([]appliedChange, error) 
 	if err != nil {
 		return nil, err
 	}
-	// Defensive: ParseRef already validates, but the agent name becomes the
-	// installed binary's file name, so never trust it unchecked here.
+	// The agent name becomes the installed binary's file name. ParseRef only
+	// validates an explicit agent segment (a defaulted one is the repo name,
+	// which may contain dots), so check it here before anything is fetched.
 	if !github.ValidAgentName(parsed.Agent) {
-		return nil, fmt.Errorf("invalid agent name %q", parsed.Agent)
+		return nil, fmt.Errorf("invalid agent name %q (repo names with dots need the agent named explicitly: github.com/%s/%s/<agent>)", parsed.Agent, parsed.Owner, parsed.Repo)
 	}
 
 	client := newGitHubClient()
