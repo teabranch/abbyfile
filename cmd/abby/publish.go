@@ -88,6 +88,10 @@ func runPublish(abbyfilePath, agentName string, dryRun bool, moduleDir string) e
 		if agentName != "" && name != agentName {
 			continue
 		}
+		if !ref.BuildsBinary() {
+			fmt.Fprintf(os.Stderr, "Skipping %s: binary: false, so there is no binary to publish\n", name)
+			continue
+		}
 
 		mdPath := ref.Path
 		if !filepath.IsAbs(mdPath) {

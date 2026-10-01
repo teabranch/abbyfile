@@ -36,6 +36,14 @@ type AgentRef struct {
 	Path         string   `yaml:"path"`
 	Version      string   `yaml:"version"`
 	Dependencies []string `yaml:"dependencies,omitempty"` // other agent names in this Abbyfile
+	// Binary, when false, skips compiling the agent: abby build only emits
+	// its Claude Code sub-agent file. Omitted means true.
+	Binary *bool `yaml:"binary,omitempty"`
+}
+
+// BuildsBinary reports whether abby build compiles this agent.
+func (r AgentRef) BuildsBinary() bool {
+	return r.Binary == nil || *r.Binary
 }
 
 // ParseAbbyfile reads and validates an Abbyfile YAML manifest.
