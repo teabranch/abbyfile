@@ -248,3 +248,21 @@ func TestRunLocalInstall_SkipsAgentFileFromAnotherVersion(t *testing.T) {
 		t.Fatalf("stale file tracked: %+v", e)
 	}
 }
+
+func TestRunLocalInstall_StaleBuiltFileDoesNotBlockOnEditedInstalledFile(t *testing.T) {
+	// The stale built file would be skipped anyway, so an edited installed
+	// copy must not make install refuse the binary update.
+	d := agentFileProject(t) // built file is v0.3.0
+	dst := filepath.Join(d, ".claude", "agents", "helper.md")
+	os.MkdirAll(filepath.Dir(dst), 0o755)
+	os.WriteFile(dst, []byte("hand edited\n"), 0o644)
+	bin := "#!/bin/sh\necho '{\"name\":\"helper\",\"version\":\"0.4.0\"}'\n"
+	os.WriteFile(filepath.Join(d, "build", "helper"), []byte(bin), 0o755)
+
+	if _, err := runLocalInstall("helper", testOpts()); err != nil {
+		t.Fatalf("runLocalInstall: %v", err)
+	}
+	if got, _ := os.ReadFile(dst); string(got) != "hand edited\n" {
+		t.Fatalf("installed copy changed: %q", got)
+	}
+}

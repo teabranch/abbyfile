@@ -191,6 +191,8 @@ tools: Read, Bash, mcp__linty__lint, mcp__linty__memory_delete, mcp__linty__memo
 
 The `mcp__<agent>__` prefix matches the project `.mcp.json` entry that `abby build` writes, keyed by the agent name. If an agent declares no native tools, `tools:` is omitted entirely and the sub-agent inherits every tool in the session, MCP tools included.
 
+A custom tool name may contain `.` (MCP allows it), but abby writes it into `mcp__<agent>__<tool>` unchanged. If Claude Code renames such a tool when it exposes it, that entry won't match; prefer `-` or `_` in custom tool names for agents you emit as sub-agents.
+
 `--plugin` also emits the sub-agent file (in addition to the plugin directory); `--subagent` is for when you want the sub-agent artifact without the full plugin wrapper.
 
 ### Required report fields (`return_contract:`)
@@ -216,7 +218,7 @@ The Return Protocol then gains a third item:
    - `proof` — the command and output that shows it
 ```
 
-Field names follow the agent-name rules (letters, digits, `-`, `_`) and must be unique; `description` is optional. This is an instruction in the sub-agent's prompt, not a check: nothing verifies the final message. To enforce it, check the reply yourself, for example in a Claude Code `SubagentStop` hook. The fields only appear in `--subagent` / `--plugin` output.
+Field names follow the agent-name rules (letters, digits, `-`, `_`) and must be unique; `description` is optional. This is an instruction in the sub-agent's prompt, not a check: nothing verifies the final message. To enforce it, check the reply yourself, for example in a Claude Code `SubagentStop` hook. The fields only appear in the sub-agent file, which `abby build` writes with `--subagent` or `--plugin`, and always for a `binary: false` agent.
 
 ## Instructions Behavior (`eager_instructions`)
 

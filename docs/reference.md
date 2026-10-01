@@ -607,6 +607,8 @@ A local install also installs the agent's sub-agent file when `abby build` emitt
 
 Remote installs don't install sub-agent files, since releases don't carry them.
 
+Limitations, because the registry holds one entry per agent name across all projects: installing the same agent in a second project moves its tracking there, so reinstalling in the first project refuses that project's untouched file until you pass `--force`. A remote install over a local entry replaces it and drops the file's tracking; the file stays on disk, untracked.
+
 `--dry-run` copies no binary, writes no MCP config, and changes no registry entry (a remote install still downloads and checksum-verifies into a temp file, so the printed preview reflects a binary abby actually checked). `--env KEY=VALUE` (repeatable) sets the MCP server's `env`; without it, an existing entry's `env` is preserved. See the [Distribution Guide](guides/distribution.md#where-abby-registers-agents) for the full method-selection rule, entry fields, and checksum behavior.
 
 ## `abby publish`

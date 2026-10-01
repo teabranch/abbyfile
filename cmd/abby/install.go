@@ -294,14 +294,23 @@ func installMany(refs []string, opts installOptions, isRemote bool) ([]appliedCh
 }
 
 func runLocalInstall(name string, opts installOptions) ([]appliedChange, error) {
+	src := filepath.Join("build", name)
+	_, statErr := os.Stat(src)
+	var m *agentManifest
+	binVersion := ""
+	if statErr == nil {
+		m, _ = describeAgent(src)
+		if m != nil {
+			binVersion = m.Version
+		}
+	}
 	// Check the sub-agent file before touching anything, so a refusal to
 	// overwrite leaves no binary copied and no config written.
-	fp, err := planAgentFile(name, opts)
+	fp, err := planAgentFile(name, binVersion, opts)
 	if err != nil {
 		return nil, err
 	}
-	src := filepath.Join("build", name)
-	if _, err := os.Stat(src); err != nil {
+	if statErr != nil {
 		if fp != nil {
 			return installFileOnly(name, fp, opts)
 		}
@@ -320,13 +329,6 @@ func runLocalInstall(name string, opts installOptions) ([]appliedChange, error) 
 		return nil, fmt.Errorf("resolving absolute path: %w", err)
 	}
 
-	// describeAgent runs the source binary directly; no need to wait for the
-	// copy below.
-	m, _ := describeAgent(src)
-	if fp != nil && m != nil && fp.Version != m.Version {
-		fmt.Fprintf(opts.Err, "note: skipping %s: it is v%s but the binary is v%s (rebuild with abby build --subagent to refresh it)\n", fp.Src, fp.Version, m.Version)
-		fp = nil
-	}
 	entry := runtimecfg.ServerEntry{
 		Command: absDst,
 		Args:    []string{"serve-mcp"},
